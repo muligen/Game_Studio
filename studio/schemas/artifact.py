@@ -8,7 +8,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, JsonValue, f
 
 def _strip_nonempty_str(v: Any) -> str:
     if not isinstance(v, str):
-        raise TypeError("expected str")
+        raise ValueError("expected str")
     s = v.strip()
     if not s:
         raise ValueError("must not be empty")

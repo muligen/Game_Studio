@@ -64,6 +64,16 @@ def test_runtime_state_rejects_empty_project_id() -> None:
         )
 
 
+def test_runtime_state_project_id_rejects_non_string() -> None:
+    with pytest.raises(ValidationError):
+        RuntimeState(
+            project_id=123,
+            run_id="run-001",
+            task_id="task-001",
+            goal={"prompt": "x"},
+        )
+
+
 def test_goal_rejects_non_json_safe_values() -> None:
     with pytest.raises(ValidationError):
         RuntimeState(
