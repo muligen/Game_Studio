@@ -285,7 +285,7 @@ git commit -m "feat: add runtime and artifact schemas"
 - Create: `studio/artifacts/registry.py`
 - Test: `tests/test_artifact_registry.py`
 
-- [ ] **Step 1: Write the failing artifact registry test**
+- [x] **Step 1: Write the failing artifact registry test**
 
 ```python
 # tests/test_artifact_registry.py
@@ -319,12 +319,12 @@ def test_registry_versions_artifacts_by_parent(tmp_path: Path) -> None:
     assert registry.load("concept-002").parent_artifact_id == "concept-001"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_artifact_registry.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'studio.artifacts.registry'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # studio/artifacts/registry.py
@@ -358,12 +358,12 @@ class ArtifactRegistry:
         return ArtifactRecord.model_validate(payload)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_artifact_registry.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studio/artifacts/registry.py tests/test_artifact_registry.py
