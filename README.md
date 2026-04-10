@@ -6,7 +6,7 @@ Initial LangGraph runtime kernel for orchestrating multi-agent game production w
 
 ## Development
 
-```bash
+```batch
 python -m venv .venv
 .venv\Scripts\activate
 pip install -e .[dev]
