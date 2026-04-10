@@ -141,7 +141,7 @@ git commit -m "chore: bootstrap python runtime project"
 - Create: `studio/schemas/artifact.py`
 - Test: `tests/test_schemas.py`
 
-- [ ] **Step 1: Write the failing schema tests**
+- [x] **Step 1: Write the failing schema tests**
 
 ```python
 # tests/test_schemas.py
@@ -186,12 +186,12 @@ def test_artifact_record_tracks_lineage() -> None:
     assert artifact.version == 2
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_schemas.py -v`
 Expected: FAIL with import errors for `studio.schemas.runtime` and `studio.schemas.artifact`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # studio/schemas/artifact.py
@@ -267,12 +267,12 @@ class NodeResult(BaseModel):
     typed_error: str | None = None
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_schemas.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studio/schemas tests/test_schemas.py
