@@ -54,7 +54,7 @@ Modify these files during implementation:
 - Create: `studio/schemas/__init__.py`
 - Test: `python -m pytest`
 
-- [ ] **Step 1: Write the failing bootstrap smoke test**
+- [x] **Step 1: Write the failing bootstrap smoke test**
 
 ```python
 # tests/test_bootstrap.py
@@ -66,12 +66,12 @@ def test_cli_module_imports() -> None:
     assert hasattr(module, "app")
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_bootstrap.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'studio.interfaces.cli'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```toml
 # pyproject.toml
@@ -122,12 +122,12 @@ python -m pytest -v
 ```
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_bootstrap.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml README.md studio tests/test_bootstrap.py
