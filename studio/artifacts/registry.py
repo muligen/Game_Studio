@@ -6,6 +6,10 @@ from pathlib import Path
 
 from studio.schemas.artifact import ArtifactRecord
 
+_WIN_RESERVED_DEVICE_NAMES = frozenset(
+    ("CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10)))
+)
+
 
 class ArtifactRegistry:
     def __init__(self, root: Path) -> None:
@@ -21,6 +25,8 @@ class ArtifactRegistry:
             raise ValueError("artifact_id must not contain ':'")
         if Path(artifact_id).name != artifact_id:
             raise ValueError("artifact_id must be a single path segment")
+        if sys.platform == "win32" and artifact_id.upper() in _WIN_RESERVED_DEVICE_NAMES:
+            raise ValueError("artifact_id must not be a Windows reserved device name")
 
     def _artifact_file(self, artifact_id: str) -> Path:
         self._validate_artifact_id(artifact_id)

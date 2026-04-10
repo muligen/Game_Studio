@@ -71,6 +71,20 @@ def test_registry_rejects_colon_in_artifact_id_on_windows(tmp_path: Path) -> Non
         registry.save(evil)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows reserved device names")
+def test_registry_rejects_windows_reserved_device_names(tmp_path: Path) -> None:
+    registry = ArtifactRegistry(tmp_path / "artifacts")
+    for reserved in ("NUL", "con", "COM1"):
+        rec = ArtifactRecord(
+            artifact_id=reserved,
+            artifact_type="design_brief",
+            source_node="worker",
+            payload={},
+        )
+        with pytest.raises(ValueError, match="reserved"):
+            registry.save(rec)
+
+
 def test_registry_rejects_overwrite_of_existing_artifact_id(tmp_path: Path) -> None:
     registry = ArtifactRegistry(tmp_path / "artifacts")
     rec = ArtifactRecord(
