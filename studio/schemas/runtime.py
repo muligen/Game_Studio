@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
-from studio.schemas.artifact import ArtifactRecord
+from studio.schemas.artifact import ArtifactRecord, StrippedNonEmptyStr
 
 
 class NodeDecision(StrEnum):
@@ -16,34 +17,60 @@ class NodeDecision(StrEnum):
 
 
 class PlanState(BaseModel):
-    graph_name: str = "game_studio_demo"
-    current_node: str | None = None
-    pending_nodes: list[str] = Field(default_factory=list)
-    completed_nodes: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    graph_name: StrippedNonEmptyStr = "game_studio_demo"
+    current_node: StrippedNonEmptyStr | None = None
+    pending_nodes: list[StrippedNonEmptyStr] = Field(default_factory=list)
+    completed_nodes: list[StrippedNonEmptyStr] = Field(default_factory=list)
+
+    @field_validator("current_node", mode="before")
+    @classmethod
+    def _current_node_blank_to_none(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
 
 class HumanGate(BaseModel):
-    gate_id: str
-    reason: str
-    status: str = "pending"
+    model_config = ConfigDict(extra="forbid")
+
+    gate_id: StrippedNonEmptyStr
+    reason: StrippedNonEmptyStr
+    status: StrippedNonEmptyStr = "pending"
 
 
 class RuntimeState(BaseModel):
-    project_id: str
-    run_id: str
-    task_id: str
-    goal: dict[str, object]
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: StrippedNonEmptyStr
+    run_id: StrippedNonEmptyStr
+    task_id: StrippedNonEmptyStr
+    goal: dict[str, JsonValue]
     plan: PlanState = Field(default_factory=PlanState)
     artifacts: list[ArtifactRecord] = Field(default_factory=list)
-    memory_refs: list[str] = Field(default_factory=list)
-    risks: list[str] = Field(default_factory=list)
+    memory_refs: list[StrippedNonEmptyStr] = Field(default_factory=list)
+    risks: list[StrippedNonEmptyStr] = Field(default_factory=list)
     human_gates: list[HumanGate] = Field(default_factory=list)
-    telemetry: dict[str, object] = Field(default_factory=dict)
+    telemetry: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class NodeResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     decision: NodeDecision
-    state_patch: dict[str, object] = Field(default_factory=dict)
+    state_patch: dict[str, JsonValue] = Field(default_factory=dict)
     artifacts: list[ArtifactRecord] = Field(default_factory=list)
-    trace: dict[str, object] = Field(default_factory=dict)
-    typed_error: str | None = None
+    trace: dict[str, JsonValue] = Field(default_factory=dict)
+    typed_error: StrippedNonEmptyStr | None = None
+
+    @field_validator("typed_error", mode="before")
+    @classmethod
+    def _typed_error_blank_to_none(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
