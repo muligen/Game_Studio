@@ -1,0 +1,21 @@
+[project]
+name = "game-studio-runtime"
+version = "0.1.0"
+description = "LangGraph-based multi-agent runtime kernel for game production workflows."
+requires-python = ">=3.12"
+dependencies = [
+  "langgraph",
+  "langchain-core",
+  "pydantic>=2.7",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-mock>=3.14",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
