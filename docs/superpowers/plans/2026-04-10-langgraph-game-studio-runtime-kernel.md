@@ -115,10 +115,8 @@ Initial LangGraph runtime kernel for orchestrating multi-agent game production w
 ## Development
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .[dev]
-python -m pytest -v
+uv sync
+uv run pytest -v
 ```
 ```
 
@@ -925,16 +923,14 @@ Initial LangGraph runtime kernel for orchestrating multi-agent game production w
 ## Development
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -e .[dev]
-python -m pytest -v
+uv sync
+uv run pytest -v
 ```
 
 ## Demo
 
 ```bash
-python -m studio.interfaces.cli run-demo --workspace .runtime-data --prompt "Design a simple 2D game concept"
+uv run python -m studio.interfaces.cli run-demo --workspace .runtime-data --prompt "Design a simple 2D game concept"
 ```
 ```
 
