@@ -4,3 +4,9 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.egg-info/
+
+# Local demo / stray outputs at repo root (not studio package paths)
+/artifacts/
+/checkpoints/
+/memory/
+.runtime-data/
