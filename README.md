@@ -12,3 +12,9 @@ python -m venv .venv
 pip install -e .[dev]
 python -m pytest -v
 ```
+
+## Demo
+
+```batch
+python -m studio.interfaces.cli run-demo --workspace .runtime-data --prompt "Design a simple 2D game concept"
+```

@@ -556,7 +556,7 @@ git commit -m "feat: add checkpoint and recovery policy"
 - Create: `studio/agents/reviewer.py`
 - Test: `tests/test_agent_adapters.py`
 
-- [ ] **Step 1: Write the failing agent adapter tests**
+- [x] **Step 1: Write the failing agent adapter tests**
 
 ```python
 # tests/test_agent_adapters.py
@@ -600,12 +600,12 @@ def test_worker_agent_produces_design_artifact() -> None:
     assert result.artifacts[0].artifact_type == "design_brief"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_agent_adapters.py -v`
 Expected: FAIL with import errors for planner, worker, and reviewer agents
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # studio/agents/base.py
@@ -690,12 +690,12 @@ class ReviewerAgent:
         )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_agent_adapters.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studio/agents tests/test_agent_adapters.py
@@ -709,7 +709,7 @@ git commit -m "feat: add demo planner worker reviewer agents"
 - Create: `studio/runtime/graph.py`
 - Test: `tests/test_graph_run.py`
 
-- [ ] **Step 1: Write the failing runtime graph tests**
+- [x] **Step 1: Write the failing runtime graph tests**
 
 ```python
 # tests/test_graph_run.py
@@ -735,12 +735,12 @@ def test_demo_runtime_surfaces_retry_when_review_fails(tmp_path: Path) -> None:
     assert result["telemetry"]["status"] == "needs_attention"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_graph_run.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'studio.runtime.graph'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # studio/runtime/dispatcher.py
@@ -837,12 +837,12 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
     return graph.compile()
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_graph_run.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studio/runtime/dispatcher.py studio/runtime/graph.py tests/test_graph_run.py
@@ -856,7 +856,7 @@ git commit -m "feat: add demo langgraph runtime flow"
 - Modify: `README.md`
 - Test: `tests/test_cli.py`
 
-- [ ] **Step 1: Write the failing CLI tests**
+- [x] **Step 1: Write the failing CLI tests**
 
 ```python
 # tests/test_cli.py
@@ -884,12 +884,12 @@ def test_run_demo_command_outputs_completion_status(tmp_path: Path) -> None:
     assert '"status": "completed"' in result.stdout
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_cli.py -v`
 Expected: FAIL with `No such command 'run-demo'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # studio/interfaces/cli.py
@@ -938,17 +938,17 @@ python -m studio.interfaces.cli run-demo --workspace .runtime-data --prompt "Des
 ```
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_cli.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Run final verification suite**
+- [x] **Step 5: Run final verification suite**
 
 Run: `python -m pytest -v`
 Expected: PASS for bootstrap, schema, artifact, memory, recovery, agent, graph, and CLI tests
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add studio/interfaces/cli.py README.md tests/test_cli.py
