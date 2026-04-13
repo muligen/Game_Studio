@@ -376,7 +376,7 @@ git commit -m "feat: add artifact registry with lineage"
 - Create: `studio/memory/store.py`
 - Test: `tests/test_memory_store.py`
 
-- [ ] **Step 1: Write the failing memory store test**
+- [x] **Step 1: Write the failing memory store test**
 
 ```python
 # tests/test_memory_store.py
@@ -394,12 +394,12 @@ def test_memory_store_saves_project_and_run_entries(tmp_path: Path) -> None:
     assert store.get("run", "run-001-summary")["summary"] == "planner selected the demo graph"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_memory_store.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'studio.memory.store'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # studio/memory/store.py
@@ -427,12 +427,12 @@ class MemoryStore:
         return json.loads(target.read_text(encoding="utf-8"))
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_memory_store.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studio/memory/store.py tests/test_memory_store.py
