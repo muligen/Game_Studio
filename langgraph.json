@@ -1,0 +1,8 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "game_studio_demo": "./studio/langgraph_app.py:graph"
+  }
+}
