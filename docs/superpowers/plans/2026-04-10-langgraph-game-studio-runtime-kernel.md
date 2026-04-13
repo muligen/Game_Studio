@@ -446,7 +446,7 @@ git commit -m "feat: add structured memory store"
 - Create: `studio/runtime/policy.py`
 - Test: `tests/test_recovery_policy.py`
 
-- [ ] **Step 1: Write the failing recovery tests**
+- [x] **Step 1: Write the failing recovery tests**
 
 ```python
 # tests/test_recovery_policy.py
@@ -476,12 +476,12 @@ def test_recovery_policy_maps_error_types_to_actions() -> None:
     assert policy.resolve("quality_gate_failure", attempt=1) is RecoveryAction.ESCALATE
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_recovery_policy.py -v`
 Expected: FAIL with import errors for checkpoint and policy modules
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 ```python
 # studio/runtime/checkpoints.py
@@ -535,12 +535,12 @@ class RecoveryPolicy:
         return RecoveryAction.RESUME
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_recovery_policy.py -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add studio/runtime/checkpoints.py studio/runtime/policy.py tests/test_recovery_policy.py
