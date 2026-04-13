@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,8 @@ from studio.schemas.runtime import PlanState, RuntimeState
 
 
 def build_demo_runtime(root: Path, force_review_retry: bool = False):
+    """Each build gets a unique artifact id suffix so the same workspace can be reused across runs."""
+    session_tag = uuid.uuid4().hex[:10]
     dispatcher = RuntimeDispatcher()
     artifact_registry = ArtifactRegistry(root / "artifacts")
     memory_store = MemoryStore(root / "memory")
@@ -41,7 +44,11 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
     def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         runtime_state = RuntimeState.model_validate(state)
         result = dispatcher.get("worker").run(runtime_state)
-        stored = [artifact_registry.save(artifact) for artifact in result.artifacts]
+        stored = []
+        for artifact in result.artifacts:
+            unique_id = f"{artifact.artifact_id}-{session_tag}"
+            to_store = artifact.model_copy(update={"artifact_id": unique_id})
+            stored.append(artifact_registry.save(to_store))
         memory_store.put("run", "run-001-summary", {"summary": "worker produced concept draft"})
         plan_patch = result.state_patch.get("plan")
         if not isinstance(plan_patch, dict):
