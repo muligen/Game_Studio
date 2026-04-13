@@ -29,3 +29,7 @@ def run_demo(
         ]
         result["telemetry"]["status"] = "awaiting_approval"
     typer.echo(json.dumps(result, indent=2, default=str))
+
+
+if __name__ == "__main__":
+    app()
