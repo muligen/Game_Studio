@@ -1,5 +1,6 @@
 .superpowers/
 .worktrees/
+.merge-backups/
 __pycache__/
 .pytest_cache/
 .venv/
