@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -115,8 +117,12 @@ class ClaudeWorkerAdapter:
             raise ClaudeWorkerError("claude_disabled")
         if not config.api_key:
             raise ClaudeWorkerError("missing_claude_configuration")
-
-        return asyncio.run(self._generate_design_brief(prompt, config))
+        try:
+            return asyncio.run(self._generate_design_brief(prompt, config))
+        except ClaudeWorkerError as exc:
+            if "Blocking call to os.getcwd" not in str(exc):
+                raise
+            return self._generate_design_brief_via_subprocess(prompt)
 
     async def _generate_design_brief(
         self, prompt: str, config: ClaudeWorkerConfig
@@ -167,6 +173,33 @@ class ClaudeWorkerAdapter:
             env["ANTHROPIC_BASE_URL"] = config.base_url
         return env
 
+    def _generate_design_brief_via_subprocess(self, prompt: str) -> ClaudeWorkerPayload:
+        cmd = [
+            sys.executable,
+            "-m",
+            "studio.llm.claude_worker",
+            "--project-root",
+            str(self.project_root),
+            "--prompt",
+            prompt,
+        ]
+        proc = subprocess.run(
+            cmd,
+            cwd=self.project_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=300,
+        )
+        if proc.returncode != 0:
+            message = proc.stderr.strip() or proc.stdout.strip() or "claude_subprocess_failed"
+            raise ClaudeWorkerError(message)
+        try:
+            parsed = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise ClaudeWorkerError("invalid_claude_output") from exc
+        return _validated_payload(parsed)
+
     @staticmethod
     def _parse_result_text(result_text: str) -> ClaudeWorkerPayload:
         candidates = [result_text.strip()]
@@ -206,3 +239,27 @@ class ClaudeWorkerAdapter:
             "Do not add markdown fences, explanations, or extra keys.\n"
             f"User prompt: {user_prompt}"
         )
+
+
+def _main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--project-root", required=True)
+    parser.add_argument("--prompt", required=True)
+    args = parser.parse_args()
+
+    adapter = ClaudeWorkerAdapter(project_root=Path(args.project_root))
+    config = adapter.load_config()
+    if not config.enabled:
+        raise ClaudeWorkerError("claude_disabled")
+    if not config.api_key:
+        raise ClaudeWorkerError("missing_claude_configuration")
+
+    payload = asyncio.run(adapter._generate_design_brief(args.prompt, config))
+    print(json.dumps(payload.__dict__, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -150,4 +152,60 @@ def test_adapter_parses_fenced_yaml_result() -> None:
 
     assert payload.title == "Lantern Vale"
     assert payload.summary == "Restore the valley."
+    assert payload.genre == "cozy strategy"
+
+
+def test_adapter_uses_subprocess_fallback_for_blocking_getcwd(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = ClaudeWorkerAdapter(project_root=Path.cwd())
+
+    async def _boom(prompt: str, config: object) -> ClaudeWorkerPayload:
+        raise ClaudeWorkerError("Failed to start Claude Code: Blocking call to os.getcwd")
+
+    monkeypatch.setattr(adapter, "_generate_design_brief", _boom)
+    monkeypatch.setattr(
+        adapter,
+        "_generate_design_brief_via_subprocess",
+        lambda prompt: ClaudeWorkerPayload(
+            title="Shadow Hopper",
+            summary="A platformer about drifting through light and shadow.",
+            genre="2D Platformer",
+        ),
+    )
+
+    monkeypatch.setattr(
+        adapter,
+        "load_config",
+        lambda: SimpleNamespace(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="set",
+            base_url="set",
+        ),
+    )
+
+    payload = adapter.generate_design_brief("Design a simple 2D game concept")
+
+    assert payload.title == "Shadow Hopper"
+
+
+def test_subprocess_parser_validates_json_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    adapter = ClaudeWorkerAdapter(project_root=Path.cwd())
+    monkeypatch.setattr(
+        "studio.llm.claude_worker.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "title": "Lantern Vale",
+                    "summary": "Restore the valley.",
+                    "genre": "cozy strategy",
+                }
+            ),
+            stderr="",
+        ),
+    )
+
+    payload = adapter._generate_design_brief_via_subprocess("Design a simple 2D game concept")
+
     assert payload.genre == "cozy strategy"
