@@ -7,10 +7,13 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from studio.artifacts.registry import ArtifactRegistry
+from studio.domain.requirement_flow import transition_requirement
 from studio.memory.store import MemoryStore
 from studio.runtime.checkpoints import CheckpointManager
 from studio.runtime.dispatcher import RuntimeDispatcher
+from studio.schemas.design_doc import DesignDoc
 from studio.schemas.runtime import PlanState, RuntimeState
+from studio.storage.workspace import StudioWorkspace
 
 
 def _merge_telemetry(
@@ -142,18 +145,35 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
 
 
 def build_design_graph():
-    dispatcher = RuntimeDispatcher()
     graph = StateGraph(dict)
 
     def design_node(state: dict[str, object]) -> dict[str, object]:
-        runtime_state = RuntimeState(
-            project_id=str(state.get("project_id", "design-project")),
-            run_id=str(state.get("run_id", "design-run")),
-            task_id=str(state.get("task_id", "design-task")),
-            goal=dict(state),
+        workspace = StudioWorkspace(Path(str(state["workspace_root"])))
+        workspace.ensure_layout()
+        requirement_id = str(state["requirement_id"])
+        requirement = workspace.requirements.get(requirement_id)
+        designing = transition_requirement(requirement, "designing")
+        pending_review = transition_requirement(designing, "pending_user_review")
+        design_doc = DesignDoc(
+            id=f"design_{requirement.id.split('_')[-1]}",
+            requirement_id=requirement.id,
+            title=f"{requirement.title} Design",
+            summary=requirement.title,
+            core_rules=["rule 1"],
+            acceptance_criteria=["criterion 1"],
+            open_questions=["question 1"],
+            status="pending_user_review",
         )
-        result = dispatcher.get("design").run(runtime_state)
-        return {**state, **result.state_patch, "node_name": "design", "trace": result.trace}
+        workspace.design_docs.save(design_doc)
+        workspace.requirements.save(
+            pending_review.model_copy(update={"design_doc_id": design_doc.id})
+        )
+        return {
+            **state,
+            "node_name": "design",
+            "requirement_id": requirement.id,
+            "design_doc_id": design_doc.id,
+        }
 
     graph.add_node("design", design_node)
     graph.add_edge(START, "design")
