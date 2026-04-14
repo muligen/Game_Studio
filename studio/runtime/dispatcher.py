@@ -1,17 +1,67 @@
 from __future__ import annotations
 
-from studio.agents.planner import PlannerAgent
-from studio.agents.reviewer import ReviewerAgent
-from studio.agents.worker import WorkerAgent
+from importlib import import_module
+from typing import Any
+
+from studio.schemas.artifact import ArtifactRecord
+from studio.schemas.runtime import NodeDecision, NodeResult, RuntimeState
+
+
+class _LegacyWorkerFallback:
+    def run(self, state: RuntimeState, **kwargs: object) -> NodeResult:
+        prompt = state.goal.get("prompt")
+        if not isinstance(prompt, str):
+            raise TypeError("goal.prompt must be a string")
+
+        artifact = ArtifactRecord(
+            artifact_id="concept-draft",
+            artifact_type="design_brief",
+            source_node="worker",
+            payload={
+                "title": "Moonwell Garden",
+                "summary": prompt,
+                "genre": "2d cozy strategy",
+            },
+        )
+        return NodeResult(
+            decision=NodeDecision.CONTINUE,
+            state_patch={"plan": {"current_node": "worker"}},
+            artifacts=[artifact],
+            trace={
+                "node": "worker",
+                "llm_provider": "claude",
+                "fallback_used": True,
+                "fallback_reason": "claude_disabled",
+            },
+        )
 
 
 class RuntimeDispatcher:
     def __init__(self) -> None:
-        self._agents = {
-            "planner": PlannerAgent(),
-            "worker": WorkerAgent(),
-            "reviewer": ReviewerAgent(),
+        self._agent_specs = {
+            "design": "studio.agents.design:DesignAgent",
+            "dev": "studio.agents.dev:DevAgent",
+            "qa": "studio.agents.qa:QaAgent",
+            "quality": "studio.agents.quality:QualityAgent",
+            "art": "studio.agents.art:ArtAgent",
+            "planner": "studio.agents.planner:PlannerAgent",
+            "worker": "studio.agents.worker:WorkerAgent",
+            "reviewer": "studio.agents.reviewer:ReviewerAgent",
         }
+        self._agents: dict[str, Any] = {}
 
     def get(self, node_name: str):
-        return self._agents[node_name]
+        agent = self._agents.get(node_name)
+        if agent is None:
+            module_path, class_name = self._agent_specs[node_name].split(":")
+            try:
+                module = import_module(module_path)
+            except ModuleNotFoundError as exc:
+                if node_name == "worker" and exc.name == "claude_agent_sdk":
+                    agent = _LegacyWorkerFallback()
+                else:
+                    raise
+            else:
+                agent = getattr(module, class_name)()
+            self._agents[node_name] = agent
+        return agent

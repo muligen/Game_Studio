@@ -7,10 +7,13 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 
 from studio.artifacts.registry import ArtifactRegistry
+from studio.domain.requirement_flow import transition_requirement
 from studio.memory.store import MemoryStore
 from studio.runtime.checkpoints import CheckpointManager
 from studio.runtime.dispatcher import RuntimeDispatcher
+from studio.schemas.design_doc import DesignDoc
 from studio.schemas.runtime import PlanState, RuntimeState
+from studio.storage.workspace import StudioWorkspace
 
 
 def _merge_telemetry(
@@ -27,107 +30,155 @@ def _merge_telemetry(
     return merged
 
 
+def _merge_runtime_state(
+    runtime_state: RuntimeState,
+    *,
+    state_patch: dict[str, Any],
+    node_name: str,
+    trace: dict[str, Any],
+    status: str | None = None,
+    overrides: dict[str, Any] | None = None,
+) -> RuntimeState:
+    patch = dict(state_patch)
+    overrides = dict(overrides or {})
+    plan_in = patch.pop("plan", None)
+    telemetry_in = patch.pop("telemetry", None)
+
+    telemetry_current = runtime_state.telemetry
+    if isinstance(telemetry_in, dict):
+        telemetry_current = {**telemetry_current, **telemetry_in}
+
+    update: dict[str, Any] = {
+        **patch,
+        **overrides,
+        "telemetry": _merge_telemetry(
+            telemetry_current,
+            status=status,
+            node_name=node_name,
+            trace=trace,
+        ),
+    }
+    if isinstance(plan_in, dict):
+        update["plan"] = PlanState.model_validate(
+            {**runtime_state.plan.model_dump(mode="json"), **plan_in}
+        )
+
+    payload = runtime_state.model_dump(mode="json")
+    normalized_update: dict[str, Any] = {}
+    for key, value in update.items():
+        if isinstance(value, PlanState):
+            normalized_update[key] = value.model_dump(mode="json")
+        else:
+            normalized_update[key] = value
+    payload.update(normalized_update)
+    return RuntimeState.model_validate(payload)
+
+
+def _require_state_str(state: dict[str, object], key: str) -> str:
+    value = state.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} is required")
+    return value
+
+
+def _new_run_id() -> str:
+    return f"run-{uuid.uuid4().hex[:10]}"
+
+
+def _session_tag_for_run(run_id: str) -> str:
+    prefix = "run-"
+    if run_id.startswith(prefix):
+        return run_id[len(prefix):]
+    return run_id
+
+
 def build_demo_runtime(root: Path, force_review_retry: bool = False):
-    """Each build gets a unique artifact id suffix so the same workspace can be reused across runs."""
-    session_tag = uuid.uuid4().hex[:10]
+    """Each invoke gets a unique run context so the same compiled graph can be reused safely."""
     dispatcher = RuntimeDispatcher()
     artifact_registry = ArtifactRegistry(root / "artifacts")
     memory_store = MemoryStore(root / "memory")
     checkpoints = CheckpointManager(root / "checkpoints")
 
+    def _checkpoint_key(run_id: str, node_name: str) -> str:
+        return f"{run_id}-{node_name}"
+
     def planner_node(state: dict[str, Any]) -> dict[str, Any]:
+        run_id = _new_run_id()
         runtime_state = RuntimeState(
             project_id="demo-project",
-            run_id="run-001",
-            task_id="task-001",
+            run_id=run_id,
+            task_id=f"{run_id}-planner",
             goal=state,
         )
         result = dispatcher.get("planner").run(runtime_state)
-        checkpoints.save("planner", runtime_state)
-        patch = dict(result.state_patch)
-        plan_in = patch.pop("plan", None)
-        if isinstance(plan_in, dict):
-            merged_plan = PlanState.model_validate(
-                {**runtime_state.plan.model_dump(mode="json"), **plan_in}
-            )
-            merged = runtime_state.model_copy(
-                update={
-                    **patch,
-                    "plan": merged_plan,
-                    "telemetry": _merge_telemetry(
-                        runtime_state.telemetry,
-                        node_name="planner",
-                        trace=result.trace,
-                    ),
-                }
-            )
-        else:
-            merged = runtime_state.model_copy(
-                update={
-                    **result.state_patch,
-                    "telemetry": _merge_telemetry(
-                        runtime_state.telemetry,
-                        node_name="planner",
-                        trace=result.trace,
-                    ),
-                }
-            )
+        merged = _merge_runtime_state(
+            runtime_state,
+            state_patch=result.state_patch,
+            node_name="planner",
+            trace=result.trace,
+        )
+        checkpoints.save(_checkpoint_key(run_id, "planner"), merged)
         return merged.model_dump(mode="json")
 
     def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         runtime_state = RuntimeState.model_validate(state)
+        run_id = runtime_state.run_id
+        session_tag = _session_tag_for_run(run_id)
+        runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-worker"})
         result = dispatcher.get("worker").run(runtime_state)
         stored = []
         for artifact in result.artifacts:
             unique_id = f"{artifact.artifact_id}-{session_tag}"
             to_store = artifact.model_copy(update={"artifact_id": unique_id})
             stored.append(artifact_registry.save(to_store))
-        memory_store.put("run", "run-001-summary", {"summary": "worker produced concept draft"})
-        plan_patch = result.state_patch.get("plan")
-        if not isinstance(plan_patch, dict):
-            plan_patch = {}
-        merged_plan = PlanState.model_validate(
-            {**runtime_state.plan.model_dump(mode="json"), **plan_patch}
-        )
-        updated = runtime_state.model_copy(
-            update={
+        memory_key = f"{run_id}-summary"
+        memory_store.put("run", memory_key, {"summary": "worker produced concept draft"})
+        merged = _merge_runtime_state(
+            runtime_state,
+            state_patch=result.state_patch,
+            node_name="worker",
+            trace=result.trace,
+            overrides={
                 "artifacts": stored,
-                "plan": merged_plan,
-                "telemetry": _merge_telemetry(
-                    runtime_state.telemetry,
-                    node_name="worker",
-                    trace=result.trace,
-                ),
-            }
+            },
         )
-        checkpoints.save("worker", updated)
-        return updated.model_dump(mode="json")
+        checkpoints.save(_checkpoint_key(run_id, "worker"), merged)
+        return merged.model_dump(mode="json")
 
     def reviewer_node(state: dict[str, Any]) -> dict[str, Any]:
         runtime_state = RuntimeState.model_validate(state)
+        run_id = runtime_state.run_id
+        runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-reviewer"})
+        if not runtime_state.artifacts:
+            updated = _merge_runtime_state(
+                runtime_state,
+                state_patch={"plan": {"current_node": "reviewer"}},
+                node_name="reviewer",
+                trace={"node": "reviewer", "reason": "missing_artifact"},
+                status="needs_attention",
+                overrides={"risks": [*runtime_state.risks, "missing review artifact"]},
+            )
+            checkpoints.save(_checkpoint_key(run_id, "reviewer"), updated)
+            return updated.model_dump(mode="json")
+
         payload = {} if force_review_retry else dict(runtime_state.artifacts[0].payload)
         result = dispatcher.get("reviewer").run(runtime_state, artifact_payload=payload)
-        risks = ["review retry requested"] if result.decision.value == "retry" else []
+        risks = list(runtime_state.risks)
+        patch_risks = result.state_patch.get("risks")
+        if isinstance(patch_risks, list):
+            risks.extend(str(item) for item in patch_risks)
+        if result.decision.value == "retry":
+            risks.append("review retry requested")
         status = "needs_attention" if risks else "completed"
-        plan_patch = result.state_patch.get("plan")
-        if not isinstance(plan_patch, dict):
-            plan_patch = {}
-        merged_plan = PlanState.model_validate(
-            {**runtime_state.plan.model_dump(mode="json"), **plan_patch}
+        updated = _merge_runtime_state(
+            runtime_state,
+            state_patch=result.state_patch,
+            node_name="reviewer",
+            trace=result.trace,
+            status=status,
+            overrides={"risks": risks},
         )
-        updated = runtime_state.model_copy(
-            update={
-                "risks": risks,
-                "telemetry": _merge_telemetry(
-                    runtime_state.telemetry,
-                    status=status,
-                    node_name="reviewer",
-                    trace=result.trace,
-                ),
-                "plan": merged_plan,
-            }
-        )
-        checkpoints.save("reviewer", updated)
+        checkpoints.save(_checkpoint_key(run_id, "reviewer"), updated)
         return updated.model_dump(mode="json")
 
     graph = StateGraph(dict)
@@ -138,4 +189,75 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
     graph.add_edge("planner", "worker")
     graph.add_edge("worker", "reviewer")
     graph.add_edge("reviewer", END)
+    return graph.compile()
+
+
+def build_design_graph():
+    graph = StateGraph(dict)
+
+    def design_node(state: dict[str, object]) -> dict[str, object]:
+        workspace_root = _require_state_str(state, "workspace_root")
+        requirement_id = _require_state_str(state, "requirement_id")
+        workspace = StudioWorkspace(Path(workspace_root))
+        workspace.ensure_layout()
+        requirement = workspace.requirements.get(requirement_id)
+        designing = transition_requirement(requirement, "designing")
+        pending_review = transition_requirement(designing, "pending_user_review")
+        design_doc = DesignDoc(
+            id=f"design_{requirement.id.split('_')[-1]}",
+            requirement_id=requirement.id,
+            title=f"{requirement.title} Design",
+            summary=requirement.title,
+            core_rules=["rule 1"],
+            acceptance_criteria=["criterion 1"],
+            open_questions=["question 1"],
+            status="pending_user_review",
+        )
+        workspace.design_docs.save(design_doc)
+        workspace.requirements.save(
+            pending_review.model_copy(update={"design_doc_id": design_doc.id})
+        )
+        return {
+            **state,
+            "node_name": "design",
+            "requirement_id": requirement.id,
+            "design_doc_id": design_doc.id,
+        }
+
+    graph.add_node("design", design_node)
+    graph.add_edge(START, "design")
+    graph.add_edge("design", END)
+    return graph.compile()
+
+
+def build_delivery_graph():
+    dispatcher = RuntimeDispatcher()
+    graph = StateGraph(dict)
+
+    def _run_agent(node_name: str, state: dict[str, object]) -> dict[str, object]:
+        runtime_state = RuntimeState(
+            project_id=str(state.get("project_id", "delivery-project")),
+            run_id=str(state.get("run_id", "delivery-run")),
+            task_id=str(state.get("task_id", f"delivery-{node_name}")),
+            goal=dict(state),
+        )
+        result = dispatcher.get(node_name).run(runtime_state)
+        return {**state, **result.state_patch, "node_name": node_name, "trace": result.trace}
+
+    def dev_node(state: dict[str, object]) -> dict[str, object]:
+        return _run_agent("dev", state)
+
+    def qa_node(state: dict[str, object]) -> dict[str, object]:
+        return _run_agent("qa", state)
+
+    def quality_node(state: dict[str, object]) -> dict[str, object]:
+        return _run_agent("quality", state)
+
+    graph.add_node("dev", dev_node)
+    graph.add_node("qa", qa_node)
+    graph.add_node("quality", quality_node)
+    graph.add_edge(START, "dev")
+    graph.add_edge("dev", "qa")
+    graph.add_edge("qa", "quality")
+    graph.add_edge("quality", END)
     return graph.compile()

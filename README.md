@@ -21,6 +21,36 @@ Run tests:
 uv run pytest -v
 ```
 
+## Workflow CLI
+
+The runtime kernel also includes a small collaboration workflow CLI for requirement intake, design review, and gated delivery.
+
+Create a requirement in a workspace:
+
+```batch
+uv run python -m studio.interfaces.cli requirement create --workspace .runtime-data --title "Add co-op photo mode"
+```
+
+That command prints the generated requirement id, which you can pass into the workflow steps below.
+
+Generate a design document for the requirement:
+
+```batch
+uv run python -m studio.interfaces.cli workflow run-design --workspace .runtime-data --requirement-id req_12345678
+```
+
+Approve the design after review so development can continue:
+
+```batch
+uv run python -m studio.interfaces.cli design approve --workspace .runtime-data --requirement-id req_12345678
+```
+
+For local graph inspection, launch LangGraph Studio with `langgraph dev` and use the same workspace data while exercising the CLI workflow:
+
+```batch
+langgraph dev
+```
+
 ## Demo
 
 ```batch
