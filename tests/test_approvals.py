@@ -91,6 +91,28 @@ def test_approve_design_doc_rejects_foreign_design_doc() -> None:
         approve_design_doc(requirement, doc, [])
 
 
+def test_approve_design_doc_rejects_mismatched_requirement_design_doc_id() -> None:
+    requirement = RequirementCard(
+        id="req_001",
+        title="Add relic system",
+        status="pending_user_review",
+        design_doc_id="design_001",
+    )
+    doc = DesignDoc(
+        id="design_002",
+        requirement_id="req_001",
+        title="Relic design",
+        summary="Add relics",
+        core_rules=[],
+        acceptance_criteria=[],
+        open_questions=[],
+        status="pending_user_review",
+    )
+
+    with pytest.raises(ValueError, match="design doc must match requirement.design_doc_id"):
+        approve_design_doc(requirement, doc, [])
+
+
 def test_approve_design_doc_rejects_missing_required_balance_tables() -> None:
     requirement = RequirementCard(
         id="req_001",
@@ -269,6 +291,28 @@ def test_validate_requirement_ready_for_dev_rejects_foreign_design_doc() -> None
     )
 
     with pytest.raises(ValueError, match="design doc must belong to requirement"):
+        validate_requirement_ready_for_dev(requirement, doc, [])
+
+
+def test_validate_requirement_ready_for_dev_rejects_mismatched_requirement_design_doc_id() -> None:
+    requirement = RequirementCard(
+        id="req_001",
+        title="Add relic system",
+        status="approved",
+        design_doc_id="design_001",
+    )
+    doc = DesignDoc(
+        id="design_002",
+        requirement_id="req_001",
+        title="Relic design",
+        summary="Add relics",
+        core_rules=[],
+        acceptance_criteria=[],
+        open_questions=[],
+        status="approved",
+    )
+
+    with pytest.raises(ValueError, match="design doc must match requirement.design_doc_id"):
         validate_requirement_ready_for_dev(requirement, doc, [])
 
 

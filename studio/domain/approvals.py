@@ -21,6 +21,8 @@ def _ensure_design_doc_belongs_to_requirement(
 ) -> None:
     if design_doc.requirement_id != requirement.id:
         raise ValueError("design doc must belong to requirement")
+    if requirement.design_doc_id is not None and design_doc.id != requirement.design_doc_id:
+        raise ValueError("design doc must match requirement.design_doc_id")
 
 
 def _ensure_balance_tables_belong_to_requirement(
