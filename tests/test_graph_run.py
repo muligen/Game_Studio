@@ -1,7 +1,12 @@
+import json
 from pathlib import Path
 
+import pytest
+
 from studio.runtime.graph import build_demo_runtime, build_design_graph
+from studio.schemas.artifact import ArtifactRecord
 from studio.schemas.requirement import RequirementCard
+from studio.schemas.runtime import NodeDecision, NodeResult
 from studio.storage.workspace import StudioWorkspace
 
 
@@ -26,6 +31,142 @@ def test_demo_runtime_surfaces_retry_when_review_fails(tmp_path: Path) -> None:
     assert result["telemetry"]["status"] == "needs_attention"
 
 
+def test_demo_runtime_persists_unique_memory_and_checkpoint_keys_per_run(tmp_path: Path) -> None:
+    first_runtime = build_demo_runtime(tmp_path)
+    second_runtime = build_demo_runtime(tmp_path)
+
+    first_result = first_runtime.invoke({"prompt": "Design a simple 2D game concept"})
+    second_result = second_runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    memory_entries = sorted((tmp_path / "memory" / "run").glob("*.json"))
+    checkpoint_entries = sorted((tmp_path / "checkpoints").glob("*.json"))
+
+    assert first_result["run_id"] != second_result["run_id"]
+    assert len(memory_entries) == 2
+    assert len({entry.stem for entry in memory_entries}) == 2
+    assert len(checkpoint_entries) == 6
+    assert len({entry.stem for entry in checkpoint_entries}) == 6
+
+
+def test_demo_runtime_preserves_state_patch_fields_in_result_and_checkpoints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _StubAgent:
+        def __init__(self, result: NodeResult) -> None:
+            self._result = result
+
+        def run(self, state, **kwargs):
+            return self._result
+
+    class _StubDispatcher:
+        def __init__(self) -> None:
+            self._agents = {
+                "planner": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={
+                            "plan": {"current_node": "planner"},
+                            "memory_refs": ["planner-ref"],
+                        },
+                        trace={"node": "planner"},
+                    )
+                ),
+                "worker": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={
+                            "plan": {"current_node": "worker"},
+                            "human_gates": [{"gate_id": "gate-1", "reason": "inspect"}],
+                        },
+                        artifacts=[
+                            ArtifactRecord(
+                                artifact_id="concept-draft",
+                                artifact_type="design_brief",
+                                source_node="worker",
+                                payload={"title": "Relics", "summary": "desc", "genre": "rpg"},
+                            )
+                        ],
+                        trace={"node": "worker"},
+                    )
+                ),
+                "reviewer": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={
+                            "plan": {"current_node": "reviewer"},
+                            "risks": ["reviewed"],
+                        },
+                        trace={"node": "reviewer"},
+                    )
+                ),
+            }
+
+        def get(self, node_name: str):
+            return self._agents[node_name]
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _StubDispatcher)
+
+    runtime = build_demo_runtime(tmp_path)
+    result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    checkpoint_payloads = {
+        path.stem: json.loads(path.read_text(encoding="utf-8"))
+        for path in (tmp_path / "checkpoints").glob("*.json")
+    }
+
+    assert result["memory_refs"] == ["planner-ref"]
+    assert result["human_gates"] == [{"gate_id": "gate-1", "reason": "inspect", "status": "pending"}]
+    assert result["risks"] == ["reviewed"]
+    assert any(payload["memory_refs"] == ["planner-ref"] for payload in checkpoint_payloads.values())
+    assert any(payload["human_gates"] == [{"gate_id": "gate-1", "reason": "inspect", "status": "pending"}] for payload in checkpoint_payloads.values())
+    assert any(payload["risks"] == ["reviewed"] for payload in checkpoint_payloads.values())
+
+
+def test_demo_runtime_handles_missing_review_artifact_without_crashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _StubAgent:
+        def __init__(self, result: NodeResult) -> None:
+            self._result = result
+
+        def run(self, state, **kwargs):
+            return self._result
+
+    class _StubDispatcher:
+        def __init__(self) -> None:
+            self._agents = {
+                "planner": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={"plan": {"current_node": "planner"}},
+                        trace={"node": "planner"},
+                    )
+                ),
+                "worker": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={"plan": {"current_node": "worker"}},
+                        artifacts=[],
+                        trace={"node": "worker"},
+                    )
+                ),
+            }
+
+        def get(self, node_name: str):
+            if node_name == "reviewer":
+                raise AssertionError("reviewer should not run when there are no artifacts")
+            return self._agents[node_name]
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _StubDispatcher)
+
+    runtime = build_demo_runtime(tmp_path)
+    result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    assert "missing review artifact" in result["risks"]
+    assert result["telemetry"]["status"] == "needs_attention"
+    assert result["telemetry"]["node_traces"]["reviewer"]["reason"] == "missing_artifact"
+
+
 def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None:
     workspace_root = tmp_path / ".studio-data"
     workspace = StudioWorkspace(workspace_root)
@@ -44,4 +185,17 @@ def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None
     assert updated_requirement.status == "pending_user_review"
     assert updated_requirement.design_doc_id == result["design_doc_id"]
     assert design_doc.requirement_id == "req_001"
+    assert design_doc.id == updated_requirement.design_doc_id
+    assert design_doc.title == "Add relic system Design"
+    assert design_doc.summary == "Add relic system"
     assert design_doc.status == "pending_user_review"
+
+
+def test_design_graph_rejects_missing_required_inputs(tmp_path: Path) -> None:
+    runtime = build_design_graph()
+
+    with pytest.raises(ValueError, match="workspace_root is required"):
+        runtime.invoke({"requirement_id": "req_001"})
+
+    with pytest.raises(ValueError, match="requirement_id is required"):
+        runtime.invoke({"workspace_root": str(tmp_path / ".studio-data")})
