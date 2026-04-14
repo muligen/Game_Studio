@@ -14,4 +14,4 @@ class BalanceTable(BaseModel):
     columns: list[StrippedNonEmptyStr] = Field(default_factory=list)
     rows: list[list[JsonValue]] = Field(default_factory=list)
     locked_cells: list[StrippedNonEmptyStr] = Field(default_factory=list)
-    status: StrippedNonEmptyStr
+    status: StrippedNonEmptyStr = "draft"

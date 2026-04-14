@@ -12,7 +12,7 @@ class BugCard(BaseModel):
     requirement_id: StrippedNonEmptyStr
     title: StrippedNonEmptyStr
     severity: StrippedNonEmptyStr
-    status: StrippedNonEmptyStr
+    status: StrippedNonEmptyStr = "new"
     reopen_count: int = Field(default=0, ge=0)
     owner: StrippedNonEmptyStr
     repro_steps: list[StrippedNonEmptyStr] = Field(default_factory=list)

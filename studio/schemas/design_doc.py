@@ -15,4 +15,4 @@ class DesignDoc(BaseModel):
     core_rules: list[StrippedNonEmptyStr] = Field(default_factory=list)
     acceptance_criteria: list[StrippedNonEmptyStr] = Field(default_factory=list)
     open_questions: list[StrippedNonEmptyStr] = Field(default_factory=list)
-    status: StrippedNonEmptyStr
+    status: StrippedNonEmptyStr = "draft"

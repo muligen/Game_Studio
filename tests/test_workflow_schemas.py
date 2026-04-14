@@ -30,6 +30,23 @@ def test_requirement_card_maps_workflow_fields() -> None:
     assert card.balance_table_ids == ["bt-001", "bt-002"]
 
 
+def test_requirement_card_defaults_workflow_fields() -> None:
+    card = RequirementCard(
+        id="req-002",
+        title="Traversal",
+        design_doc_id=None,
+    )
+
+    assert card.type == "requirement"
+    assert card.priority == "medium"
+    assert card.status == "draft"
+    assert card.owner == "design_agent"
+    assert card.design_doc_id is None
+    assert card.balance_table_ids == []
+    assert card.bug_ids == []
+    assert card.notes == []
+
+
 def test_design_doc_maps_workflow_fields() -> None:
     doc = DesignDoc(
         id="doc-001",
@@ -44,6 +61,7 @@ def test_design_doc_maps_workflow_fields() -> None:
 
     assert doc.requirement_id == "req-001"
     assert doc.core_rules == ["attack", "defend"]
+    assert doc.status == "draft"
 
 
 def test_balance_table_maps_workflow_fields() -> None:
@@ -54,11 +72,11 @@ def test_balance_table_maps_workflow_fields() -> None:
         columns=["enemy", "hp"],
         rows=[["slime", "10"]],
         locked_cells=["A1"],
-        status="review",
     )
 
     assert table.table_name == "enemy_stats"
     assert table.rows == [["slime", "10"]]
+    assert table.status == "draft"
 
 
 def test_bug_card_maps_workflow_fields() -> None:
@@ -78,6 +96,19 @@ def test_bug_card_maps_workflow_fields() -> None:
     assert bug.repro_steps == ["start match", "wait"]
 
 
+def test_bug_card_rejects_negative_reopen_count() -> None:
+    with pytest.raises(ValidationError):
+        BugCard(
+            id="bug-002",
+            requirement_id="req-001",
+            title="Enemy spawns off-grid",
+            severity="medium",
+            status="new",
+            reopen_count=-1,
+            owner="qa",
+        )
+
+
 def test_action_log_uses_timestamp_and_metadata() -> None:
     timestamp = datetime(2026, 4, 14, 8, 0, tzinfo=UTC)
     log = ActionLog(
@@ -92,6 +123,7 @@ def test_action_log_uses_timestamp_and_metadata() -> None:
     )
 
     assert log.timestamp == timestamp
+    assert log.target_id == "req-001"
     assert log.metadata == {"source": "manual"}
 
 
