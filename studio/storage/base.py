@@ -30,7 +30,8 @@ class JsonRepository(Generic[ModelT]):
             raise ValueError("object_id must not be '.' or '..'")
         if "/" in object_id or "\\" in object_id or ".." in object_id:
             raise ValueError("object_id must not contain path separators or '..'")
-        if object_id.upper() in _WINDOWS_RESERVED_DEVICE_NAMES:
+        root_name = object_id.split(".", 1)[0].upper()
+        if root_name in _WINDOWS_RESERVED_DEVICE_NAMES:
             raise ValueError(f"object_id is a Windows reserved device name: {object_id!r}")
         if not _SAFE_ID_PATTERN.match(object_id):
             raise ValueError(f"object_id contains unsafe characters: {object_id!r}")

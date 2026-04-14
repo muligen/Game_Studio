@@ -43,7 +43,21 @@ def test_log_repository_lists_saved_entries(tmp_path: Path) -> None:
     assert [entry.id for entry in workspace.logs.list_all()] == [log.id]
 
 
-@pytest.mark.parametrize("object_id", ["CON", "prn", "NUL", "AUX", "COM1", "LPT9"])
+@pytest.mark.parametrize(
+    "object_id",
+    [
+        "CON",
+        "prn",
+        "NUL",
+        "AUX",
+        "COM1",
+        "LPT9",
+        "NUL.txt",
+        "CON.foo",
+        "COM1.bar",
+        "LPT1.json",
+    ],
+)
 def test_repository_rejects_reserved_windows_device_names(
     tmp_path: Path, object_id: str
 ) -> None:
