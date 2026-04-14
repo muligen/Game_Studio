@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 from typing import Generic, TypeVar
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -11,6 +12,9 @@ from pydantic import BaseModel
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 _SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
+_WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
+    ("CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10)))
+)
 
 
 class JsonRepository(Generic[ModelT]):
@@ -26,6 +30,8 @@ class JsonRepository(Generic[ModelT]):
             raise ValueError("object_id must not be '.' or '..'")
         if "/" in object_id or "\\" in object_id or ".." in object_id:
             raise ValueError("object_id must not contain path separators or '..'")
+        if object_id.upper() in _WINDOWS_RESERVED_DEVICE_NAMES:
+            raise ValueError(f"object_id is a Windows reserved device name: {object_id!r}")
         if not _SAFE_ID_PATTERN.match(object_id):
             raise ValueError(f"object_id contains unsafe characters: {object_id!r}")
         return object_id
@@ -36,9 +42,16 @@ class JsonRepository(Generic[ModelT]):
 
     def save(self, model: ModelT) -> ModelT:
         payload = model.model_dump()
+        if "id" not in payload:
+            raise ValueError(f"{self.model_type.__name__} must define an 'id' field")
         object_id = self._validate_object_id(str(payload["id"]))
         path = self._path_for(object_id)
-        path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            temp_path.unlink(missing_ok=True)
         return model
 
     def get(self, object_id: str) -> ModelT:
@@ -49,6 +62,9 @@ class JsonRepository(Generic[ModelT]):
     def list_all(self) -> list[ModelT]:
         items: list[ModelT] = []
         for path in sorted(self.root.glob("*.json")):
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            items.append(self.model_type.model_validate(payload))
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                items.append(self.model_type.model_validate(payload))
+            except (OSError, json.JSONDecodeError, ValueError):
+                continue
         return items
