@@ -10,11 +10,11 @@ class RequirementCard(BaseModel):
 
     id: StrippedNonEmptyStr
     title: StrippedNonEmptyStr
-    type: StrippedNonEmptyStr
-    priority: StrippedNonEmptyStr
-    status: StrippedNonEmptyStr
-    owner: StrippedNonEmptyStr
-    design_doc_id: StrippedNonEmptyStr
+    type: StrippedNonEmptyStr = "requirement"
+    priority: StrippedNonEmptyStr = "medium"
+    status: StrippedNonEmptyStr = "draft"
+    owner: StrippedNonEmptyStr = "design_agent"
+    design_doc_id: StrippedNonEmptyStr | None = None
     balance_table_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     bug_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     notes: list[StrippedNonEmptyStr] = Field(default_factory=list)
