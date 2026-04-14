@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
-from studio.schemas.requirement import RequirementCard, RequirementStatus
+from studio.schemas.artifact import StrippedNonEmptyStr
+from studio.schemas.requirement import RequirementCard, RequirementPriority, RequirementStatus
 from studio.storage.workspace import StudioWorkspace
 
 router = APIRouter(prefix="/requirements", tags=["requirements"])
@@ -15,8 +15,8 @@ router = APIRouter(prefix="/requirements", tags=["requirements"])
 class CreateRequirementRequest(BaseModel):
     """Request model for creating a requirement."""
 
-    title: str
-    priority: str = "medium"
+    title: StrippedNonEmptyStr
+    priority: RequirementPriority = "medium"
 
 
 class TransitionRequirementRequest(BaseModel):
@@ -53,7 +53,7 @@ async def create_requirement(
     card = RequirementCard(
         id=req_id,
         title=request.title,
-        priority=request.priority,  # type: ignore
+        priority=request.priority,
     )
     return store.requirements.save(card)
 
