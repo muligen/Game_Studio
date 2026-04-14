@@ -16,6 +16,10 @@ def test_langgraph_studio_adapter_exposes_workflow_graphs() -> None:
 
     assert design_result["requirement_id"] == "req_001"
     assert design_result["node_name"] == "design"
+    delivery_result = module.delivery_graph.invoke(
+        {"workspace_root": ".runtime-data/langgraph-dev", "requirement_id": "req_001"}
+    )
+    assert delivery_result["node_name"] == "quality"
     assert default_result["plan"]["current_node"] == "reviewer"
     assert default_result["telemetry"]["status"] == "completed"
     assert helper_result["plan"]["current_node"] == "reviewer"

@@ -1,27 +1,28 @@
 from __future__ import annotations
 
-from studio.agents.art import ArtAgent
-from studio.agents.design import DesignAgent
-from studio.agents.dev import DevAgent
-from studio.agents.qa import QaAgent
-from studio.agents.quality import QualityAgent
-from studio.agents.planner import PlannerAgent
-from studio.agents.reviewer import ReviewerAgent
-from studio.agents.worker import WorkerAgent
+from importlib import import_module
+from typing import Any
 
 
 class RuntimeDispatcher:
     def __init__(self) -> None:
-        self._agents = {
-            "design": DesignAgent(),
-            "dev": DevAgent(),
-            "qa": QaAgent(),
-            "quality": QualityAgent(),
-            "art": ArtAgent(),
-            "planner": PlannerAgent(),
-            "worker": WorkerAgent(),
-            "reviewer": ReviewerAgent(),
+        self._agent_specs = {
+            "design": "studio.agents.design:DesignAgent",
+            "dev": "studio.agents.dev:DevAgent",
+            "qa": "studio.agents.qa:QaAgent",
+            "quality": "studio.agents.quality:QualityAgent",
+            "art": "studio.agents.art:ArtAgent",
+            "planner": "studio.agents.planner:PlannerAgent",
+            "worker": "studio.agents.worker:WorkerAgent",
+            "reviewer": "studio.agents.reviewer:ReviewerAgent",
         }
+        self._agents: dict[str, Any] = {}
 
     def get(self, node_name: str):
-        return self._agents[node_name]
+        agent = self._agents.get(node_name)
+        if agent is None:
+            module_path, class_name = self._agent_specs[node_name].split(":")
+            module = import_module(module_path)
+            agent = getattr(module, class_name)()
+            self._agents[node_name] = agent
+        return agent
