@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from studio.schemas.action_log import ActionLog
-from studio.schemas.balance_table import BalanceTable
+from studio.schemas.balance_table import BalanceTable, BalanceTableRow
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.requirement import RequirementCard
@@ -16,9 +16,9 @@ def test_requirement_card_maps_workflow_fields() -> None:
     card = RequirementCard(
         id="req-001",
         title="Combat loop",
-        type="feature",
+        type="requirement",
         priority="high",
-        status="open",
+        status="designing",
         owner="design",
         design_doc_id="doc-001",
         balance_table_ids=["bt-001", "bt-002"],
@@ -70,12 +70,12 @@ def test_balance_table_maps_workflow_fields() -> None:
         requirement_id="req-001",
         table_name="enemy_stats",
         columns=["enemy", "hp"],
-        rows=[["slime", "10"]],
+        rows=[BalanceTableRow(values={"enemy": "slime", "hp": 10})],
         locked_cells=["A1"],
     )
 
     assert table.table_name == "enemy_stats"
-    assert table.rows == [["slime", "10"]]
+    assert table.rows[0].values == {"enemy": "slime", "hp": 10}
     assert table.status == "draft"
 
 
@@ -85,7 +85,7 @@ def test_bug_card_maps_workflow_fields() -> None:
         requirement_id="req-001",
         title="Enemy spawns off-grid",
         severity="medium",
-        status="open",
+        status="new",
         reopen_count=2,
         owner="qa",
         repro_steps=["start match", "wait"],
@@ -109,6 +109,107 @@ def test_bug_card_rejects_negative_reopen_count() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("model", "kwargs"),
+    [
+        (
+            RequirementCard,
+            {
+                "id": "req-003",
+                "title": "Traversal",
+                "type": "feature",
+                "priority": "medium",
+                "status": "draft",
+                "owner": "design",
+                "design_doc_id": None,
+            },
+        ),
+        (
+            RequirementCard,
+            {
+                "id": "req-004",
+                "title": "Traversal",
+                "type": "requirement",
+                "priority": "urgent",
+                "status": "draft",
+                "owner": "design",
+                "design_doc_id": None,
+            },
+        ),
+        (
+            RequirementCard,
+            {
+                "id": "req-005",
+                "title": "Traversal",
+                "type": "requirement",
+                "priority": "medium",
+                "status": "open",
+                "owner": "design",
+                "design_doc_id": None,
+            },
+        ),
+        (
+            DesignDoc,
+            {
+                "id": "doc-002",
+                "requirement_id": "req-001",
+                "title": "Traversal Design",
+                "summary": "Summary",
+                "status": "published",
+            },
+        ),
+        (
+            BalanceTable,
+            {
+                "id": "bt-002",
+                "requirement_id": "req-001",
+                "table_name": "enemy_stats",
+                "rows": [BalanceTableRow(values={"damage": 10})],
+                "status": "draft",
+            },
+        ),
+        (
+            BugCard,
+            {
+                "id": "bug-003",
+                "requirement_id": "req-001",
+                "title": "Bug",
+                "severity": "info",
+                "status": "new",
+                "owner": "qa",
+            },
+        ),
+        (
+            BugCard,
+            {
+                "id": "bug-004",
+                "requirement_id": "req-001",
+                "title": "Bug",
+                "severity": "medium",
+                "status": "open",
+                "owner": "qa",
+            },
+        ),
+    ],
+)
+def test_workflow_schemas_reject_invalid_lifecycle_values(
+    model: type, kwargs: dict[str, object]
+) -> None:
+    with pytest.raises(ValidationError):
+        model(**kwargs)
+
+
+def test_balance_table_rejects_rows_with_unknown_columns() -> None:
+    with pytest.raises(ValidationError):
+        BalanceTable(
+            id="bt-003",
+            requirement_id="req-001",
+            table_name="enemy_stats",
+            columns=["enemy"],
+            rows=[BalanceTableRow(values={"enemy": "slime", "hp": 10})],
+        )
+
+
 def test_action_log_uses_timestamp_and_metadata() -> None:
     timestamp = datetime(2026, 4, 14, 8, 0, tzinfo=UTC)
     log = ActionLog(
@@ -125,6 +226,19 @@ def test_action_log_uses_timestamp_and_metadata() -> None:
     assert log.timestamp == timestamp
     assert log.target_id == "req-001"
     assert log.metadata == {"source": "manual"}
+
+
+def test_action_log_rejects_naive_timestamp() -> None:
+    with pytest.raises(ValidationError):
+        ActionLog(
+            id="log-002",
+            timestamp=datetime(2026, 4, 14, 8, 0),
+            actor="designer",
+            action="created",
+            target_type="requirement",
+            target_id="req-001",
+            message="Created requirement card",
+        )
 
 
 @pytest.mark.parametrize(
