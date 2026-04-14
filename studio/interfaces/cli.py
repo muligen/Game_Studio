@@ -12,6 +12,7 @@ from studio.domain.services import validate_requirement_ready_for_dev
 from studio.runtime.graph import build_demo_runtime
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
+from studio.schemas.balance_table import BalanceTable
 from studio.schemas.requirement import RequirementCard, RequirementStatus
 from studio.storage.workspace import StudioWorkspace
 
@@ -68,6 +69,19 @@ def _load_linked_design_doc(store: StudioWorkspace, requirement: RequirementCard
     if not requirement.design_doc_id:
         _fail_cli(f"requirement '{requirement.id}' has no design doc")
     return _load_design_doc(store, requirement.design_doc_id)
+
+
+def _load_linked_balance_tables(
+    store: StudioWorkspace,
+    requirement: RequirementCard,
+) -> list[BalanceTable]:
+    tables: list[BalanceTable] = []
+    for balance_table_id in requirement.balance_table_ids:
+        try:
+            tables.append(store.balance_tables.get(balance_table_id))
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
+            _fail_cli(f"could not load balance table '{balance_table_id}'")
+    return tables
 
 
 def _transition_requirement(
@@ -174,8 +188,13 @@ def approve_design(
     store = _workspace_store(workspace)
     requirement = _load_requirement(store, requirement_id)
     design_doc = _load_linked_design_doc(store, requirement)
+    balance_tables = _load_linked_balance_tables(store, requirement)
     try:
-        updated_doc, updated_requirement, logs = approve_design_doc(requirement, design_doc, [])
+        updated_doc, updated_requirement, logs = approve_design_doc(
+            requirement,
+            design_doc,
+            balance_tables,
+        )
     except ValueError as exc:
         _fail_cli(str(exc))
     store.design_docs.save(updated_doc)
@@ -193,8 +212,9 @@ def run_dev(
     store = _workspace_store(workspace)
     requirement = _load_requirement(store, requirement_id)
     design_doc = _load_linked_design_doc(store, requirement)
+    balance_tables = _load_linked_balance_tables(store, requirement)
     try:
-        validate_requirement_ready_for_dev(requirement, design_doc, [])
+        validate_requirement_ready_for_dev(requirement, design_doc, balance_tables)
     except ValueError as exc:
         _fail_cli(str(exc))
     self_test_passed = _transition_requirement(

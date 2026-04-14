@@ -81,19 +81,29 @@ def _require_state_str(state: dict[str, object], key: str) -> str:
     return value
 
 
+def _new_run_id() -> str:
+    return f"run-{uuid.uuid4().hex[:10]}"
+
+
+def _session_tag_for_run(run_id: str) -> str:
+    prefix = "run-"
+    if run_id.startswith(prefix):
+        return run_id[len(prefix):]
+    return run_id
+
+
 def build_demo_runtime(root: Path, force_review_retry: bool = False):
-    """Each build gets a unique artifact id suffix so the same workspace can be reused across runs."""
-    session_tag = uuid.uuid4().hex[:10]
-    run_id = f"run-{session_tag}"
+    """Each invoke gets a unique run context so the same compiled graph can be reused safely."""
     dispatcher = RuntimeDispatcher()
     artifact_registry = ArtifactRegistry(root / "artifacts")
     memory_store = MemoryStore(root / "memory")
     checkpoints = CheckpointManager(root / "checkpoints")
 
-    def _checkpoint_key(node_name: str) -> str:
+    def _checkpoint_key(run_id: str, node_name: str) -> str:
         return f"{run_id}-{node_name}"
 
     def planner_node(state: dict[str, Any]) -> dict[str, Any]:
+        run_id = _new_run_id()
         runtime_state = RuntimeState(
             project_id="demo-project",
             run_id=run_id,
@@ -107,13 +117,14 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             node_name="planner",
             trace=result.trace,
         )
-        checkpoints.save(_checkpoint_key("planner"), merged)
+        checkpoints.save(_checkpoint_key(run_id, "planner"), merged)
         return merged.model_dump(mode="json")
 
     def worker_node(state: dict[str, Any]) -> dict[str, Any]:
-        runtime_state = RuntimeState.model_validate(state).model_copy(
-            update={"task_id": f"{run_id}-worker"}
-        )
+        runtime_state = RuntimeState.model_validate(state)
+        run_id = runtime_state.run_id
+        session_tag = _session_tag_for_run(run_id)
+        runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-worker"})
         result = dispatcher.get("worker").run(runtime_state)
         stored = []
         for artifact in result.artifacts:
@@ -131,13 +142,13 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
                 "artifacts": stored,
             },
         )
-        checkpoints.save(_checkpoint_key("worker"), merged)
+        checkpoints.save(_checkpoint_key(run_id, "worker"), merged)
         return merged.model_dump(mode="json")
 
     def reviewer_node(state: dict[str, Any]) -> dict[str, Any]:
-        runtime_state = RuntimeState.model_validate(state).model_copy(
-            update={"task_id": f"{run_id}-reviewer"}
-        )
+        runtime_state = RuntimeState.model_validate(state)
+        run_id = runtime_state.run_id
+        runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-reviewer"})
         if not runtime_state.artifacts:
             updated = _merge_runtime_state(
                 runtime_state,
@@ -147,7 +158,7 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
                 status="needs_attention",
                 overrides={"risks": [*runtime_state.risks, "missing review artifact"]},
             )
-            checkpoints.save(_checkpoint_key("reviewer"), updated)
+            checkpoints.save(_checkpoint_key(run_id, "reviewer"), updated)
             return updated.model_dump(mode="json")
 
         payload = {} if force_review_retry else dict(runtime_state.artifacts[0].payload)
@@ -167,7 +178,7 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             status=status,
             overrides={"risks": risks},
         )
-        checkpoints.save(_checkpoint_key("reviewer"), updated)
+        checkpoints.save(_checkpoint_key(run_id, "reviewer"), updated)
         return updated.model_dump(mode="json")
 
     graph = StateGraph(dict)

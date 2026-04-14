@@ -5,6 +5,9 @@ from typer.testing import CliRunner
 
 from studio.interfaces import cli
 from studio.interfaces.cli import app
+from studio.schemas.balance_table import BalanceTable
+from studio.schemas.design_doc import DesignDoc
+from studio.schemas.requirement import RequirementCard
 from studio.storage.workspace import StudioWorkspace
 
 
@@ -98,6 +101,86 @@ def test_design_approve_moves_requirement_to_approved(tmp_path: Path) -> None:
     assert requirement.design_doc_id == design_doc.id
     assert len(workspace.logs.list_all()) == 1
     assert workspace.logs.list_all()[0].target_id == design_doc.id
+
+
+def test_design_approve_uses_linked_balance_tables(tmp_path: Path) -> None:
+    runner = CliRunner()
+    workspace = _workspace(tmp_path)
+    requirement = RequirementCard(
+        id="req_001",
+        title="Add relic system",
+        status="pending_user_review",
+        design_doc_id="design_001",
+        balance_table_ids=["bt_001"],
+    )
+    design_doc = DesignDoc(
+        id="design_001",
+        requirement_id=requirement.id,
+        title="Relic design",
+        summary="Add relics",
+        core_rules=[],
+        acceptance_criteria=[],
+        open_questions=[],
+        status="pending_user_review",
+    )
+    balance_table = BalanceTable(
+        id="bt_001",
+        requirement_id=requirement.id,
+        table_name="relic_stats",
+        status="approved",
+    )
+    workspace.requirements.save(requirement)
+    workspace.design_docs.save(design_doc)
+    workspace.balance_tables.save(balance_table)
+
+    result = runner.invoke(
+        app,
+        ["design", "approve", "--workspace", str(tmp_path), "--requirement-id", requirement.id],
+    )
+
+    assert result.exit_code == 0
+    updated_workspace = _workspace(tmp_path)
+    assert updated_workspace.requirements.get(requirement.id).status == "approved"
+    assert updated_workspace.design_docs.get(design_doc.id).status == "approved"
+
+
+def test_workflow_run_dev_uses_linked_balance_tables(tmp_path: Path) -> None:
+    runner = CliRunner()
+    workspace = _workspace(tmp_path)
+    requirement = RequirementCard(
+        id="req_001",
+        title="Add relic system",
+        status="approved",
+        design_doc_id="design_001",
+        balance_table_ids=["bt_001"],
+    )
+    design_doc = DesignDoc(
+        id="design_001",
+        requirement_id=requirement.id,
+        title="Relic design",
+        summary="Add relics",
+        core_rules=[],
+        acceptance_criteria=[],
+        open_questions=[],
+        status="approved",
+    )
+    balance_table = BalanceTable(
+        id="bt_001",
+        requirement_id=requirement.id,
+        table_name="relic_stats",
+        status="approved",
+    )
+    workspace.requirements.save(requirement)
+    workspace.design_docs.save(design_doc)
+    workspace.balance_tables.save(balance_table)
+
+    result = runner.invoke(
+        app,
+        ["workflow", "run-dev", "--workspace", str(tmp_path), "--requirement-id", requirement.id],
+    )
+
+    assert result.exit_code == 0
+    assert _workspace(tmp_path).requirements.get(requirement.id).status == "self_test_passed"
 
 
 def test_workflow_run_dev_and_qa_generates_bug_on_failure(tmp_path: Path) -> None:

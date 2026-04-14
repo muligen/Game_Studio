@@ -33,3 +33,18 @@ def test_langgraph_studio_adapter_exposes_workflow_graphs(tmp_path: Path) -> Non
     assert default_result["telemetry"]["status"] == "completed"
     assert helper_result["plan"]["current_node"] == "reviewer"
     assert helper_result["telemetry"]["status"] == "completed"
+
+
+def test_langgraph_studio_default_graph_can_be_invoked_twice() -> None:
+    module = import_module("studio.langgraph_app")
+
+    first_result = module.graph.invoke({"prompt": "Design a simple 2D game concept"})
+    second_result = module.graph.invoke({"prompt": "Design a simple 2D game concept"})
+
+    assert first_result["run_id"] != second_result["run_id"]
+    assert first_result["task_id"] != second_result["task_id"]
+    assert first_result["artifacts"][0]["artifact_id"] != second_result["artifacts"][0]["artifact_id"]
+    assert first_result["plan"]["current_node"] == "reviewer"
+    assert second_result["plan"]["current_node"] == "reviewer"
+    assert first_result["telemetry"]["status"] == "completed"
+    assert second_result["telemetry"]["status"] == "completed"
