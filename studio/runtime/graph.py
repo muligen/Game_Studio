@@ -13,6 +13,20 @@ from studio.runtime.dispatcher import RuntimeDispatcher
 from studio.schemas.runtime import PlanState, RuntimeState
 
 
+def _merge_telemetry(
+    current: dict[str, Any], *, status: str | None = None, node_name: str | None = None, trace: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    merged = dict(current)
+    node_traces = dict(merged.get("node_traces", {}))
+    if node_name is not None and trace is not None:
+        node_traces[node_name] = trace
+    if node_traces:
+        merged["node_traces"] = node_traces
+    if status is not None:
+        merged["status"] = status
+    return merged
+
+
 def build_demo_runtime(root: Path, force_review_retry: bool = False):
     """Each build gets a unique artifact id suffix so the same workspace can be reused across runs."""
     session_tag = uuid.uuid4().hex[:10]
@@ -36,9 +50,28 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             merged_plan = PlanState.model_validate(
                 {**runtime_state.plan.model_dump(mode="json"), **plan_in}
             )
-            merged = runtime_state.model_copy(update={**patch, "plan": merged_plan})
+            merged = runtime_state.model_copy(
+                update={
+                    **patch,
+                    "plan": merged_plan,
+                    "telemetry": _merge_telemetry(
+                        runtime_state.telemetry,
+                        node_name="planner",
+                        trace=result.trace,
+                    ),
+                }
+            )
         else:
-            merged = runtime_state.model_copy(update=result.state_patch)
+            merged = runtime_state.model_copy(
+                update={
+                    **result.state_patch,
+                    "telemetry": _merge_telemetry(
+                        runtime_state.telemetry,
+                        node_name="planner",
+                        trace=result.trace,
+                    ),
+                }
+            )
         return merged.model_dump(mode="json")
 
     def worker_node(state: dict[str, Any]) -> dict[str, Any]:
@@ -60,6 +93,11 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             update={
                 "artifacts": stored,
                 "plan": merged_plan,
+                "telemetry": _merge_telemetry(
+                    runtime_state.telemetry,
+                    node_name="worker",
+                    trace=result.trace,
+                ),
             }
         )
         checkpoints.save("worker", updated)
@@ -80,7 +118,12 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
         updated = runtime_state.model_copy(
             update={
                 "risks": risks,
-                "telemetry": {"status": status},
+                "telemetry": _merge_telemetry(
+                    runtime_state.telemetry,
+                    status=status,
+                    node_name="reviewer",
+                    trace=result.trace,
+                ),
                 "plan": merged_plan,
             }
         )
