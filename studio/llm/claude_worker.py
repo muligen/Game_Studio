@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import ResultMessage
+import yaml
 
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off", ""}
@@ -157,11 +159,7 @@ class ClaudeWorkerAdapter:
         if result.result is None:
             raise ClaudeWorkerError("invalid_claude_output")
 
-        try:
-            parsed = json.loads(result.result)
-        except json.JSONDecodeError as exc:
-            raise ClaudeWorkerError("invalid_claude_output") from exc
-        return _validated_payload(parsed)
+        return self._parse_result_text(result.result)
 
     def _sdk_env(self, config: ClaudeWorkerConfig) -> dict[str, str]:
         env = {"ANTHROPIC_API_KEY": config.api_key or ""}
@@ -170,9 +168,41 @@ class ClaudeWorkerAdapter:
         return env
 
     @staticmethod
+    def _parse_result_text(result_text: str) -> ClaudeWorkerPayload:
+        candidates = [result_text.strip()]
+        fenced = ClaudeWorkerAdapter._extract_fenced_block(result_text)
+        if fenced is not None and fenced not in candidates:
+            candidates.insert(0, fenced)
+
+        for candidate in candidates:
+            try:
+                return _validated_payload(json.loads(candidate))
+            except (json.JSONDecodeError, ClaudeWorkerError, TypeError):
+                pass
+
+            try:
+                parsed_yaml = yaml.safe_load(candidate)
+            except yaml.YAMLError:
+                continue
+            try:
+                return _validated_payload(parsed_yaml)
+            except ClaudeWorkerError:
+                continue
+
+        raise ClaudeWorkerError("invalid_claude_output")
+
+    @staticmethod
+    def _extract_fenced_block(text: str) -> str | None:
+        match = re.search(r"```(?:json|yaml|yml)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+        if match is None:
+            return None
+        return match.group(1).strip()
+
+    @staticmethod
     def _prompt(user_prompt: str) -> str:
         return (
             "You are generating a compact game design brief.\n"
-            "Return only structured output for the requested fields.\n"
+            "Return only an object with the keys title, summary, and genre.\n"
+            "Do not add markdown fences, explanations, or extra keys.\n"
             f"User prompt: {user_prompt}"
         )

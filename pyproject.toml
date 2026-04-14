@@ -12,6 +12,7 @@ dependencies = [
   "claude-agent-sdk",
   "langgraph",
   "langchain-core",
+  "PyYAML>=6.0",
   "pydantic>=2.7",
   "typer>=0.12",
 ]

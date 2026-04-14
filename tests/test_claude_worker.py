@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 
 from studio.agents.worker import WorkerAgent
-from studio.llm.claude_worker import ClaudeWorkerError, ClaudeWorkerPayload
+from studio.llm.claude_worker import (
+    ClaudeWorkerAdapter,
+    ClaudeWorkerError,
+    ClaudeWorkerPayload,
+)
 from studio.schemas.runtime import RuntimeState
 
 
@@ -102,3 +106,27 @@ def test_worker_falls_back_when_env_config_is_invalid(tmp_path: Path) -> None:
     assert result.artifacts[0].payload["title"] == "Moonwell Garden"
     assert result.trace["fallback_used"] is True
     assert result.trace["fallback_reason"] == "invalid_mode:broken"
+
+
+def test_adapter_parses_fenced_json_result() -> None:
+    payload = ClaudeWorkerAdapter._parse_result_text(
+        '```json\n{"title":"Lantern Vale","summary":"Restore the valley.","genre":"cozy strategy"}\n```'
+    )
+
+    assert payload.title == "Lantern Vale"
+    assert payload.summary == "Restore the valley."
+    assert payload.genre == "cozy strategy"
+
+
+def test_adapter_parses_fenced_yaml_result() -> None:
+    payload = ClaudeWorkerAdapter._parse_result_text(
+        "```yaml\n"
+        "title: Lantern Vale\n"
+        "summary: Restore the valley.\n"
+        "genre: cozy strategy\n"
+        "```\n"
+    )
+
+    assert payload.title == "Lantern Vale"
+    assert payload.summary == "Restore the valley."
+    assert payload.genre == "cozy strategy"
