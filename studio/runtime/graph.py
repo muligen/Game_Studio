@@ -142,10 +142,18 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
 
 
 def build_design_graph():
+    dispatcher = RuntimeDispatcher()
     graph = StateGraph(dict)
 
     def design_node(state: dict[str, object]) -> dict[str, object]:
-        return {**state, "node_name": "design"}
+        runtime_state = RuntimeState(
+            project_id=str(state.get("project_id", "design-project")),
+            run_id=str(state.get("run_id", "design-run")),
+            task_id=str(state.get("task_id", "design-task")),
+            goal=dict(state),
+        )
+        result = dispatcher.get("design").run(runtime_state)
+        return {**state, **result.state_patch, "node_name": "design", "trace": result.trace}
 
     graph.add_node("design", design_node)
     graph.add_edge(START, "design")
@@ -154,16 +162,27 @@ def build_design_graph():
 
 
 def build_delivery_graph():
+    dispatcher = RuntimeDispatcher()
     graph = StateGraph(dict)
 
+    def _run_agent(node_name: str, state: dict[str, object]) -> dict[str, object]:
+        runtime_state = RuntimeState(
+            project_id=str(state.get("project_id", "delivery-project")),
+            run_id=str(state.get("run_id", "delivery-run")),
+            task_id=str(state.get("task_id", f"delivery-{node_name}")),
+            goal=dict(state),
+        )
+        result = dispatcher.get(node_name).run(runtime_state)
+        return {**state, **result.state_patch, "node_name": node_name, "trace": result.trace}
+
     def dev_node(state: dict[str, object]) -> dict[str, object]:
-        return {**state, "node_name": "dev"}
+        return _run_agent("dev", state)
 
     def qa_node(state: dict[str, object]) -> dict[str, object]:
-        return {**state, "node_name": "qa"}
+        return _run_agent("qa", state)
 
     def quality_node(state: dict[str, object]) -> dict[str, object]:
-        return {**state, "node_name": "quality"}
+        return _run_agent("quality", state)
 
     graph.add_node("dev", dev_node)
     graph.add_node("qa", qa_node)
