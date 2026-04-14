@@ -30,6 +30,8 @@ class BalanceTable(BaseModel):
 
     @model_validator(mode="after")
     def _rows_match_columns(self) -> "BalanceTable":
+        if len(self.columns) != len(set(self.columns)):
+            raise ValueError("columns must not contain duplicates")
         column_set = set(self.columns)
         for row in self.rows:
             extra_keys = set(row.values) - column_set

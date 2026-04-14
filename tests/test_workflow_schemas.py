@@ -210,6 +210,16 @@ def test_balance_table_rejects_rows_with_unknown_columns() -> None:
         )
 
 
+def test_balance_table_rejects_duplicate_columns() -> None:
+    with pytest.raises(ValidationError):
+        BalanceTable(
+            id="bt-004",
+            requirement_id="req-001",
+            table_name="enemy_stats",
+            columns=["enemy", "enemy"],
+        )
+
+
 def test_action_log_uses_timestamp_and_metadata() -> None:
     timestamp = datetime(2026, 4, 14, 8, 0, tzinfo=UTC)
     log = ActionLog(
