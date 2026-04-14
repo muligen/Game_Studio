@@ -32,12 +32,22 @@ def _workspace_store(workspace: Path) -> StudioWorkspace:
 
 
 def _fail_cli(message: str) -> None:
-    typer.echo(f"Error: {message}")
+    typer.echo(f"Error: {message}", err=True)
     raise typer.Exit(code=1)
 
 
-def _next_id(prefix: str) -> str:
-    return f"{prefix}_{uuid4().hex[:8]}"
+def _next_id(root: Path, prefix: str) -> str:
+    for _ in range(32):
+        candidate = f"{prefix}_{uuid4().hex[:8]}"
+        if not (root / f"{candidate}.json").exists():
+            return candidate
+    _fail_cli(f"failed to allocate a unique '{prefix}' id after repeated collisions")
+
+
+def _normalize_demo_result(result: object) -> dict[str, object]:
+    if isinstance(result, dict):
+        return dict(result)
+    return {"result": result}
 
 
 def _load_requirement(store: StudioWorkspace, requirement_id: str) -> RequirementCard:
@@ -93,7 +103,7 @@ def run_demo(
     require_approval: bool = typer.Option(False, "--require-approval", help="Pause with a human gate in output"),
 ) -> None:
     runtime = build_demo_runtime(workspace)
-    result = runtime.invoke({"prompt": prompt})
+    result = _normalize_demo_result(runtime.invoke({"prompt": prompt}))
     if require_approval:
         telemetry = result.get("telemetry")
         if not isinstance(telemetry, dict):
@@ -113,7 +123,7 @@ def create_requirement(
 ) -> None:
     store = _workspace_store(workspace)
     requirement = RequirementCard(
-        id=_next_id("req"),
+        id=_next_id(store.requirements.root, "req"),
         title=title,
     )
     store.requirements.save(requirement)
@@ -212,7 +222,7 @@ def run_qa(
 
     implementing = _transition_requirement(testing, "implementing")
     bug = BugCard(
-        id=_next_id("bug"),
+        id=_next_id(store.bugs.root, "bug"),
         requirement_id=requirement_id,
         title=f"QA failure for {requirement_id}",
         severity="high",

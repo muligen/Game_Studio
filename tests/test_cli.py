@@ -79,3 +79,34 @@ def test_run_demo_require_approval_handles_missing_telemetry_keys(
     payload = json.loads(result.stdout)
     assert payload["human_gates"][0]["status"] == "pending"
     assert payload["telemetry"]["status"] == "awaiting_approval"
+
+
+def test_run_demo_require_approval_handles_non_dict_runtime_result(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    class _Runtime:
+        def invoke(self, payload: dict[str, object]) -> list[object]:
+            assert payload["prompt"] == "Design a simple 2D game concept"
+            return ["artifact"]
+
+    monkeypatch.setattr(cli, "build_demo_runtime", lambda workspace: _Runtime())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "run-demo",
+            "--workspace",
+            str(tmp_path),
+            "--prompt",
+            "Design a simple 2D game concept",
+            "--require-approval",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["result"] == ["artifact"]
+    assert payload["human_gates"][0]["status"] == "pending"
+    assert payload["telemetry"]["status"] == "awaiting_approval"
