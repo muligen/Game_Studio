@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from studio.runtime.graph import build_demo_runtime
+from studio.runtime.graph import build_delivery_graph, build_design_graph
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LANGGRAPH_WORKSPACE = _REPO_ROOT / ".runtime-data" / "langgraph-dev"
 
 
 def build_langgraph_dev_runtime():
-    """Expose the existing demo runtime through a stable LangGraph entrypoint."""
-    return build_demo_runtime(DEFAULT_LANGGRAPH_WORKSPACE)
+    """Backward-compatible alias for the design graph entrypoint."""
+    return design_graph
 
 
-graph = build_langgraph_dev_runtime()
+design_graph = build_design_graph()
+delivery_graph = build_delivery_graph()
+graph = design_graph

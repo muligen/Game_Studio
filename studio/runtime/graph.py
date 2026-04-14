@@ -139,3 +139,37 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
     graph.add_edge("worker", "reviewer")
     graph.add_edge("reviewer", END)
     return graph.compile()
+
+
+def build_design_graph():
+    graph = StateGraph(dict)
+
+    def design_node(state: dict[str, object]) -> dict[str, object]:
+        return {**state, "node_name": "design"}
+
+    graph.add_node("design", design_node)
+    graph.add_edge(START, "design")
+    graph.add_edge("design", END)
+    return graph.compile()
+
+
+def build_delivery_graph():
+    graph = StateGraph(dict)
+
+    def dev_node(state: dict[str, object]) -> dict[str, object]:
+        return {**state, "node_name": "dev"}
+
+    def qa_node(state: dict[str, object]) -> dict[str, object]:
+        return {**state, "node_name": "qa"}
+
+    def quality_node(state: dict[str, object]) -> dict[str, object]:
+        return {**state, "node_name": "quality"}
+
+    graph.add_node("dev", dev_node)
+    graph.add_node("qa", qa_node)
+    graph.add_node("quality", quality_node)
+    graph.add_edge(START, "dev")
+    graph.add_edge("dev", "qa")
+    graph.add_edge("qa", "quality")
+    graph.add_edge("quality", END)
+    return graph.compile()
