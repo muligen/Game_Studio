@@ -3,6 +3,8 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from studio.api.routes import requirements
+
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -28,5 +30,8 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    # Register API routes
+    app.include_router(requirements.router, prefix="/api")
 
     return app
