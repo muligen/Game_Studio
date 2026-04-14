@@ -9,6 +9,7 @@ description = "LangGraph-based multi-agent runtime kernel for game production wo
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "claude-agent-sdk",
   "langgraph",
   "langchain-core",
   "pydantic>=2.7",

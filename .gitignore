@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 *.egg-info/
 .langgraph_api/
+.env
 
 # Local demo / stray outputs at repo root (not studio package paths)
 /artifacts/

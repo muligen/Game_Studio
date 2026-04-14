@@ -34,6 +34,41 @@ Or after `uv sync`, activate `.venv` and use `python` as usual:
 python -m studio.interfaces.cli run-demo --workspace .runtime-data --prompt "Design a simple 2D game concept"
 ```
 
+## Claude Worker
+
+The `worker` node can optionally use Claude Agent SDK to generate the `design_brief` artifact. Configuration is read from a project-root `.env` file only.
+
+Start from [.env.example](/f:/projs/Game_Studio/.env.example):
+
+```env
+GAME_STUDIO_CLAUDE_ENABLED=false
+GAME_STUDIO_CLAUDE_MODE=text
+GAME_STUDIO_CLAUDE_MODEL=
+ANTHROPIC_API_KEY=
+ANTHROPIC_BASE_URL=
+```
+
+Recommended flow:
+
+1. Copy `.env.example` to `.env`
+2. Set `GAME_STUDIO_CLAUDE_ENABLED=true`
+3. Fill `ANTHROPIC_API_KEY`
+4. Optionally set `ANTHROPIC_BASE_URL` if you use a proxy or compatible gateway
+5. Run the demo CLI
+
+Example:
+
+```batch
+uv run python -m studio.interfaces.cli run-demo --workspace .runtime-data --prompt "Design a simple 2D game concept"
+```
+
+Behavior notes:
+
+- If Claude is disabled, the worker uses the built-in deterministic fallback artifact
+- If `.env` is incomplete or Claude invocation fails, the graph still completes with fallback output
+- The worker trace includes fallback metadata so you can see whether Claude or fallback was used
+- Live Claude execution requires both the Python package dependency and a working Claude Code installation available to the SDK
+
 ## LangGraph Studio
 
 This repository now exposes the demo runtime through `langgraph dev` so you can inspect the graph locally in LangGraph Studio.
