@@ -3,6 +3,8 @@
     "."
   ],
   "graphs": {
-    "game_studio_demo": "./studio/langgraph_app.py:graph"
+    "game_studio_demo": "./studio/langgraph_app.py:graph",
+    "studio_design_workflow": "./studio/langgraph_app.py:design_graph",
+    "studio_delivery_workflow": "./studio/langgraph_app.py:delivery_graph"
   }
 }
