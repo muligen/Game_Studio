@@ -14,21 +14,10 @@ _BUG_TRANSITIONS: dict[BugStatus, set[BugStatus]] = {
 }
 
 
-def _transition_bug_prepared(card: BugCard, next_status: BugStatus) -> BugCard:
+def transition_bug(card: BugCard, next_status: BugStatus) -> BugCard:
     if next_status not in _BUG_TRANSITIONS[card.status]:
         raise ValueError(f"invalid bug transition: {card.status} -> {next_status}")
     return card.model_copy(update={"status": next_status})
-
-
-def transition_bug(
-    card: BugCard,
-    next_status: BugStatus,
-    *,
-    prepared: bool = False,
-) -> BugCard:
-    if card.status == "verifying" and next_status in {"reopened", "needs_user_decision"} and not prepared:
-        raise ValueError("reopen bug transitions require advance_bug")
-    return _transition_bug_prepared(card, next_status)
 
 
 def advance_bug(
@@ -51,4 +40,4 @@ def advance_bug(
     )
     next_status: BugStatus = "needs_user_decision" if needs_user else "reopened"
     prepared = card.model_copy(update={"reopen_count": reopen_count})
-    return transition_bug(prepared, next_status, prepared=True)
+    return transition_bug(prepared, next_status)

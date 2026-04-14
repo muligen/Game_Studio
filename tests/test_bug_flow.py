@@ -7,21 +7,21 @@ from studio.schemas.bug import BugCard
 
 
 @pytest.mark.parametrize(
-    ("start_status", "next_status", "prepared"),
+    ("start_status", "next_status"),
     [
-        ("new", "fixing", False),
-        ("fixing", "fixed", False),
-        ("fixed", "verifying", False),
-        ("verifying", "closed", False),
-        ("verifying", "reopened", True),
-        ("verifying", "needs_user_decision", True),
-        ("reopened", "fixing", False),
-        ("reopened", "needs_user_decision", False),
-        ("needs_user_decision", "fixing", False),
-        ("needs_user_decision", "closed", False),
+        ("new", "fixing"),
+        ("fixing", "fixed"),
+        ("fixed", "verifying"),
+        ("verifying", "closed"),
+        ("verifying", "reopened"),
+        ("verifying", "needs_user_decision"),
+        ("reopened", "fixing"),
+        ("reopened", "needs_user_decision"),
+        ("needs_user_decision", "fixing"),
+        ("needs_user_decision", "closed"),
     ],
 )
-def test_bug_allows_table_transitions(start_status: str, next_status: str, prepared: bool) -> None:
+def test_bug_allows_table_transitions(start_status: str, next_status: str) -> None:
     bug = BugCard(
         id="bug_001",
         requirement_id="req_001",
@@ -31,7 +31,7 @@ def test_bug_allows_table_transitions(start_status: str, next_status: str, prepa
         owner="qa_agent",
     )
 
-    updated = transition_bug(bug, next_status, prepared=prepared)
+    updated = transition_bug(bug, next_status)
 
     assert updated.status == next_status
 
@@ -81,7 +81,7 @@ def test_advance_bug_closes_when_not_reopening() -> None:
     assert updated.status == "closed"
 
 
-def test_transition_bug_rejects_direct_reopen_from_verifying() -> None:
+def test_transition_bug_allows_verifying_to_reopened() -> None:
     bug = BugCard(
         id="bug_004",
         requirement_id="req_001",
@@ -91,22 +91,9 @@ def test_transition_bug_rejects_direct_reopen_from_verifying() -> None:
         owner="qa_agent",
     )
 
-    with pytest.raises(ValueError, match="reopen bug transitions require advance_bug"):
-        transition_bug(bug, "reopened")
+    updated = transition_bug(bug, "reopened")
 
-
-def test_transition_bug_rejects_unprepared_needs_user_decision_from_verifying() -> None:
-    bug = BugCard(
-        id="bug_007",
-        requirement_id="req_001",
-        title="Drop rate wrong",
-        severity="high",
-        status="verifying",
-        owner="qa_agent",
-    )
-
-    with pytest.raises(ValueError, match="reopen bug transitions require advance_bug"):
-        transition_bug(bug, "needs_user_decision")
+    assert updated.status == "reopened"
 
 
 def test_bug_rejects_closed_to_fixing() -> None:
