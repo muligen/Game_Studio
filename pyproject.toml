@@ -15,12 +15,18 @@ dependencies = [
   "PyYAML>=6.0",
   "pydantic>=2.7",
   "typer>=0.12",
+  "fastapi>=0.109.0",
+  "uvicorn[standard]>=0.27.0",
+  "watchdog>=4.0.0",
+  "python-multipart>=0.0.9",
 ]
 
 [dependency-groups]
 dev = [
   "pytest>=8.2",
   "pytest-mock>=3.14",
+  "httpx>=0.26.0",
+  "pytest-asyncio>=0.23.0",
 ]
 
 [tool.hatch.build.targets.wheel]
