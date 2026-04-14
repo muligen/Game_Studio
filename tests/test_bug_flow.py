@@ -13,8 +13,6 @@ from studio.schemas.bug import BugCard
         ("fixing", "fixed"),
         ("fixed", "verifying"),
         ("verifying", "closed"),
-        ("verifying", "reopened"),
-        ("verifying", "needs_user_decision"),
         ("reopened", "fixing"),
         ("reopened", "needs_user_decision"),
         ("needs_user_decision", "fixing"),
@@ -36,9 +34,39 @@ def test_bug_allows_table_transitions(start_status: str, next_status: str) -> No
     assert updated.status == next_status
 
 
-def test_advance_bug_closes_when_not_reopening() -> None:
+@pytest.mark.parametrize(
+    ("reopen_count", "expected_status", "expected_count", "requires_user_flag"),
+    [
+        (0, "reopened", 1, False),
+        (1, "needs_user_decision", 2, True),
+        (2, "needs_user_decision", 3, False),
+    ],
+)
+def test_advance_bug_handles_reopen_transitions(
+    reopen_count: int,
+    expected_status: str,
+    expected_count: int,
+    requires_user_flag: bool,
+) -> None:
     bug = BugCard(
         id="bug_002",
+        requirement_id="req_001",
+        title="Drop rate wrong",
+        severity="high",
+        status="verifying",
+        reopen_count=reopen_count,
+        owner="qa_agent",
+    )
+
+    updated = advance_bug(bug, reopen=True, severity_requires_user=requires_user_flag)
+
+    assert updated.status == expected_status
+    assert updated.reopen_count == expected_count
+
+
+def test_advance_bug_closes_when_not_reopening() -> None:
+    bug = BugCard(
+        id="bug_003",
         requirement_id="req_001",
         title="Drop rate wrong",
         severity="high",
@@ -51,72 +79,18 @@ def test_advance_bug_closes_when_not_reopening() -> None:
     assert updated.status == "closed"
 
 
-def test_transition_bug_increments_reopen_count_for_reopened() -> None:
+def test_transition_bug_rejects_direct_reopen_from_verifying() -> None:
     bug = BugCard(
         id="bug_004",
         requirement_id="req_001",
         title="Drop rate wrong",
         severity="high",
         status="verifying",
-        reopen_count=1,
         owner="qa_agent",
     )
 
-    updated = transition_bug(bug, "reopened")
-
-    assert updated.status == "reopened"
-    assert updated.reopen_count == 2
-
-
-def test_advance_bug_escalates_on_user_required_flag_before_threshold() -> None:
-    bug = BugCard(
-        id="bug_003",
-        requirement_id="req_001",
-        title="Drop rate wrong",
-        severity="high",
-        status="verifying",
-        reopen_count=1,
-        owner="qa_agent",
-    )
-
-    updated = advance_bug(bug, reopen=True, severity_requires_user=True)
-
-    assert updated.status == "needs_user_decision"
-    assert updated.reopen_count == 2
-
-
-def test_advance_bug_escalates_on_user_required_flag_before_threshold_with_cost_flag() -> None:
-    bug = BugCard(
-        id="bug_005",
-        requirement_id="req_001",
-        title="Drop rate wrong",
-        severity="high",
-        status="verifying",
-        reopen_count=0,
-        owner="qa_agent",
-    )
-
-    updated = advance_bug(bug, reopen=True, fix_cost_requires_user=True)
-
-    assert updated.status == "needs_user_decision"
-    assert updated.reopen_count == 1
-
-
-def test_bug_reopen_threshold_escalates_to_user_decision() -> None:
-    bug = BugCard(
-        id="bug_001",
-        requirement_id="req_001",
-        title="Drop rate wrong",
-        severity="high",
-        status="verifying",
-        reopen_count=2,
-        owner="qa_agent",
-    )
-
-    updated = advance_bug(bug, reopen=True)
-
-    assert updated.status == "needs_user_decision"
-    assert updated.reopen_count == 3
+    with pytest.raises(ValueError, match="reopen bug transitions require advance_bug"):
+        transition_bug(bug, "reopened")
 
 
 def test_bug_rejects_closed_to_fixing() -> None:
