@@ -4,14 +4,14 @@
 
 This document defines the first integration of Claude Agent SDK into the Game Studio Runtime Kernel. The scope is intentionally narrow: only the `worker` node will be upgraded from a hard-coded demo implementation to an LLM-backed implementation. The goal is to preserve the existing runtime structure while replacing the worker's static artifact generation with a Claude-driven design brief generator.
 
-The integration is designed as a text-first worker with a clear expansion path to tool-enabled operation later. For this phase, the worker remains responsible for producing a structured `design_brief` artifact. Claude Agent SDK usage will be isolated behind a small adapter layer so the runtime and graph assembly do not need to know Claude-specific details.
+The integration is designed as a text-first worker with a clear expansion path to tool-enabled operation later. For this phase, the worker remains responsible for producing a structured `design_brief` artifact. Claude Agent SDK usage will be isolated behind a small adapter layer so the runtime and graph assembly do not need to know Claude-specific details. Runtime configuration will come from a project-root `.env` file rather than requiring preconfigured system environment variables.
 
 ## Goals
 
 - Replace the hard-coded `WorkerAgent` content generation with Claude Agent SDK
 - Preserve the current runtime graph shape and node contracts
 - Keep the worker output schema stable for downstream reviewer and artifact storage logic
-- Support a safe fallback path when Claude SDK is unavailable or produces unusable output
+- Support a safe fallback path when Claude configuration is missing, invalid, or produces unusable output
 - Leave room for future tool-enabled worker behavior without enabling broad file mutation in this phase
 
 ## Non-Goals
@@ -21,6 +21,7 @@ The integration is designed as a text-first worker with a clear expansion path t
 - Building a generalized multi-provider LLM abstraction
 - Reworking the runtime graph, dispatcher, or checkpoint architecture
 - Depending on live Claude access in automated tests
+- Supporting system-wide environment configuration as the primary setup path
 
 ## Current Project Context
 
@@ -128,15 +129,32 @@ Recommended configuration dimensions:
 - whether Claude-backed execution is enabled
 - worker mode: `text` or `tools_enabled`
 - Claude model identifier if needed
-- whether project settings are allowed
+- Anthropic API key
+- Anthropic base URL
 - optional timeout or execution controls
 
-For this phase, the recommended default is:
+For this phase, configuration should be loaded from the project-root `.env` file only.
+
+Recommended `.env` keys:
+
+- `GAME_STUDIO_CLAUDE_ENABLED`
+- `GAME_STUDIO_CLAUDE_MODE`
+- `GAME_STUDIO_CLAUDE_MODEL`
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_BASE_URL`
+
+For this phase, the recommended default behavior is:
 
 - Claude enabled only when explicitly configured
 - mode defaults to `text`
 
 This keeps normal local testing stable even without Claude credentials.
+
+### `.env` Loading Rules
+
+- The runtime should read configuration from a `.env` file at the repository root
+- The absence of `.env` should not break the project; it should route to deterministic fallback when Claude execution is requested but not fully configured
+- The README should document the required `.env` keys and a minimal example
 
 ## Worker Behavior
 
@@ -180,13 +198,15 @@ The runtime should not depend on free-form prose parsing for this first integrat
 
 ## Fallback Strategy
 
-Fallback behavior is important because this project must remain runnable even when Claude SDK is not available locally.
+Fallback behavior is important because this project must remain runnable even when Claude is not fully configured in the local `.env`.
 
 ### Fallback Triggers
 
 - Claude Agent SDK package is unavailable
+- `.env` is missing when Claude execution is enabled
+- required `.env` keys are missing
+- `ANTHROPIC_BASE_URL` is invalid for the configured environment
 - SDK invocation fails
-- required credentials or local setup are missing
 - Claude response cannot be parsed into the required JSON shape
 - required fields are missing after parsing
 
@@ -208,8 +228,10 @@ Errors should be separated into two categories:
 
 ### Recoverable For This Phase
 
-- missing Claude environment
+- missing or incomplete `.env` configuration
 - transient SDK failure
+- invalid authentication
+- invalid base URL or connectivity failure
 - invalid model output
 
 These should use deterministic fallback when fallback is enabled.
@@ -246,6 +268,8 @@ Existing graph and CLI tests should continue to pass without requiring Claude se
 
 If Claude mode is configuration-gated, integration tests can monkeypatch the adapter to simulate Claude success and failure while verifying runtime behavior remains stable.
 
+Additional tests should cover `.env` loading behavior, including missing configuration and invalid key combinations.
+
 ## File Changes
 
 Likely additions:
@@ -253,6 +277,7 @@ Likely additions:
 - `studio/llm/__init__.py`
 - `studio/llm/claude_worker.py`
 - new worker-focused tests for Claude-backed behavior
+- `.env.example`
 
 Likely modifications:
 
@@ -265,6 +290,7 @@ Likely modifications:
 - Tool-enabled behavior must not be the default in this phase
 - Repository mutation tools should not be broadly enabled without a separate design pass
 - Claude output must be validated before entering runtime state or artifact storage
+- Secrets must stay in `.env` and must not be committed to the repository
 
 ## Success Criteria
 
@@ -272,10 +298,10 @@ This work is successful when:
 
 - the `worker` node can use Claude Agent SDK to generate a structured design brief
 - the runtime graph and dispatcher shape remain unchanged
-- local development without Claude still works through a documented fallback path
+- local development without Claude still works through a documented `.env`-driven fallback path
 - tests cover both Claude success and fallback behavior
 - the design leaves a clean path for later `tools_enabled` expansion
 
 ## Final Recommendation
 
-Integrate Claude Agent SDK only into the `worker` node for now. Keep `WorkerAgent` as the runtime-facing node, add a dedicated Claude adapter module to isolate SDK details, default to a text-first structured output contract, and preserve a deterministic fallback so the runtime remains stable in local development and automated testing.
+Integrate Claude Agent SDK only into the `worker` node for now. Keep `WorkerAgent` as the runtime-facing node, add a dedicated Claude adapter module to isolate SDK details, load configuration from a project-root `.env`, default to a text-first structured output contract, and preserve a deterministic fallback so the runtime remains stable in local development and automated testing.
