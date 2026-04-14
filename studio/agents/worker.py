@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from studio.llm import ClaudeWorkerAdapter, ClaudeWorkerError
@@ -30,7 +31,7 @@ class WorkerAgent:
 
         if enabled:
             try:
-                claude_payload = self._claude_runner.generate_design_brief(prompt)
+                claude_payload = self._run_claude_in_thread(prompt)
             except ClaudeWorkerError as exc:
                 trace["fallback_reason"] = str(exc)
             else:
@@ -63,3 +64,8 @@ class WorkerAgent:
             "summary": prompt,
             "genre": "2d cozy strategy",
         }
+
+    def _run_claude_in_thread(self, prompt: str):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(self._claude_runner.generate_design_brief, prompt)
+            return future.result()

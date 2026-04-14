@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,26 @@ def test_worker_falls_back_when_env_config_is_invalid(tmp_path: Path) -> None:
     assert result.artifacts[0].payload["title"] == "Moonwell Garden"
     assert result.trace["fallback_used"] is True
     assert result.trace["fallback_reason"] == "invalid_mode:broken"
+
+
+def test_worker_runs_claude_generation_in_separate_thread() -> None:
+    call_thread_ids: list[int] = []
+
+    class ThreadAwareRunner(FakeClaudeRunner):
+        def generate_design_brief(self, prompt: str) -> ClaudeWorkerPayload:
+            call_thread_ids.append(threading.get_ident())
+            return ClaudeWorkerPayload(
+                title="Lantern Vale",
+                summary="Restore the valley.",
+                genre="cozy strategy",
+            )
+
+    main_thread_id = threading.get_ident()
+    result = WorkerAgent(claude_runner=ThreadAwareRunner()).run(_state())
+
+    assert result.trace["fallback_used"] is False
+    assert call_thread_ids
+    assert call_thread_ids[0] != main_thread_id
 
 
 def test_adapter_parses_fenced_json_result() -> None:
