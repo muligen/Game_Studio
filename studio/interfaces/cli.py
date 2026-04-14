@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import typer
 
@@ -11,7 +12,7 @@ from studio.domain.services import validate_requirement_ready_for_dev
 from studio.runtime.graph import build_demo_runtime
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
-from studio.schemas.requirement import RequirementCard
+from studio.schemas.requirement import RequirementCard, RequirementStatus
 from studio.storage.workspace import StudioWorkspace
 
 app = typer.Typer(help="Game Studio Runtime Kernel CLI.")
@@ -30,8 +31,54 @@ def _workspace_store(workspace: Path) -> StudioWorkspace:
     return store
 
 
-def _next_id(prefix: str, existing_count: int) -> str:
-    return f"{prefix}_{existing_count + 1:03d}"
+def _fail_cli(message: str) -> None:
+    typer.echo(f"Error: {message}")
+    raise typer.Exit(code=1)
+
+
+def _next_id(prefix: str) -> str:
+    return f"{prefix}_{uuid4().hex[:8]}"
+
+
+def _load_requirement(store: StudioWorkspace, requirement_id: str) -> RequirementCard:
+    try:
+        return store.requirements.get(requirement_id)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError):
+        _fail_cli(f"could not load requirement '{requirement_id}'")
+
+
+def _load_design_doc(store: StudioWorkspace, design_doc_id: str) -> DesignDoc:
+    try:
+        return store.design_docs.get(design_doc_id)
+    except (FileNotFoundError, ValueError, json.JSONDecodeError):
+        _fail_cli(f"could not load design doc '{design_doc_id}'")
+
+
+def _load_linked_design_doc(store: StudioWorkspace, requirement: RequirementCard) -> DesignDoc:
+    if not requirement.design_doc_id:
+        _fail_cli(f"requirement '{requirement.id}' has no design doc")
+    return _load_design_doc(store, requirement.design_doc_id)
+
+
+def _transition_requirement(
+    requirement: RequirementCard,
+    next_status: RequirementStatus,
+) -> RequirementCard:
+    try:
+        return transition_requirement(requirement, next_status)
+    except ValueError as exc:
+        _fail_cli(str(exc))
+
+
+def _update_requirement_design_doc(
+    requirement: RequirementCard,
+    design_doc_id: str,
+) -> RequirementCard:
+    return requirement.model_copy(update={"design_doc_id": design_doc_id})
+
+
+def _append_requirement_bug(requirement: RequirementCard, bug_id: str) -> RequirementCard:
+    return requirement.model_copy(update={"bug_ids": [*requirement.bug_ids, bug_id]})
 
 
 @app.callback()
@@ -48,10 +95,14 @@ def run_demo(
     runtime = build_demo_runtime(workspace)
     result = runtime.invoke({"prompt": prompt})
     if require_approval:
+        telemetry = result.get("telemetry")
+        if not isinstance(telemetry, dict):
+            telemetry = {}
         result["human_gates"] = [
             {"gate_id": "approval-001", "reason": "final approval", "status": "pending"}
         ]
-        result["telemetry"]["status"] = "awaiting_approval"
+        telemetry["status"] = "awaiting_approval"
+        result["telemetry"] = telemetry
     typer.echo(json.dumps(result, indent=2, default=str))
 
 
@@ -62,7 +113,7 @@ def create_requirement(
 ) -> None:
     store = _workspace_store(workspace)
     requirement = RequirementCard(
-        id=_next_id("req", len(store.requirements.list_all())),
+        id=_next_id("req"),
         title=title,
     )
     store.requirements.save(requirement)
@@ -84,9 +135,9 @@ def run_design(
     requirement_id: str = typer.Option(..., "--requirement-id", help="Requirement identifier"),
 ) -> None:
     store = _workspace_store(workspace)
-    requirement = store.requirements.get(requirement_id)
-    pending_review = transition_requirement(
-        transition_requirement(requirement, "designing"),
+    requirement = _load_requirement(store, requirement_id)
+    pending_review = _transition_requirement(
+        _transition_requirement(requirement, "designing"),
         "pending_user_review",
     )
     design_doc = DesignDoc(
@@ -99,7 +150,7 @@ def run_design(
         open_questions=["question 1"],
         status="pending_user_review",
     )
-    updated_requirement = pending_review.model_copy(update={"design_doc_id": design_doc.id})
+    updated_requirement = _update_requirement_design_doc(pending_review, design_doc.id)
     store.design_docs.save(design_doc)
     store.requirements.save(updated_requirement)
     typer.echo(f"{design_doc.id} {design_doc.status}")
@@ -111,9 +162,12 @@ def approve_design(
     requirement_id: str = typer.Option(..., "--requirement-id", help="Requirement identifier"),
 ) -> None:
     store = _workspace_store(workspace)
-    requirement = store.requirements.get(requirement_id)
-    design_doc = store.design_docs.get(requirement.design_doc_id or "")
-    updated_doc, updated_requirement, logs = approve_design_doc(requirement, design_doc, [])
+    requirement = _load_requirement(store, requirement_id)
+    design_doc = _load_linked_design_doc(store, requirement)
+    try:
+        updated_doc, updated_requirement, logs = approve_design_doc(requirement, design_doc, [])
+    except ValueError as exc:
+        _fail_cli(str(exc))
     store.design_docs.save(updated_doc)
     store.requirements.save(updated_requirement)
     for log in logs:
@@ -127,11 +181,14 @@ def run_dev(
     requirement_id: str = typer.Option(..., "--requirement-id", help="Requirement identifier"),
 ) -> None:
     store = _workspace_store(workspace)
-    requirement = store.requirements.get(requirement_id)
-    design_doc = store.design_docs.get(requirement.design_doc_id or "")
-    validate_requirement_ready_for_dev(requirement, design_doc, [])
-    self_test_passed = transition_requirement(
-        transition_requirement(requirement, "implementing"),
+    requirement = _load_requirement(store, requirement_id)
+    design_doc = _load_linked_design_doc(store, requirement)
+    try:
+        validate_requirement_ready_for_dev(requirement, design_doc, [])
+    except ValueError as exc:
+        _fail_cli(str(exc))
+    self_test_passed = _transition_requirement(
+        _transition_requirement(requirement, "implementing"),
         "self_test_passed",
     )
     store.requirements.save(self_test_passed)
@@ -145,26 +202,24 @@ def run_qa(
     fail: bool = typer.Option(False, "--fail", help="Create a bug and send the requirement back to implementing"),
 ) -> None:
     store = _workspace_store(workspace)
-    requirement = store.requirements.get(requirement_id)
-    testing = transition_requirement(requirement, "testing")
+    requirement = _load_requirement(store, requirement_id)
+    testing = _transition_requirement(requirement, "testing")
     if not fail:
-        accepted = transition_requirement(testing, "pending_user_acceptance")
+        accepted = _transition_requirement(testing, "pending_user_acceptance")
         store.requirements.save(accepted)
         typer.echo(f"{accepted.id} {accepted.status}")
         return
 
-    implementing = transition_requirement(testing, "implementing")
+    implementing = _transition_requirement(testing, "implementing")
     bug = BugCard(
-        id=_next_id("bug", len(store.bugs.list_all())),
+        id=_next_id("bug"),
         requirement_id=requirement_id,
         title=f"QA failure for {requirement_id}",
         severity="high",
         owner="qa_agent",
         repro_steps=["generated by qa"],
     )
-    updated_requirement = implementing.model_copy(
-        update={"bug_ids": [*implementing.bug_ids, bug.id]}
-    )
+    updated_requirement = _append_requirement_bug(implementing, bug.id)
     store.bugs.save(bug)
     store.requirements.save(updated_requirement)
     typer.echo(f"{bug.id} {updated_requirement.status}")
@@ -176,9 +231,9 @@ def run_quality(
     requirement_id: str = typer.Option(..., "--requirement-id", help="Requirement identifier"),
 ) -> None:
     store = _workspace_store(workspace)
-    requirement = store.requirements.get(requirement_id)
-    done = transition_requirement(
-        transition_requirement(requirement, "quality_check"),
+    requirement = _load_requirement(store, requirement_id)
+    done = _transition_requirement(
+        _transition_requirement(requirement, "quality_check"),
         "done",
     )
     store.requirements.save(done)
