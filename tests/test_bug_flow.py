@@ -7,19 +7,21 @@ from studio.schemas.bug import BugCard
 
 
 @pytest.mark.parametrize(
-    ("start_status", "next_status"),
+    ("start_status", "next_status", "prepared"),
     [
-        ("new", "fixing"),
-        ("fixing", "fixed"),
-        ("fixed", "verifying"),
-        ("verifying", "closed"),
-        ("reopened", "fixing"),
-        ("reopened", "needs_user_decision"),
-        ("needs_user_decision", "fixing"),
-        ("needs_user_decision", "closed"),
+        ("new", "fixing", False),
+        ("fixing", "fixed", False),
+        ("fixed", "verifying", False),
+        ("verifying", "closed", False),
+        ("verifying", "reopened", True),
+        ("verifying", "needs_user_decision", True),
+        ("reopened", "fixing", False),
+        ("reopened", "needs_user_decision", False),
+        ("needs_user_decision", "fixing", False),
+        ("needs_user_decision", "closed", False),
     ],
 )
-def test_bug_allows_table_transitions(start_status: str, next_status: str) -> None:
+def test_bug_allows_table_transitions(start_status: str, next_status: str, prepared: bool) -> None:
     bug = BugCard(
         id="bug_001",
         requirement_id="req_001",
@@ -29,7 +31,7 @@ def test_bug_allows_table_transitions(start_status: str, next_status: str) -> No
         owner="qa_agent",
     )
 
-    updated = transition_bug(bug, next_status)
+    updated = transition_bug(bug, next_status, prepared=prepared)
 
     assert updated.status == next_status
 
@@ -91,6 +93,20 @@ def test_transition_bug_rejects_direct_reopen_from_verifying() -> None:
 
     with pytest.raises(ValueError, match="reopen bug transitions require advance_bug"):
         transition_bug(bug, "reopened")
+
+
+def test_transition_bug_rejects_unprepared_needs_user_decision_from_verifying() -> None:
+    bug = BugCard(
+        id="bug_007",
+        requirement_id="req_001",
+        title="Drop rate wrong",
+        severity="high",
+        status="verifying",
+        owner="qa_agent",
+    )
+
+    with pytest.raises(ValueError, match="reopen bug transitions require advance_bug"):
+        transition_bug(bug, "needs_user_decision")
 
 
 def test_bug_rejects_closed_to_fixing() -> None:

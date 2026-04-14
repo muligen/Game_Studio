@@ -20,8 +20,13 @@ def _transition_bug_prepared(card: BugCard, next_status: BugStatus) -> BugCard:
     return card.model_copy(update={"status": next_status})
 
 
-def transition_bug(card: BugCard, next_status: BugStatus) -> BugCard:
-    if card.status == "verifying" and next_status in {"reopened", "needs_user_decision"}:
+def transition_bug(
+    card: BugCard,
+    next_status: BugStatus,
+    *,
+    prepared: bool = False,
+) -> BugCard:
+    if card.status == "verifying" and next_status in {"reopened", "needs_user_decision"} and not prepared:
         raise ValueError("reopen bug transitions require advance_bug")
     return _transition_bug_prepared(card, next_status)
 
@@ -46,4 +51,4 @@ def advance_bug(
     )
     next_status: BugStatus = "needs_user_decision" if needs_user else "reopened"
     prepared = card.model_copy(update={"reopen_count": reopen_count})
-    return _transition_bug_prepared(prepared, next_status)
+    return transition_bug(prepared, next_status, prepared=True)
