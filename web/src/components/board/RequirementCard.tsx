@@ -8,6 +8,7 @@ interface RequirementCardProps {
   title: string
   status?: string
   priority?: string
+  design_doc_id?: string | null
   workspace: string
   onClick: () => void
 }
@@ -28,7 +29,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   high: 'bg-red-200',
 }
 
-export function RequirementCard({ id, title, status, priority, workspace, onClick }: RequirementCardProps) {
+export function RequirementCard({ id, title, status, priority, design_doc_id, workspace, onClick }: RequirementCardProps) {
   const statusValue = status || 'draft'
   const priorityValue = priority || 'medium'
 
@@ -54,6 +55,15 @@ export function RequirementCard({ id, title, status, priority, workspace, onClic
           allStatuses={getRequirementTransitions(statusValue)}
         />
       </div>
+      {design_doc_id && (
+        <a
+          href={`/design-docs/${design_doc_id}`}
+          className="text-xs text-blue-600 hover:underline mt-2 block"
+          onClick={(e) => e.stopPropagation()}
+        >
+          View Design
+        </a>
+      )}
     </Card>
   )
 }

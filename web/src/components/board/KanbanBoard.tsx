@@ -5,6 +5,7 @@ interface Requirement {
   title: string
   status?: string
   priority?: string
+  design_doc_id?: string | null
 }
 
 interface KanbanBoardProps {

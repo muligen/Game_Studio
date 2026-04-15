@@ -7,6 +7,7 @@ interface KanbanColumnProps {
     title: string
     status?: string
     priority?: string
+    design_doc_id?: string | null
   }>
   onCardClick: (id: string) => void
   workspace: string
@@ -25,6 +26,7 @@ export function KanbanColumn({ title, requirements, onCardClick, workspace }: Ka
               title={req.title}
               status={req.status}
               priority={req.priority}
+              design_doc_id={req.design_doc_id}
               workspace={workspace}
               onClick={() => onCardClick(req.id)}
             />
