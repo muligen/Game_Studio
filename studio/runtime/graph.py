@@ -213,6 +213,8 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
 
 
 def build_design_graph():
+    from studio.agents.design import DesignAgent
+
     graph = StateGraph(dict)
 
     def design_node(state: dict[str, object]) -> dict[str, object]:
@@ -221,27 +223,69 @@ def build_design_graph():
         workspace = StudioWorkspace(Path(workspace_root))
         workspace.ensure_layout()
         requirement = workspace.requirements.get(requirement_id)
-        designing = transition_requirement(requirement, "designing")
-        pending_review = transition_requirement(designing, "pending_user_review")
+
+        # Check if this is a rework (sent_back design doc exists)
+        sent_back_reason: str | None = None
+        if requirement.design_doc_id:
+            try:
+                existing_doc = workspace.design_docs.get(requirement.design_doc_id)
+                sent_back_reason = existing_doc.sent_back_reason
+            except FileNotFoundError:
+                pass
+
+        # Only transition to designing if not already there
+        if requirement.status == "draft":
+            requirement = transition_requirement(requirement, "designing")
+            workspace.requirements.save(requirement)
+
+        # Run DesignAgent
+        agent = DesignAgent(project_root=Path(workspace_root))
+        runtime_state = RuntimeState(
+            project_id="design-project",
+            run_id=_new_run_id(),
+            task_id=f"design-{requirement.id}",
+            goal={
+                "prompt": requirement.title,
+                "requirement_id": requirement.id,
+                **({"sent_back_reason": sent_back_reason} if sent_back_reason else {}),
+            },
+        )
+        result = agent.run(runtime_state)
+
+        # Extract agent output from telemetry
+        brief = result.state_patch.get("telemetry", {}).get("design_brief", {})
+        title = brief.get("title", f"{requirement.title} Design")
+        summary = brief.get("summary", requirement.title)
+        core_rules = brief.get("core_rules", [])
+        acceptance_criteria = brief.get("acceptance_criteria", [])
+        open_questions = brief.get("open_questions", [])
+
+        # Create or overwrite design doc
+        design_doc_id = requirement.design_doc_id or f"design_{requirement.id.split('_')[-1]}"
         design_doc = DesignDoc(
-            id=f"design_{requirement.id.split('_')[-1]}",
+            id=design_doc_id,
             requirement_id=requirement.id,
-            title=f"{requirement.title} Design",
-            summary=requirement.title,
-            core_rules=["rule 1"],
-            acceptance_criteria=["criterion 1"],
-            open_questions=["question 1"],
+            title=str(title),
+            summary=str(summary),
+            core_rules=[str(r) for r in core_rules],
+            acceptance_criteria=[str(c) for c in acceptance_criteria],
+            open_questions=[str(q) for q in open_questions],
             status="pending_user_review",
         )
+
+        # Transition requirement to pending_user_review
+        pending_review = transition_requirement(requirement, "pending_user_review")
+        updated_req = pending_review.model_copy(update={"design_doc_id": design_doc.id})
+
         workspace.design_docs.save(design_doc)
-        workspace.requirements.save(
-            pending_review.model_copy(update={"design_doc_id": design_doc.id})
-        )
+        workspace.requirements.save(updated_req)
+
         return {
             **state,
             "node_name": "design",
             "requirement_id": requirement.id,
             "design_doc_id": design_doc.id,
+            "fallback_used": result.trace.get("fallback_used", False),
         }
 
     graph.add_node("design", design_node)

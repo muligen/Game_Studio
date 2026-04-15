@@ -371,9 +371,14 @@ def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None
     assert updated_requirement.design_doc_id == result["design_doc_id"]
     assert design_doc.requirement_id == "req_001"
     assert design_doc.id == updated_requirement.design_doc_id
-    assert design_doc.title == "Add relic system Design"
+    # With DesignAgent fallback, we get default values when Claude is disabled
+    assert design_doc.title == "Design Brief Draft"
     assert design_doc.summary == "Add relic system"
     assert design_doc.status == "pending_user_review"
+    # Fallback produces empty lists
+    assert design_doc.core_rules == []
+    assert design_doc.acceptance_criteria == []
+    assert design_doc.open_questions == []
 
 
 def test_design_graph_rejects_missing_required_inputs(tmp_path: Path) -> None:
@@ -384,3 +389,53 @@ def test_design_graph_rejects_missing_required_inputs(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="requirement_id is required"):
         runtime.invoke({"workspace_root": str(tmp_path / ".studio-data")})
+
+
+def test_design_graph_uses_design_agent():
+    """design_node should call DesignAgent and use its output for the design doc."""
+    from unittest.mock import patch, MagicMock
+
+    with (
+        patch("studio.agents.design.DesignAgent") as MockAgent,
+        patch("studio.runtime.graph.StudioWorkspace") as MockWorkspace,
+    ):
+        mock_agent = MagicMock()
+        mock_agent.run.return_value = NodeResult(
+            decision=NodeDecision.CONTINUE,
+            state_patch={
+                "plan": {"current_node": "design"},
+                "telemetry": {
+                    "design_brief": {
+                        "title": "Moonwell Garden",
+                        "summary": "A relaxing garden game",
+                        "core_rules": ["water plants daily"],
+                        "acceptance_criteria": ["plants grow over time"],
+                        "open_questions": ["weather system?"],
+                    }
+                },
+            },
+            trace={"node": "design", "fallback_used": False},
+        )
+        MockAgent.return_value = mock_agent
+
+        mock_req = RequirementCard(id="req_1", title="Garden Game")
+        mock_designs = MagicMock()
+        mock_requirements = MagicMock()
+        mock_requirements.get.return_value = mock_req
+
+        mock_store = MagicMock()
+        mock_store.requirements = mock_requirements
+        mock_store.design_docs = mock_designs
+        MockWorkspace.return_value = mock_store
+
+        graph = build_design_graph()
+        result = graph.invoke({
+            "workspace_root": "/tmp/test-workspace",
+            "requirement_id": "req_1",
+        })
+
+        mock_agent.run.assert_called_once()
+        saved_doc = mock_designs.save.call_args[0][0]
+        assert saved_doc.core_rules == ["water plants daily"]
+        assert saved_doc.acceptance_criteria == ["plants grow over time"]
+        assert saved_doc.open_questions == ["weather system?"]
