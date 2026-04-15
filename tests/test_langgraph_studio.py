@@ -1,8 +1,42 @@
 from importlib import import_module
 from pathlib import Path
 
+import pytest
+
 from studio.schemas.requirement import RequirementCard
 from studio.storage.workspace import StudioWorkspace
+
+
+@pytest.fixture(autouse=True)
+def _disable_live_claude(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "studio.llm.claude_worker.ClaudeWorkerAdapter.load_config",
+        lambda self: type(
+            "Config",
+            (),
+            {
+                "enabled": False,
+                "mode": "text",
+                "model": None,
+                "api_key": None,
+                "base_url": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "studio.llm.claude_roles.ClaudeRoleAdapter.load_config",
+        lambda self: type(
+            "Config",
+            (),
+            {
+                "enabled": False,
+                "mode": "text",
+                "model": None,
+                "api_key": None,
+                "base_url": None,
+            },
+        )(),
+    )
 
 
 def test_langgraph_studio_adapter_exposes_workflow_graphs(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -344,8 +345,8 @@ class ClaudeRoleAdapter:
             payload = result.structured_output
         elif result.result is not None:
             try:
-                payload = json.loads(result.result)
-            except json.JSONDecodeError as exc:
+                payload = self._parse_result_text(result.result)
+            except (json.JSONDecodeError, ClaudeRoleError) as exc:
                 raise ClaudeRoleError("invalid_claude_output") from exc
         else:
             raise ClaudeRoleError("invalid_claude_output")
@@ -364,12 +365,12 @@ class ClaudeRoleAdapter:
         context: dict[str, object],
     ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
         _require_active_role(role_name)
+        script_path = Path(__file__).resolve()
         try:
             proc = subprocess.run(
                 [
                     sys.executable,
-                    "-m",
-                    "studio.llm.claude_roles",
+                    str(script_path),
                     "--project-root",
                     str(self.project_root),
                     "--role-name",
@@ -415,6 +416,48 @@ class ClaudeRoleAdapter:
             raise ClaudeRoleError(f"missing_output_format:{role_name}")
         return _ROLE_OUTPUT_FORMATS["reviewer"]
 
+    @staticmethod
+    def _parse_result_text(result_text: str) -> dict[str, Any]:
+        candidates = [result_text.strip()]
+        fenced = ClaudeRoleAdapter._extract_fenced_block(result_text)
+        if fenced is not None and fenced not in candidates:
+            candidates.append(fenced)
+
+        embedded = ClaudeRoleAdapter._extract_json_object(result_text)
+        if embedded is not None and embedded not in candidates:
+            candidates.append(embedded)
+
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                return payload
+
+        raise ClaudeRoleError("invalid_claude_output")
+
+    @staticmethod
+    def _extract_fenced_block(text: str) -> str | None:
+        match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+        if match is None:
+            return None
+        return match.group(1).strip()
+
+    @staticmethod
+    def _extract_json_object(text: str) -> str | None:
+        decoder = json.JSONDecoder()
+        for start_index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                payload, _ = decoder.raw_decode(text[start_index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                return text[start_index : start_index + len(json.dumps(payload, ensure_ascii=False))]
+        return None
+
 
 def _main() -> int:
     import argparse
@@ -422,23 +465,28 @@ def _main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--role-name", required=True)
-    args = parser.parse_args()
-    _require_active_role(args.role_name)
+    try:
+        args = parser.parse_args()
+        _require_active_role(args.role_name)
 
-    adapter = ClaudeRoleAdapter(project_root=Path(args.project_root))
-    config = adapter.load_config()
-    if not config.enabled:
-        raise ClaudeRoleError("claude_disabled")
-    if not config.api_key:
-        raise ClaudeRoleError("missing_claude_configuration")
+        adapter = ClaudeRoleAdapter(project_root=Path(args.project_root))
+        config = adapter.load_config()
+        if not config.enabled:
+            raise ClaudeRoleError("claude_disabled")
+        if not config.api_key:
+            raise ClaudeRoleError("missing_claude_configuration")
 
-    payload = asyncio.run(
-        adapter._generate_payload(
-            args.role_name,
-            json.loads(sys.stdin.read()),
-            config,
+        payload = asyncio.run(
+            adapter._generate_payload(
+                args.role_name,
+                json.loads(sys.stdin.read()),
+                config,
+            )
         )
-    )
+    except (ClaudeRoleError, json.JSONDecodeError) as exc:
+        print(str(exc) or exc.__class__.__name__, file=sys.stderr)
+        return 1
+
     print(payload.model_dump_json())
     return 0
 

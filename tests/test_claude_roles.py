@@ -111,6 +111,24 @@ def test_parse_role_payload_rejects_invalid_reviewer_output() -> None:
         parse_role_payload("reviewer", {"decision": "ship-it"})
 
 
+def test_extract_result_payload_parses_json_code_fence() -> None:
+    payload = ClaudeRoleAdapter._parse_result_text(
+        "下面是评审结果：\n```json\n"
+        '{"decision":"continue","reason":"looks good","risks":[]}\n'
+        "```"
+    )
+
+    assert payload == {"decision": "continue", "reason": "looks good", "risks": []}
+
+
+def test_extract_result_payload_parses_embedded_json_object() -> None:
+    payload = ClaudeRoleAdapter._parse_result_text(
+        '评审通过。JSON 如下：{"decision":"continue","reason":"looks good","risks":[]}'
+    )
+
+    assert payload == {"decision": "continue", "reason": "looks good", "risks": []}
+
+
 def test_supported_role_registry_includes_qa_with_other_active_roles() -> None:
     assert claude_roles_module._ACTIVE_ROLE_NAMES == {"art", "dev", "design", "qa", "quality", "reviewer"}
     assert set(claude_roles_module._ROLE_PAYLOAD_MODELS) == {
@@ -296,6 +314,8 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
         reason="stdin transport",
         risks=[],
     )
+    assert "-m" not in calls["cmd"]
+    assert str(claude_roles_module.Path(claude_roles_module.__file__).resolve()) in calls["cmd"]
     assert "--context-json" not in calls["cmd"]
     assert calls["kwargs"]["input"] == '{"feature": "photo mode"}'
 
@@ -364,5 +384,40 @@ def test_main_rejects_unsupported_roles_before_generation(monkeypatch, tmp_path)
     monkeypatch.setattr(ClaudeRoleAdapter, "_generate_payload", fake_generate_payload)
     monkeypatch.setattr(claude_roles_module.sys, "stdin", type("FakeStdin", (), {"read": lambda self: "{}"})())
 
-    with pytest.raises(ClaudeRoleError, match="unsupported_role:planner"):
-        claude_roles_module._main()
+    assert claude_roles_module._main() == 1
+
+
+def test_main_returns_clean_error_for_generation_failure(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(
+        argparse.ArgumentParser,
+        "parse_args",
+        lambda self: Namespace(project_root=str(tmp_path), role_name="reviewer"),
+    )
+
+    def fake_load_config(self: ClaudeRoleAdapter) -> claude_roles_module.ClaudeRoleConfig:
+        return claude_roles_module.ClaudeRoleConfig(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="test-key",
+            base_url=None,
+        )
+
+    async def fake_generate_payload(
+        self: ClaudeRoleAdapter,
+        role_name: str,
+        context: dict[str, object],
+        config: object,
+    ) -> ReviewerPayload:
+        raise ClaudeRoleError("invalid_claude_output")
+
+    monkeypatch.setattr(ClaudeRoleAdapter, "load_config", fake_load_config)
+    monkeypatch.setattr(ClaudeRoleAdapter, "_generate_payload", fake_generate_payload)
+    monkeypatch.setattr(claude_roles_module.sys, "stdin", type("FakeStdin", (), {"read": lambda self: "{}"})())
+
+    exit_code = claude_roles_module._main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.out == ""
+    assert captured.err.strip() == "invalid_claude_output"

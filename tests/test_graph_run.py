@@ -10,6 +10,38 @@ from studio.schemas.runtime import NodeDecision, NodeResult
 from studio.storage.workspace import StudioWorkspace
 
 
+@pytest.fixture(autouse=True)
+def _disable_live_claude(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "studio.llm.claude_worker.ClaudeWorkerAdapter.load_config",
+        lambda self: type(
+            "Config",
+            (),
+            {
+                "enabled": False,
+                "mode": "text",
+                "model": None,
+                "api_key": None,
+                "base_url": None,
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "studio.llm.claude_roles.ClaudeRoleAdapter.load_config",
+        lambda self: type(
+            "Config",
+            (),
+            {
+                "enabled": False,
+                "mode": "text",
+                "model": None,
+                "api_key": None,
+                "base_url": None,
+            },
+        )(),
+    )
+
+
 def test_demo_runtime_runs_to_completion(tmp_path: Path) -> None:
     runtime = build_demo_runtime(tmp_path)
     result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
