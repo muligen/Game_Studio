@@ -1,16 +1,43 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { KanbanBoard } from '@/components/board/KanbanBoard'
 import { Button } from '@/components/ui/button'
 import { requirementsApi } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
+import { useWebSocket } from '@/hooks/useWebSocket'
 
 export function RequirementsBoard() {
   const { workspace } = useWorkspace()
+  const queryClient = useQueryClient()
+  const { connected, subscribe } = useWebSocket()
 
   const { data: requirements, isLoading, error } = useQuery({
     queryKey: ['requirements', workspace],
     queryFn: () => requirementsApi.list(workspace),
   })
+
+  // Subscribe to workspace updates when WebSocket connects
+  useEffect(() => {
+    if (connected) {
+      subscribe(workspace)
+    }
+  }, [connected, workspace, subscribe])
+
+  // Listen for WebSocket messages and refresh requirements on entity changes
+  useEffect(() => {
+    const handleMessage = (e: Event) => {
+      const message = (e as CustomEvent).detail
+      if (message.type === 'entity_changed' && message.entity_type === 'requirement') {
+        // Invalidate and refetch requirements
+        queryClient.invalidateQueries({ queryKey: ['requirements'] })
+      }
+    }
+
+    window.addEventListener('ws-message', handleMessage as EventListener)
+    return () => {
+      window.removeEventListener('ws-message', handleMessage as EventListener)
+    }
+  }, [queryClient])
 
   const handleCardClick = (id: string) => {
     console.log('Clicked requirement:', id)
