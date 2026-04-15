@@ -1,6 +1,7 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { TransitionMenu } from '@/components/common/TransitionMenu'
+import { getRequirementTransitions } from '@/lib/transitions'
 
 interface RequirementCardProps {
   id: string
@@ -50,11 +51,7 @@ export function RequirementCard({ id, title, status, priority, workspace, onClic
           id={id}
           currentStatus={statusValue}
           workspace={workspace}
-          allStatuses={[
-            'draft', 'designing', 'pending_user_review', 'approved',
-            'implementing', 'self_test_passed', 'testing',
-            'pending_user_acceptance', 'quality_check', 'done',
-          ]}
+          allStatuses={getRequirementTransitions(statusValue)}
         />
       </div>
     </Card>

@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from studio.api.websocket import broadcast_entity_changed
 from studio.schemas.artifact import StrippedNonEmptyStr
 from studio.schemas.requirement import RequirementCard, RequirementPriority, RequirementStatus
 from studio.storage.workspace import StudioWorkspace
@@ -55,7 +56,14 @@ async def create_requirement(
         title=request.title,
         priority=request.priority,
     )
-    return store.requirements.save(card)
+    saved = store.requirements.save(card)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=saved.id,
+        action="created",
+    )
+    return saved
 
 
 @router.get("/{req_id}")
@@ -85,4 +93,11 @@ async def transition_requirement_status(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return store.requirements.save(updated)
+    saved = store.requirements.save(updated)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=saved.id,
+        action="updated",
+    )
+    return saved

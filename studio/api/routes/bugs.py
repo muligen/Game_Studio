@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from studio.api.websocket import broadcast_entity_changed
 from studio.schemas.bug import BugCard, BugSeverity, BugStatus
 from studio.storage.workspace import StudioWorkspace
 
@@ -58,7 +59,14 @@ async def create_bug(
         severity=request.severity,
         owner=request.owner,
     )
-    return store.bugs.save(bug)
+    saved = store.bugs.save(bug)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="bug",
+        entity_id=saved.id,
+        action="created",
+    )
+    return saved
 
 
 @router.get("/{bug_id}")
@@ -88,4 +96,11 @@ async def transition_bug_status(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return store.bugs.save(updated)
+    saved = store.bugs.save(updated)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="bug",
+        entity_id=saved.id,
+        action="updated",
+    )
+    return saved

@@ -42,19 +42,20 @@ export function TransitionMenu({
     },
   })
 
-  // Close menu when clicking outside
   useEffect(() => {
     if (!open) return
+
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
     }
+
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
-  const availableStatuses = allStatuses.filter((s) => s !== currentStatus)
+  const availableStatuses = allStatuses.filter((status) => status !== currentStatus)
 
   return (
     <div className="relative inline-block" ref={menuRef}>
@@ -66,14 +67,19 @@ export function TransitionMenu({
           setOpen(!open)
         }}
       >
-        →
+        Next
       </Button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-10 bg-white border rounded-md shadow-lg min-w-[180px]">
+        <div className="absolute right-0 top-full mt-1 z-10 min-w-[180px] rounded-md border bg-white shadow-lg">
+          {availableStatuses.length === 0 && (
+            <div className="px-3 py-2 text-sm text-gray-500">
+              No valid transitions
+            </div>
+          )}
           {availableStatuses.map((status) => (
             <button
               key={status}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 capitalize"
+              className="w-full px-3 py-2 text-left text-sm capitalize hover:bg-gray-100"
               onClick={(e) => {
                 e.stopPropagation()
                 transitionMutation.mutate(status)
@@ -83,6 +89,11 @@ export function TransitionMenu({
               {status.replace(/_/g, ' ')}
             </button>
           ))}
+          {transitionMutation.error && (
+            <div className="border-t px-3 py-2 text-xs text-red-600">
+              {transitionMutation.error.message}
+            </div>
+          )}
         </div>
       )}
     </div>

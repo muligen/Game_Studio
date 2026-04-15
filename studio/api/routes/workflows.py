@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from studio.api.websocket import broadcast_entity_changed
 from studio.domain.requirement_flow import transition_requirement
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.requirement import RequirementCard
@@ -56,6 +57,18 @@ async def run_design_workflow(
 
     store.design_docs.save(design_doc)
     store.requirements.save(updated_req)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="design_doc",
+        entity_id=design_doc.id,
+        action="created",
+    )
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=updated_req.id,
+        action="updated",
+    )
 
     return {
         "requirement_id": updated_req.id,
@@ -114,6 +127,12 @@ async def run_dev_workflow(
         raise HTTPException(status_code=400, detail=f"Invalid state transition: {str(e)}")
 
     updated = store.requirements.save(self_test_passed)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=updated.id,
+        action="updated",
+    )
 
     return {
         "requirement_id": updated.id,
@@ -146,6 +165,12 @@ async def run_qa_workflow(
         # Pass and go to user acceptance
         accepted = transition_requirement(testing, "pending_user_acceptance")
         updated = store.requirements.save(accepted)
+        await broadcast_entity_changed(
+            workspace=workspace,
+            entity_type="requirement",
+            entity_id=updated.id,
+            action="updated",
+        )
         return {
             "requirement_id": updated.id,
             "status": updated.status,
@@ -174,6 +199,18 @@ async def run_qa_workflow(
 
     store.bugs.save(bug)
     store.requirements.save(updated_req)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="bug",
+        entity_id=bug.id,
+        action="created",
+    )
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=updated_req.id,
+        action="updated",
+    )
 
     return {
         "requirement_id": updated_req.id,

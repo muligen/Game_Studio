@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
 
+from studio.api.websocket import broadcast_entity_changed
 from studio.domain.approvals import approve_design_doc, send_back_design_doc
 from studio.schemas.balance_table import BalanceTable
 from studio.schemas.design_doc import DesignDoc
@@ -92,6 +93,18 @@ async def approve_design(workspace: str, design_id: str) -> dict[str, object]:
     store.requirements.save(updated_req)
     for log in logs:
         store.logs.save(log)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="design_doc",
+        entity_id=updated_doc.id,
+        action="updated",
+    )
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=updated_req.id,
+        action="updated",
+    )
 
     return {
         "design_doc": updated_doc.model_dump(),
@@ -121,6 +134,18 @@ async def send_back_design(
     store.requirements.save(updated_req)
     for log in logs:
         store.logs.save(log)
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="design_doc",
+        entity_id=updated_doc.id,
+        action="updated",
+    )
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=updated_req.id,
+        action="updated",
+    )
 
     return {
         "design_doc": updated_doc.model_dump(),

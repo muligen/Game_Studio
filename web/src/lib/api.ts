@@ -7,6 +7,10 @@ export type RequirementCard = components['schemas']['RequirementCard']
 export type TransitionRequirementRequest = components['schemas']['TransitionRequirementRequest']
 export type BugCard = components['schemas']['BugCard']
 export type { DesignDoc }
+export type DesignDocMutationResult = {
+  design_doc: DesignDoc
+  requirement: RequirementCard
+}
 
 // Base API client
 const API_BASE = '/api'
@@ -14,7 +18,7 @@ const API_BASE = '/api'
 export async function apiRequest(
   path: string,
   method: Methods,
-  options?: RequestInit & {
+  options?: Omit<RequestInit, 'body'> & {
     params?: Record<string, string | number | boolean>
     body?: BodyInit | Record<string, unknown> | FormData
   }
@@ -131,19 +135,16 @@ export const designDocsApi = {
       },
     }) as Promise<DesignDoc>,
 
-  approve: (workspace: string, id: string): Promise<DesignDoc> =>
+  approve: (workspace: string, id: string): Promise<DesignDocMutationResult> =>
     apiRequest(`/design-docs/${id}/approve`, 'post', {
       params: { workspace },
-    }) as Promise<DesignDoc>,
+    }) as Promise<DesignDocMutationResult>,
 
-  sendBack: (workspace: string, id: string, reason: string): Promise<DesignDoc> => {
-    const formData = new FormData()
-    formData.append('reason', reason)
-
+  sendBack: (workspace: string, id: string, reason: string): Promise<DesignDocMutationResult> => {
     return apiRequest(`/design-docs/${id}/send-back`, 'post', {
       params: { workspace },
-      body: formData,
-    }) as Promise<DesignDoc>
+      body: { reason },
+    }) as Promise<DesignDocMutationResult>
   },
 } as const
 
@@ -223,38 +224,22 @@ export const workflowsApi = {
   runDesign: (
     workspace: string,
     requirementId: string
-  ): Promise<unknown> => {
-    const formData = new FormData()
-    formData.append('requirement_id', requirementId)
+  ): Promise<unknown> =>
+    apiRequest('/workflows/run-design', 'post', {
+      params: { workspace, requirement_id: requirementId },
+    }) as Promise<unknown>,
 
-    return apiRequest('/workflows/run-design', 'post', {
-      params: { workspace },
-      body: formData,
-    }) as Promise<unknown>
-  },
-
-  runDev: (workspace: string, requirementId: string): Promise<unknown> => {
-    const formData = new FormData()
-    formData.append('requirement_id', requirementId)
-
-    return apiRequest('/workflows/run-dev', 'post', {
-      params: { workspace },
-      body: formData,
-    }) as Promise<unknown>
-  },
+  runDev: (workspace: string, requirementId: string): Promise<unknown> =>
+    apiRequest('/workflows/run-dev', 'post', {
+      params: { workspace, requirement_id: requirementId },
+    }) as Promise<unknown>,
 
   runQa: (
     workspace: string,
     requirementId: string,
     fail: boolean = false
-  ): Promise<unknown> => {
-    const formData = new FormData()
-    formData.append('requirement_id', requirementId)
-    formData.append('fail', String(fail))
-
-    return apiRequest('/workflows/run-qa', 'post', {
-      params: { workspace },
-      body: formData,
-    }) as Promise<unknown>
-  },
+  ): Promise<unknown> =>
+    apiRequest('/workflows/run-qa', 'post', {
+      params: { workspace, requirement_id: requirementId, fail },
+    }) as Promise<unknown>,
 } as const

@@ -54,3 +54,20 @@ _manager = WebSocketManager()
 def get_websocket_manager() -> WebSocketManager:
     """Get the singleton WebSocket manager."""
     return _manager
+
+
+async def broadcast_entity_changed(
+    *,
+    workspace: str,
+    entity_type: str,
+    entity_id: str,
+    action: str,
+) -> None:
+    """Broadcast a normalized entity change event to connected clients."""
+    await _manager.broadcast({
+        "type": "entity_changed",
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "workspace": workspace,
+        "action": action,
+    })

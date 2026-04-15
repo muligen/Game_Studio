@@ -1,9 +1,12 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useWorkspace } from '@/lib/workspace'
 import { bugsApi } from '@/lib/api'
 import type { BugCard } from '@/lib/api'
 import { CreateBugDialog } from '@/components/common/CreateBugDialog'
 import { TransitionMenu } from '@/components/common/TransitionMenu'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import { getBugTransitions } from '@/lib/transitions'
 
 const BUG_COLUMNS = [
   { status: 'new', title: 'New' },
@@ -35,11 +38,33 @@ interface BugColumn {
 
 export function BugsBoard() {
   const { workspace } = useWorkspace()
+  const queryClient = useQueryClient()
+  const { connected, subscribe } = useWebSocket()
 
   const { data: bugs, isLoading, error } = useQuery({
     queryKey: ['bugs', workspace],
     queryFn: () => bugsApi.list(workspace),
   })
+
+  useEffect(() => {
+    if (connected) {
+      subscribe(workspace)
+    }
+  }, [connected, workspace, subscribe])
+
+  useEffect(() => {
+    const handleMessage = (e: Event) => {
+      const message = (e as CustomEvent).detail
+      if (message.type === 'entity_changed' && message.entity_type === 'bug') {
+        queryClient.invalidateQueries({ queryKey: ['bugs'] })
+      }
+    }
+
+    window.addEventListener('ws-message', handleMessage as EventListener)
+    return () => {
+      window.removeEventListener('ws-message', handleMessage as EventListener)
+    }
+  }, [queryClient])
 
   if (isLoading) {
     return (
@@ -102,7 +127,7 @@ export function BugsBoard() {
                         id={bug.id}
                         currentStatus={bug.status}
                         workspace={workspace}
-                        allStatuses={['new', 'fixing', 'fixed', 'verifying', 'closed', 'reopened', 'needs_user_decision']}
+                        allStatuses={getBugTransitions(bug.status)}
                       />
                     </div>
                   </div>

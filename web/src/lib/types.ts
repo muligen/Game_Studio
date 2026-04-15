@@ -169,7 +169,7 @@ export interface DesignDoc {
   id: string
   title: string
   summary: string
-  status: 'draft' | 'pending_user_review' | 'approved' | 'rejected'
+  status: 'draft' | 'pending_user_review' | 'approved' | 'sent_back'
   core_rules: string[]
   acceptance_criteria: string[]
   open_questions: string[]
