@@ -2,13 +2,14 @@ import { useQuery } from '@tanstack/react-query'
 import { KanbanBoard } from '@/components/board/KanbanBoard'
 import { Button } from '@/components/ui/button'
 import { requirementsApi } from '@/lib/api'
-
-const WORKSPACE = 'default'
+import { useWorkspace } from '@/lib/workspace'
 
 export function RequirementsBoard() {
+  const { workspace } = useWorkspace()
+
   const { data: requirements, isLoading, error } = useQuery({
-    queryKey: ['requirements', WORKSPACE],
-    queryFn: () => requirementsApi.list(WORKSPACE),
+    queryKey: ['requirements', workspace],
+    queryFn: () => requirementsApi.list(workspace),
   })
 
   const handleCardClick = (id: string) => {

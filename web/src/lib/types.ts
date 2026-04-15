@@ -121,6 +121,37 @@ export interface components {
       /** Context */
       ctx?: Record<string, never>;
     };
+    /** BugCard */
+    BugCard: {
+      /** Id */
+      id: string;
+      /** Requirement Id */
+      requirement_id: string;
+      /** Title */
+      title: string;
+      /**
+       * Severity
+       * @enum {string}
+       */
+      severity: "low" | "medium" | "high" | "critical";
+      /**
+       * Status
+       * @default new
+       * @enum {string}
+       */
+      status: "new" | "fixing" | "fixed" | "verifying" | "closed" | "reopened" | "needs_user_decision";
+      /**
+       * Reopen Count
+       * @default 0
+       */
+      reopen_count: number;
+      /** Owner */
+      owner: string;
+      /** Repro Steps */
+      repro_steps?: string[];
+      /** Notes */
+      notes?: string[];
+    };
   };
   responses: never;
   parameters: never;

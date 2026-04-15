@@ -3,8 +3,9 @@ import type { components } from './types'
 type Methods = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
 // Type aliases for convenience
-type RequirementCard = components['schemas']['RequirementCard']
-type TransitionRequirementRequest = components['schemas']['TransitionRequirementRequest']
+export type RequirementCard = components['schemas']['RequirementCard']
+export type TransitionRequirementRequest = components['schemas']['TransitionRequirementRequest']
+export type BugCard = components['schemas']['BugCard']
 
 // Base API client
 const API_BASE = '/api'
@@ -174,17 +175,17 @@ export const balanceTablesApi = {
 
 // Bugs API
 export const bugsApi = {
-  list: (workspace: string): Promise<unknown[]> =>
+  list: (workspace: string): Promise<BugCard[]> =>
     apiRequest('/bugs', 'get', {
       params: { workspace },
-    }) as Promise<unknown[]>,
+    }) as Promise<BugCard[]>,
 
   create: (
     workspace: string,
     requirementId: string,
     title: string,
-    severity: string
-  ): Promise<unknown> => {
+    severity: BugCard['severity']
+  ): Promise<BugCard> => {
     const formData = new FormData()
     formData.append('requirement_id', requirementId)
     formData.append('title', title)
@@ -193,21 +194,21 @@ export const bugsApi = {
     return apiRequest('/bugs', 'post', {
       params: { workspace },
       body: formData,
-    }) as Promise<unknown>
+    }) as Promise<BugCard>
   },
 
   transition: (
     workspace: string,
     id: string,
-    nextStatus: string
-  ): Promise<unknown> => {
+    nextStatus: BugCard['status']
+  ): Promise<BugCard> => {
     const formData = new FormData()
     formData.append('next_status', nextStatus)
 
     return apiRequest(`/bugs/${id}/transition`, 'post', {
       params: { workspace },
       body: formData,
-    }) as Promise<unknown>
+    }) as Promise<BugCard>
   },
 } as const
 
