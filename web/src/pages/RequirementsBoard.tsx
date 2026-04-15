@@ -71,7 +71,7 @@ export function RequirementsBoard() {
         </div>
 
         {requirements && requirements.length > 0 ? (
-          <KanbanBoard requirements={requirements} onCardClick={handleCardClick} />
+          <KanbanBoard requirements={requirements} onCardClick={handleCardClick} workspace={workspace} />
         ) : (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
             <p className="text-gray-600 mb-4">No requirements found</p>

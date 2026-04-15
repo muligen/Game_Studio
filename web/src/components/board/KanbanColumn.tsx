@@ -9,9 +9,10 @@ interface KanbanColumnProps {
     priority?: string
   }>
   onCardClick: (id: string) => void
+  workspace: string
 }
 
-export function KanbanColumn({ title, requirements, onCardClick }: KanbanColumnProps) {
+export function KanbanColumn({ title, requirements, onCardClick, workspace }: KanbanColumnProps) {
   return (
     <div className="flex-shrink-0 w-80">
       <div className="bg-gray-50 rounded-lg p-4">
@@ -24,6 +25,7 @@ export function KanbanColumn({ title, requirements, onCardClick }: KanbanColumnP
               title={req.title}
               status={req.status}
               priority={req.priority}
+              workspace={workspace}
               onClick={() => onCardClick(req.id)}
             />
           ))}

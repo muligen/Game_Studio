@@ -3,6 +3,7 @@ import { useWorkspace } from '@/lib/workspace'
 import { bugsApi } from '@/lib/api'
 import type { BugCard } from '@/lib/api'
 import { CreateBugDialog } from '@/components/common/CreateBugDialog'
+import { TransitionMenu } from '@/components/common/TransitionMenu'
 
 const BUG_COLUMNS = [
   { status: 'new', title: 'New' },
@@ -90,11 +91,20 @@ export function BugsBoard() {
                       </span>
                     </div>
                     <h3 className="font-medium text-gray-900 mb-2">{bug.title}</h3>
-                    <span className={`text-xs px-2 py-1 rounded inline-block ${
-                      SEVERITY_COLORS[bug.severity]
-                    }`}>
-                      {bug.severity}
-                    </span>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className={`text-xs px-2 py-1 rounded inline-block ${
+                        SEVERITY_COLORS[bug.severity]
+                      }`}>
+                        {bug.severity}
+                      </span>
+                      <TransitionMenu
+                        entityType="bug"
+                        id={bug.id}
+                        currentStatus={bug.status}
+                        workspace={workspace}
+                        allStatuses={['new', 'fixing', 'fixed', 'verifying', 'closed', 'reopened', 'needs_user_decision']}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>

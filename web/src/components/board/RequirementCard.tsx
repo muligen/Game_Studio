@@ -1,11 +1,13 @@
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { TransitionMenu } from '@/components/common/TransitionMenu'
 
 interface RequirementCardProps {
   id: string
   title: string
   status?: string
   priority?: string
+  workspace: string
   onClick: () => void
 }
 
@@ -25,7 +27,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   high: 'bg-red-200',
 }
 
-export function RequirementCard({ id, title, status, priority, onClick }: RequirementCardProps) {
+export function RequirementCard({ id, title, status, priority, workspace, onClick }: RequirementCardProps) {
   const statusValue = status || 'draft'
   const priorityValue = priority || 'medium'
 
@@ -39,9 +41,22 @@ export function RequirementCard({ id, title, status, priority, onClick }: Requir
         <Badge className={PRIORITY_COLORS[priorityValue]}>{priorityValue}</Badge>
       </div>
       <h3 className="font-medium mb-2">{title}</h3>
-      <Badge className={STATUS_COLORS[statusValue] || STATUS_COLORS.draft}>
-        {statusValue.replace(/_/g, ' ')}
-      </Badge>
+      <div className="flex items-center justify-between mt-2">
+        <Badge className={STATUS_COLORS[statusValue] || STATUS_COLORS.draft}>
+          {statusValue.replace(/_/g, ' ')}
+        </Badge>
+        <TransitionMenu
+          entityType="requirement"
+          id={id}
+          currentStatus={statusValue}
+          workspace={workspace}
+          allStatuses={[
+            'draft', 'designing', 'pending_user_review', 'approved',
+            'implementing', 'self_test_passed', 'testing',
+            'pending_user_acceptance', 'quality_check', 'done',
+          ]}
+        />
+      </div>
     </Card>
   )
 }
