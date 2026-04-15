@@ -111,6 +111,7 @@ class ClaudeWorkerAdapter:
         self.project_root = _repo_root_from(project_root)
         self._env_path = self.project_root / ".env"
         self._role_adapter = role_adapter
+        self._last_debug_record: dict[str, object] | None = None
 
     def load_config(self) -> ClaudeWorkerConfig:
         values = _parse_dotenv(self._env_path)
@@ -138,6 +139,8 @@ class ClaudeWorkerAdapter:
                 payload = self._role_adapter.generate("worker", {"prompt": prompt})
             except Exception as exc:
                 raise ClaudeWorkerError(str(exc) or exc.__class__.__name__) from exc
+            if hasattr(self._role_adapter, "consume_debug_record"):
+                self._last_debug_record = self._role_adapter.consume_debug_record()
             return _coerce_payload(payload)
 
         config = self.load_config()
@@ -151,6 +154,14 @@ class ClaudeWorkerAdapter:
             if "Blocking call to os.getcwd" not in str(exc):
                 raise
             return self._generate_design_brief_via_subprocess(prompt)
+
+    def debug_prompt(self, prompt: str) -> str:
+        return self._prompt(prompt)
+
+    def consume_debug_record(self) -> dict[str, object] | None:
+        record = self._last_debug_record
+        self._last_debug_record = None
+        return record
 
     async def _generate_design_brief(
         self, prompt: str, config: ClaudeWorkerConfig
@@ -189,10 +200,19 @@ class ClaudeWorkerAdapter:
             raise ClaudeWorkerError(message)
 
         if result.structured_output is not None:
+            self._last_debug_record = {
+                "prompt": self._prompt(prompt),
+                "context": {"prompt": prompt},
+                "reply": result.structured_output,
+            }
             return _validated_payload(result.structured_output)
         if result.result is None:
             raise ClaudeWorkerError("invalid_claude_output")
-
+        self._last_debug_record = {
+            "prompt": self._prompt(prompt),
+            "context": {"prompt": prompt},
+            "reply": result.result,
+        }
         return self._parse_result_text(result.result)
 
     def _sdk_env(self, config: ClaudeWorkerConfig) -> dict[str, str]:
@@ -226,6 +246,11 @@ class ClaudeWorkerAdapter:
             parsed = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise ClaudeWorkerError("invalid_claude_output") from exc
+        self._last_debug_record = {
+            "prompt": self._prompt(prompt),
+            "context": {"prompt": prompt},
+            "reply": proc.stdout,
+        }
         return _validated_payload(parsed)
 
     @staticmethod

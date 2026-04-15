@@ -199,6 +199,159 @@ def test_demo_runtime_handles_missing_review_artifact_without_crashing(
     assert result["telemetry"]["node_traces"]["reviewer"]["reason"] == "missing_artifact"
 
 
+def test_demo_runtime_writes_llm_io_logs_without_exposing_prompt_in_telemetry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _StubWorkerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "worker"}},
+                artifacts=[
+                    ArtifactRecord(
+                        artifact_id="concept-draft",
+                        artifact_type="design_brief",
+                        source_node="worker",
+                        payload={"title": "Relics", "summary": "desc", "genre": "rpg"},
+                    )
+                ],
+                trace={"node": "worker", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "worker prompt",
+                "context": {"prompt": "Design a simple 2D game concept"},
+                "reply": {"title": "Relics", "summary": "desc", "genre": "rpg"},
+            }
+
+    class _StubReviewerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "reviewer"}, "risks": []},
+                trace={"node": "reviewer", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "reviewer prompt",
+                "context": {"artifact_payload": {"title": "Relics", "summary": "desc", "genre": "rpg"}},
+                "reply": {"decision": "continue", "reason": "ok", "risks": []},
+            }
+
+    class _StubPlannerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "planner"}},
+                trace={"node": "planner"},
+            )
+
+    class _StubDispatcher:
+        def __init__(self) -> None:
+            self._agents = {
+                "planner": _StubPlannerAgent(),
+                "worker": _StubWorkerAgent(),
+                "reviewer": _StubReviewerAgent(),
+            }
+
+        def get(self, node_name: str):
+            return self._agents[node_name]
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _StubDispatcher)
+
+    runtime = build_demo_runtime(tmp_path)
+    result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    assert "llm_prompt" not in result["telemetry"]["node_traces"]["worker"]
+    assert "llm_context" not in result["telemetry"]["node_traces"]["reviewer"]
+
+    log_entries = json.loads(
+        (tmp_path / "logs" / f'{result["run_id"]}.json').read_text(encoding="utf-8")
+    )
+    assert [entry["node_name"] for entry in log_entries] == ["worker", "reviewer"]
+    assert log_entries[0]["prompt"] == "worker prompt"
+    assert log_entries[0]["reply"]["title"] == "Relics"
+    assert log_entries[1]["prompt"] == "reviewer prompt"
+    assert log_entries[1]["reply"]["decision"] == "continue"
+
+
+def test_demo_runtime_llm_logs_serialize_structured_reply_objects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _StructuredReply:
+        def model_dump(self) -> dict[str, object]:
+            return {"decision": "continue", "reason": "ok", "risks": []}
+
+    class _StubWorkerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "worker"}},
+                artifacts=[
+                    ArtifactRecord(
+                        artifact_id="concept-draft",
+                        artifact_type="design_brief",
+                        source_node="worker",
+                        payload={"title": "Relics", "summary": "desc", "genre": "rpg"},
+                    )
+                ],
+                trace={"node": "worker", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "worker prompt",
+                "context": {"prompt": "Design a simple 2D game concept"},
+                "reply": {"title": "Relics", "summary": "desc", "genre": "rpg"},
+            }
+
+    class _StubReviewerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "reviewer"}, "risks": []},
+                trace={"node": "reviewer", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "reviewer prompt",
+                "context": {"artifact_payload": {"title": "Relics", "summary": "desc", "genre": "rpg"}},
+                "reply": _StructuredReply(),
+            }
+
+    class _StubPlannerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "planner"}},
+                trace={"node": "planner"},
+            )
+
+    class _StubDispatcher:
+        def __init__(self) -> None:
+            self._agents = {
+                "planner": _StubPlannerAgent(),
+                "worker": _StubWorkerAgent(),
+                "reviewer": _StubReviewerAgent(),
+            }
+
+        def get(self, node_name: str):
+            return self._agents[node_name]
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _StubDispatcher)
+
+    runtime = build_demo_runtime(tmp_path)
+    result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    log_entries = json.loads(
+        (tmp_path / "logs" / f'{result["run_id"]}.json').read_text(encoding="utf-8")
+    )
+    assert log_entries[1]["reply"] == {"decision": "continue", "reason": "ok", "risks": []}
+
+
 def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None:
     workspace_root = tmp_path / ".studio-data"
     workspace = StudioWorkspace(workspace_root)

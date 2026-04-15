@@ -22,7 +22,11 @@ class WorkerAgent:
             raise TypeError("goal.prompt must be a string")
 
         payload = self._fallback_payload(prompt)
-        trace = {"node": "worker", "llm_provider": "claude", "fallback_used": True}
+        trace = {
+            "node": "worker",
+            "llm_provider": "claude",
+            "fallback_used": True,
+        }
         try:
             enabled = self._claude_runner.is_enabled()
         except ClaudeWorkerError as exc:
@@ -69,3 +73,6 @@ class WorkerAgent:
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(self._claude_runner.generate_design_brief, prompt)
             return future.result()
+
+    def consume_llm_log_entry(self) -> dict[str, object] | None:
+        return self._claude_runner.consume_debug_record()

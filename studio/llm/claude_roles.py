@@ -265,6 +265,7 @@ class ClaudeRoleAdapter:
     def __init__(self, project_root: Path | None = None) -> None:
         self.project_root = _repo_root_from(project_root)
         self._env_path = self.project_root / ".env"
+        self._last_debug_record: dict[str, object] | None = None
 
     def load_config(self) -> ClaudeRoleConfig:
         values = _parse_dotenv(self._env_path)
@@ -285,6 +286,7 @@ class ClaudeRoleAdapter:
         self, role_name: str, context: dict[str, object]
     ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
         _require_active_role(role_name)
+        prompt = self._prompt(role_name, context)
 
         config = self.load_config()
         if not config.enabled:
@@ -293,14 +295,23 @@ class ClaudeRoleAdapter:
             raise ClaudeRoleError("missing_claude_configuration")
 
         if self._has_running_loop():
-            return self._generate_payload_via_subprocess(role_name, context)
+            return self._generate_payload_via_subprocess(role_name, context, prompt)
 
         try:
-            return asyncio.run(self._generate_payload(role_name, context, config))
+            return asyncio.run(self._generate_payload(role_name, context, config, prompt))
         except ClaudeRoleError as exc:
             if "Blocking call to os.getcwd" not in str(exc):
                 raise
-            return self._generate_payload_via_subprocess(role_name, context)
+            return self._generate_payload_via_subprocess(role_name, context, prompt)
+
+    def debug_prompt(self, role_name: str, context: dict[str, object]) -> str:
+        _require_active_role(role_name)
+        return self._prompt(role_name, context)
+
+    def consume_debug_record(self) -> dict[str, object] | None:
+        record = self._last_debug_record
+        self._last_debug_record = None
+        return record
 
     @staticmethod
     def _has_running_loop() -> bool:
@@ -315,6 +326,7 @@ class ClaudeRoleAdapter:
         role_name: str,
         context: dict[str, object],
         config: ClaudeRoleConfig,
+        prompt: str,
     ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
         options = ClaudeAgentOptions(
             cwd=self.project_root,
@@ -328,7 +340,7 @@ class ClaudeRoleAdapter:
 
         result: ResultMessage | None = None
         try:
-            async for message in query(prompt=self._prompt(role_name, context), options=options):
+            async for message in query(prompt=prompt, options=options):
                 if isinstance(message, ResultMessage):
                     result = message
         except Exception as exc:  # pragma: no cover - exercised via fallback tests
@@ -343,14 +355,21 @@ class ClaudeRoleAdapter:
         payload: Any
         if result.structured_output is not None:
             payload = result.structured_output
+            reply: Any = result.structured_output
         elif result.result is not None:
             try:
                 payload = self._parse_result_text(result.result)
             except (json.JSONDecodeError, ClaudeRoleError) as exc:
                 raise ClaudeRoleError("invalid_claude_output") from exc
+            reply = result.result
         else:
             raise ClaudeRoleError("invalid_claude_output")
 
+        self._last_debug_record = {
+            "prompt": prompt,
+            "context": context,
+            "reply": reply,
+        }
         return parse_role_payload(role_name, payload)
 
     def _sdk_env(self, config: ClaudeRoleConfig) -> dict[str, str]:
@@ -363,6 +382,7 @@ class ClaudeRoleAdapter:
         self,
         role_name: str,
         context: dict[str, object],
+        prompt: str,
     ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
         _require_active_role(role_name)
         script_path = Path(__file__).resolve()
@@ -393,6 +413,11 @@ class ClaudeRoleAdapter:
             parsed = json.loads(proc.stdout)
         except json.JSONDecodeError as exc:
             raise ClaudeRoleError("invalid_claude_output") from exc
+        self._last_debug_record = {
+            "prompt": prompt,
+            "context": context,
+            "reply": proc.stdout,
+        }
         return parse_role_payload(role_name, parsed)
 
     @staticmethod
@@ -476,11 +501,13 @@ def _main() -> int:
         if not config.api_key:
             raise ClaudeRoleError("missing_claude_configuration")
 
+        context = json.loads(sys.stdin.read())
         payload = asyncio.run(
             adapter._generate_payload(
                 args.role_name,
-                json.loads(sys.stdin.read()),
+                context,
                 config,
+                adapter._prompt(args.role_name, context),
             )
         )
     except (ClaudeRoleError, json.JSONDecodeError) as exc:

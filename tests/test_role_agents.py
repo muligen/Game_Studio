@@ -80,6 +80,8 @@ def test_reviewer_uses_claude_payload_when_available() -> None:
     assert result.decision is NodeDecision.CONTINUE
     assert result.state_patch["risks"] == ["Clarify monetization scope."]
     assert result.trace["fallback_used"] is False
+    assert "llm_prompt" not in result.trace
+    assert "llm_context" not in result.trace
 
 
 def test_reviewer_falls_back_deterministically_when_claude_errors() -> None:
@@ -105,6 +107,7 @@ def test_reviewer_falls_back_deterministically_when_claude_errors() -> None:
     assert result.decision is NodeDecision.CONTINUE
     assert result.trace["fallback_used"] is True
     assert result.trace["fallback_reason"] == "boom"
+    assert "llm_prompt" not in result.trace
 
 
 def test_design_agent_uses_claude_payload_when_available() -> None:
@@ -211,6 +214,8 @@ def test_dev_agent_uses_claude_payload_when_available() -> None:
         "follow_ups": ["Add combat tuning coverage."],
     }
     assert result.trace["fallback_used"] is False
+    assert "llm_prompt" not in result.trace
+    assert "llm_context" not in result.trace
 
 
 def test_dev_agent_falls_back_deterministically_when_claude_errors() -> None:
@@ -287,6 +292,8 @@ def test_qa_agent_uses_claude_payload_when_available() -> None:
         "suggested_bug": "Camera jitter appears after shrine completion.",
     }
     assert result.trace["fallback_used"] is False
+    assert "llm_prompt" not in result.trace
+    assert "llm_context" not in result.trace
 
 
 def test_qa_agent_falls_back_deterministically_when_claude_errors() -> None:
@@ -364,6 +371,8 @@ def test_quality_agent_uses_claude_payload_when_available() -> None:
         "follow_ups": ["Run a final controller smoke pass."],
     }
     assert result.trace["fallback_used"] is False
+    assert "llm_prompt" not in result.trace
+    assert "llm_context" not in result.trace
 
 
 def test_quality_agent_falls_back_deterministically_when_claude_errors() -> None:

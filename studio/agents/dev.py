@@ -25,8 +25,9 @@ class DevAgent:
             "telemetry": {},
         }
 
+        llm_context = {"goal": state.goal}
         try:
-            payload = self._claude_runner.generate("dev", {"goal": state.goal})
+            payload = self._claude_runner.generate("dev", llm_context)
         except ClaudeRoleError as exc:
             trace["fallback_reason"] = str(exc)
             state_patch["telemetry"] = {"dev_report": self._fallback_patch()}
@@ -57,3 +58,6 @@ class DevAgent:
             "checks": payload.checks,
             "follow_ups": payload.follow_ups,
         }
+
+    def consume_llm_log_entry(self) -> dict[str, object] | None:
+        return self._claude_runner.consume_debug_record()

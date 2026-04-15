@@ -20,7 +20,6 @@ class ReviewerAgent:
             artifact_payload: dict[str, object] = {}
         else:
             artifact_payload = raw
-
         trace: dict[str, object] = {
             "node": "reviewer",
             "llm_provider": "claude",
@@ -28,10 +27,11 @@ class ReviewerAgent:
         }
         state_patch: dict[str, object] = {"plan": {"current_node": "reviewer"}}
 
+        llm_context = {"artifact_payload": artifact_payload}
         try:
             payload = self._claude_runner.generate(
                 "reviewer",
-                {"artifact_payload": artifact_payload},
+                llm_context,
             )
         except ClaudeRoleError as exc:
             trace["fallback_reason"] = str(exc)
@@ -55,3 +55,6 @@ class ReviewerAgent:
     @staticmethod
     def _map_decision(decision: str) -> NodeDecision:
         return NodeDecision.CONTINUE if decision == "continue" else NodeDecision.RETRY
+
+    def consume_llm_log_entry(self) -> dict[str, object] | None:
+        return self._claude_runner.consume_debug_record()

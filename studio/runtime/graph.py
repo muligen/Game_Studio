@@ -11,6 +11,7 @@ from studio.domain.requirement_flow import transition_requirement
 from studio.memory.store import MemoryStore
 from studio.runtime.checkpoints import CheckpointManager
 from studio.runtime.dispatcher import RuntimeDispatcher
+from studio.runtime.llm_logs import LlmRunLogger
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.runtime import PlanState, RuntimeState
 from studio.storage.workspace import StudioWorkspace
@@ -92,12 +93,23 @@ def _session_tag_for_run(run_id: str) -> str:
     return run_id
 
 
+def _consume_agent_llm_log(agent: object) -> dict[str, object] | None:
+    consume = getattr(agent, "consume_llm_log_entry", None)
+    if not callable(consume):
+        return None
+    entry = consume()
+    if not isinstance(entry, dict):
+        return None
+    return entry
+
+
 def build_demo_runtime(root: Path, force_review_retry: bool = False):
     """Each invoke gets a unique run context so the same compiled graph can be reused safely."""
     dispatcher = RuntimeDispatcher()
     artifact_registry = ArtifactRegistry(root / "artifacts")
     memory_store = MemoryStore(root / "memory")
     checkpoints = CheckpointManager(root / "checkpoints")
+    llm_logs = LlmRunLogger(root / "logs")
 
     def _checkpoint_key(run_id: str, node_name: str) -> str:
         return f"{run_id}-{node_name}"
@@ -125,7 +137,11 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
         run_id = runtime_state.run_id
         session_tag = _session_tag_for_run(run_id)
         runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-worker"})
-        result = dispatcher.get("worker").run(runtime_state)
+        agent = dispatcher.get("worker")
+        result = agent.run(runtime_state)
+        llm_entry = _consume_agent_llm_log(agent)
+        if llm_entry is not None:
+            llm_logs.append(run_id=run_id, node_name="worker", **llm_entry)
         stored = []
         for artifact in result.artifacts:
             unique_id = f"{artifact.artifact_id}-{session_tag}"
@@ -162,7 +178,11 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             return updated.model_dump(mode="json")
 
         payload = {} if force_review_retry else dict(runtime_state.artifacts[0].payload)
-        result = dispatcher.get("reviewer").run(runtime_state, artifact_payload=payload)
+        agent = dispatcher.get("reviewer")
+        result = agent.run(runtime_state, artifact_payload=payload)
+        llm_entry = _consume_agent_llm_log(agent)
+        if llm_entry is not None:
+            llm_logs.append(run_id=run_id, node_name="reviewer", **llm_entry)
         risks = list(runtime_state.risks)
         patch_risks = result.state_patch.get("risks")
         if isinstance(patch_risks, list):
@@ -234,6 +254,12 @@ def build_delivery_graph():
     dispatcher = RuntimeDispatcher()
     graph = StateGraph(dict)
 
+    def _delivery_llm_logger(state: dict[str, object]) -> LlmRunLogger:
+        workspace_root = state.get("workspace_root")
+        if isinstance(workspace_root, str) and workspace_root.strip():
+            return LlmRunLogger(Path(workspace_root) / "llm_logs")
+        return LlmRunLogger(Path(".runtime-data") / "delivery-logs")
+
     def _run_agent(node_name: str, state: dict[str, object]) -> dict[str, object]:
         runtime_state = RuntimeState(
             project_id=str(state.get("project_id", "delivery-project")),
@@ -241,7 +267,15 @@ def build_delivery_graph():
             task_id=str(state.get("task_id", f"delivery-{node_name}")),
             goal=dict(state),
         )
-        result = dispatcher.get(node_name).run(runtime_state)
+        agent = dispatcher.get(node_name)
+        result = agent.run(runtime_state)
+        llm_entry = _consume_agent_llm_log(agent)
+        if llm_entry is not None:
+            _delivery_llm_logger(state).append(
+                run_id=runtime_state.run_id,
+                node_name=node_name,
+                **llm_entry,
+            )
         return {**state, **result.state_patch, "node_name": node_name, "trace": result.trace}
 
     def dev_node(state: dict[str, object]) -> dict[str, object]:

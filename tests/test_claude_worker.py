@@ -61,6 +61,8 @@ def test_worker_uses_claude_payload_when_enabled() -> None:
     assert result.artifacts[0].payload["title"] == "Lantern Vale"
     assert result.trace["llm_provider"] == "claude"
     assert result.trace["fallback_used"] is False
+    assert "llm_prompt" not in result.trace
+    assert "llm_context" not in result.trace
 
 
 def test_worker_falls_back_when_claude_disabled() -> None:
@@ -69,6 +71,7 @@ def test_worker_falls_back_when_claude_disabled() -> None:
     assert result.artifacts[0].payload["title"] == "Moonwell Garden"
     assert result.trace["fallback_used"] is True
     assert result.trace["fallback_reason"] == "claude_disabled"
+    assert "llm_prompt" not in result.trace
 
 
 def test_worker_falls_back_when_claude_runner_errors() -> None:

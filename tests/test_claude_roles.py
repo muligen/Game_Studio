@@ -213,13 +213,16 @@ def test_generate_falls_back_to_subprocess_for_blocking_getcwd(monkeypatch, tmp_
     )
 
     async def fake_generate_payload(
-        role_name: str, context: dict[str, object], config: object
+        role_name: str, context: dict[str, object], config: object, prompt: str
     ) -> ReviewerPayload:
         raise ClaudeRoleError("Failed to start Claude Code: Blocking call to os.getcwd")
 
-    def fake_generate_payload_via_subprocess(role_name: str, context: dict[str, object]) -> ReviewerPayload:
+    def fake_generate_payload_via_subprocess(
+        role_name: str, context: dict[str, object], prompt: str
+    ) -> ReviewerPayload:
         assert role_name == "reviewer"
         assert context == {"feature": "photo mode"}
+        assert "Context:" in prompt
         return expected
 
     monkeypatch.setattr(adapter, "_generate_payload", fake_generate_payload)
@@ -244,7 +247,7 @@ def test_generate_rejects_unsupported_roles_before_invocation(monkeypatch, tmp_p
     adapter = ClaudeRoleAdapter(project_root=tmp_path)
 
     async def fake_generate_payload(
-        role_name: str, context: dict[str, object], config: object
+        role_name: str, context: dict[str, object], config: object, prompt: str
     ) -> ReviewerPayload:
         raise AssertionError("generation path should not run")
 
@@ -274,13 +277,16 @@ async def test_generate_uses_subprocess_when_called_from_running_event_loop(monk
     )
 
     async def fake_generate_payload(
-        role_name: str, context: dict[str, object], config: object
+        role_name: str, context: dict[str, object], config: object, prompt: str
     ) -> ReviewerPayload:
         raise AssertionError("async path should not run under an active event loop")
 
-    def fake_generate_payload_via_subprocess(role_name: str, context: dict[str, object]) -> ReviewerPayload:
+    def fake_generate_payload_via_subprocess(
+        role_name: str, context: dict[str, object], prompt: str
+    ) -> ReviewerPayload:
         assert role_name == "reviewer"
         assert context == {"feature": "photo mode"}
+        assert "Context:" in prompt
         return expected
 
     monkeypatch.setattr(adapter, "_generate_payload", fake_generate_payload)
@@ -307,7 +313,11 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
 
     monkeypatch.setattr(subprocess, "run", fake_run)
 
-    payload = adapter._generate_payload_via_subprocess("reviewer", {"feature": "photo mode"})
+    payload = adapter._generate_payload_via_subprocess(
+        "reviewer",
+        {"feature": "photo mode"},
+        ClaudeRoleAdapter._prompt("reviewer", {"feature": "photo mode"}),
+    )
 
     assert payload == ReviewerPayload(
         decision="continue",
@@ -329,7 +339,11 @@ def test_subprocess_fallback_wraps_transport_errors(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     with pytest.raises(ClaudeRoleError, match="spawn failed"):
-        adapter._generate_payload_via_subprocess("reviewer", {"feature": "photo mode"})
+        adapter._generate_payload_via_subprocess(
+            "reviewer",
+            {"feature": "photo mode"},
+            ClaudeRoleAdapter._prompt("reviewer", {"feature": "photo mode"}),
+        )
 
 
 def test_subprocess_fallback_wraps_timeout_errors(monkeypatch, tmp_path) -> None:
@@ -341,7 +355,11 @@ def test_subprocess_fallback_wraps_timeout_errors(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     with pytest.raises(ClaudeRoleError, match="300"):
-        adapter._generate_payload_via_subprocess("reviewer", {"feature": "photo mode"})
+        adapter._generate_payload_via_subprocess(
+            "reviewer",
+            {"feature": "photo mode"},
+            ClaudeRoleAdapter._prompt("reviewer", {"feature": "photo mode"}),
+        )
 
 
 def test_subprocess_fallback_rejects_unsupported_roles_before_spawn(monkeypatch, tmp_path) -> None:
@@ -353,7 +371,11 @@ def test_subprocess_fallback_rejects_unsupported_roles_before_spawn(monkeypatch,
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     with pytest.raises(ClaudeRoleError, match="unsupported_role:planner"):
-        adapter._generate_payload_via_subprocess("planner", {"feature": "photo mode"})
+        adapter._generate_payload_via_subprocess(
+            "planner",
+            {"feature": "photo mode"},
+            "planner prompt",
+        )
 
 
 def test_main_rejects_unsupported_roles_before_generation(monkeypatch, tmp_path) -> None:
@@ -377,6 +399,7 @@ def test_main_rejects_unsupported_roles_before_generation(monkeypatch, tmp_path)
         role_name: str,
         context: dict[str, object],
         config: object,
+        prompt: str,
     ) -> ReviewerPayload:
         raise AssertionError("generation path should not run")
 
@@ -408,6 +431,7 @@ def test_main_returns_clean_error_for_generation_failure(monkeypatch, tmp_path, 
         role_name: str,
         context: dict[str, object],
         config: object,
+        prompt: str,
     ) -> ReviewerPayload:
         raise ClaudeRoleError("invalid_claude_output")
 
