@@ -57,9 +57,9 @@ def create_app() -> FastAPI:
 
                 if data.get("type") == "subscribe":
                     # Subscribe to workspace updates
+                    # TODO: Implement file watcher for automatic change detection
+                    # For now, just acknowledge the subscription
                     workspace = data.get("workspace", ".studio-data")
-                    # In a real implementation, we'd start a file watcher here
-                    # For now, just acknowledge
                     await websocket.send_json({
                         "type": "subscribed",
                         "workspace": workspace
