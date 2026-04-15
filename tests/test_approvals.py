@@ -316,6 +316,31 @@ def test_validate_requirement_ready_for_dev_rejects_mismatched_requirement_desig
         validate_requirement_ready_for_dev(requirement, doc, [])
 
 
+def test_send_back_stores_reason_on_design_doc():
+    requirement = RequirementCard(
+        id="req_1",
+        title="Test",
+        status="pending_user_review",
+        design_doc_id="design_1",
+    )
+    design_doc = DesignDoc(
+        id="design_1",
+        requirement_id="req_1",
+        title="Test Design",
+        summary="Summary",
+        core_rules=[],
+        acceptance_criteria=[],
+        open_questions=[],
+        status="pending_user_review",
+    )
+    updated_doc, updated_req, logs = send_back_design_doc(
+        requirement, design_doc, "Core rules need more specificity"
+    )
+    assert updated_doc.sent_back_reason == "Core rules need more specificity"
+    assert updated_doc.status == "sent_back"
+    assert updated_req.status == "designing"
+
+
 def test_validate_requirement_ready_for_dev_rejects_missing_required_balance_tables() -> None:
     requirement = RequirementCard(
         id="req_001",

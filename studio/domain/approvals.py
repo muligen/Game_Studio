@@ -86,7 +86,7 @@ def send_back_design_doc(
 ) -> tuple[DesignDoc, RequirementCard, list[ActionLog]]:
     _ensure_reviewable_design_doc(design_doc)
     _ensure_design_doc_belongs_to_requirement(requirement, design_doc)
-    updated_doc = design_doc.model_copy(update={"status": "sent_back"})
+    updated_doc = design_doc.model_copy(update={"status": "sent_back", "sent_back_reason": reason})
     updated_requirement = transition_requirement(requirement, "designing")
     return updated_doc, updated_requirement, [
         _log("send_back", "design_doc", design_doc.id, reason)
