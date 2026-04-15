@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from studio.api.websocket import broadcast_entity_changed
 from studio.runtime.graph import build_design_graph
 from studio.schemas.requirement import RequirementCard
 from studio.storage.workspace import StudioWorkspace
