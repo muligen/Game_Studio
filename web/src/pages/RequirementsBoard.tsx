@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { KanbanBoard } from '@/components/board/KanbanBoard'
-import { Button } from '@/components/ui/button'
+import { CreateRequirementDialog } from '@/components/common/CreateRequirementDialog'
 import { requirementsApi } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -45,11 +45,6 @@ export function RequirementsBoard() {
     // TODO: Navigate to requirement detail page
   }
 
-  const handleCreate = () => {
-    console.log('Create new requirement')
-    alert('Create Requirement form is coming soon!\n\nThis will open a dialog to create new requirements in the next iteration.')
-    // TODO: Open create requirement dialog
-  }
 
   if (isLoading) {
     return (
@@ -72,7 +67,7 @@ export function RequirementsBoard() {
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900">Requirements Board</h1>
-          <Button onClick={handleCreate}>Create Requirement</Button>
+          <CreateRequirementDialog workspace={workspace} />
         </div>
 
         {requirements && requirements.length > 0 ? (
@@ -80,7 +75,7 @@ export function RequirementsBoard() {
         ) : (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
             <p className="text-gray-600 mb-4">No requirements found</p>
-            <Button onClick={handleCreate}>Create First Requirement</Button>
+            <CreateRequirementDialog workspace={workspace} />
           </div>
         )}
       </div>

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useWorkspace } from '@/lib/workspace'
 import { bugsApi } from '@/lib/api'
 import type { BugCard } from '@/lib/api'
+import { CreateBugDialog } from '@/components/common/CreateBugDialog'
 
 const BUG_COLUMNS = [
   { status: 'new', title: 'New' },
@@ -66,6 +67,7 @@ export function BugsBoard() {
       <div className="container mx-auto px-4 py-8 space-y-6">
         <div className="flex justify-between items-center">
           <h1 className="text-3xl font-bold text-gray-900">Bugs</h1>
+          <CreateBugDialog workspace={workspace} />
         </div>
         <div className="flex gap-6 overflow-x-auto pb-4">
           {grouped.map((col) => (
