@@ -13,3 +13,6 @@ __pycache__/
 /checkpoints/
 /memory/
 .runtime-data/
+
+# Studio runtime data
+.studio-data/
