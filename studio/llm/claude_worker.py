@@ -86,10 +86,31 @@ def _validated_payload(data: Any) -> ClaudeWorkerPayload:
     )
 
 
+def _coerce_payload(data: Any) -> ClaudeWorkerPayload:
+    if isinstance(data, ClaudeWorkerPayload):
+        return data
+    if hasattr(data, "model_dump") and callable(data.model_dump):
+        return _validated_payload(data.model_dump())
+    if all(hasattr(data, field) for field in ("title", "summary", "genre")):
+        return _validated_payload(
+            {
+                "title": getattr(data, "title"),
+                "summary": getattr(data, "summary"),
+                "genre": getattr(data, "genre"),
+            }
+        )
+    return _validated_payload(data)
+
+
 class ClaudeWorkerAdapter:
-    def __init__(self, project_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        project_root: Path | None = None,
+        role_adapter: Any | None = None,
+    ) -> None:
         self.project_root = _repo_root_from(project_root)
         self._env_path = self.project_root / ".env"
+        self._role_adapter = role_adapter
 
     def load_config(self) -> ClaudeWorkerConfig:
         values = _parse_dotenv(self._env_path)
@@ -112,6 +133,13 @@ class ClaudeWorkerAdapter:
         return self.load_config().enabled
 
     def generate_design_brief(self, prompt: str) -> ClaudeWorkerPayload:
+        if self._role_adapter is not None:
+            try:
+                payload = self._role_adapter.generate("worker", {"prompt": prompt})
+            except Exception as exc:
+                raise ClaudeWorkerError(str(exc) or exc.__class__.__name__) from exc
+            return _coerce_payload(payload)
+
         config = self.load_config()
         if not config.enabled:
             raise ClaudeWorkerError("claude_disabled")
