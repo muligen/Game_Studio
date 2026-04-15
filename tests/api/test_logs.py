@@ -1,8 +1,6 @@
 # tests/api/test_logs.py
 from pathlib import Path
 
-from datetime import UTC, datetime
-
 from fastapi.testclient import TestClient
 from studio.api.main import create_app
 from studio.storage.workspace import StudioWorkspace
