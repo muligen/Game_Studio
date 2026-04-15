@@ -18,7 +18,10 @@ const COLUMNS = [
   { key: 'pending_user_review', title: 'Pending Review' },
   { key: 'approved', title: 'Approved' },
   { key: 'implementing', title: 'Implementing' },
+  { key: 'self_test_passed', title: 'Self Test Passed' },
   { key: 'testing', title: 'Testing' },
+  { key: 'pending_user_acceptance', title: 'Pending Acceptance' },
+  { key: 'quality_check', title: 'Quality Check' },
   { key: 'done', title: 'Done' },
 ]
 

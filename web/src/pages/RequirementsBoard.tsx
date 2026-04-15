@@ -13,11 +13,13 @@ export function RequirementsBoard() {
 
   const handleCardClick = (id: string) => {
     console.log('Clicked requirement:', id)
+    alert(`Requirement detail view for "${id}" is coming soon!\n\nThis will navigate to the requirement detail page in the next iteration.`)
     // TODO: Navigate to requirement detail page
   }
 
   const handleCreate = () => {
     console.log('Create new requirement')
+    alert('Create Requirement form is coming soon!\n\nThis will open a dialog to create new requirements in the next iteration.')
     // TODO: Open create requirement dialog
   }
 
