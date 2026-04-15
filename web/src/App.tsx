@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { RequirementsBoard } from '@/pages/RequirementsBoard'
 import { BugsBoard } from '@/pages/BugsBoard'
 import { DesignEditor } from '@/pages/DesignEditor'
+import { Logs } from '@/pages/Logs'
 import './App.css'
 
 const queryClient = new QueryClient()
@@ -16,6 +17,7 @@ function App() {
             <nav className="flex gap-6">
               <Link to="/requirements" className="hover:underline">Requirements</Link>
               <Link to="/bugs" className="hover:underline">Bugs</Link>
+              <Link to="/logs" className="hover:underline">Logs</Link>
             </nav>
           </div>
         </div>
@@ -23,6 +25,7 @@ function App() {
           <Route path="/" element={<RequirementsBoard />} />
           <Route path="/requirements" element={<RequirementsBoard />} />
           <Route path="/bugs" element={<BugsBoard />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/design-docs/:id" element={<DesignEditor />} />
         </Routes>
       </BrowserRouter>
