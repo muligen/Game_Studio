@@ -127,18 +127,7 @@ def test_get_balance_table_not_found(workspace_path: Path, test_client: TestClie
 
 
 def test_update_balance_table_rows(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient):
-    """PATCH /api/balance-tables/{id} should update table rows.
-
-    NOTE: This endpoint signature matches the spec (using query parameters),
-    but FastAPI cannot parse complex types like list[dict[str, object]] from
-    query parameters. The endpoint returns 200 but doesn't actually update
-    because the parameter defaults to None.
-
-    In a real implementation, this would need either:
-    1. Request body instead of query parameters
-    2. Custom parameter parsing logic
-    3. Different framework that supports complex query params
-    """
+    """PATCH /api/balance-tables/{id} should update table rows."""
     table = BalanceTable(
         id="balance_update",
         requirement_id="req_001",
@@ -151,25 +140,23 @@ def test_update_balance_table_rows(temp_workspace: StudioWorkspace, workspace_pa
         {"values": {"col1": "value1", "col2": "value2"}},
         {"values": {"col1": "value3", "col2": "value4"}},
     ]
-    # Pass parameters as JSON string (FastAPI limitation workaround)
+    # Use request body instead of query parameters
     response = test_client.patch(
-        f"/api/balance-tables/balance_update?workspace={get_workspace_param(workspace_path)}&rows={json.dumps(new_rows)}",
+        f"/api/balance-tables/balance_update?workspace={get_workspace_param(workspace_path)}",
+        json={"rows": new_rows},
     )
-    # Endpoint returns 200 but doesn't update due to FastAPI limitation
     assert response.status_code == 200
     data = response.json()
-    # Rows remain empty because FastAPI can't parse the parameter
-    assert len(data["rows"]) == 0
+    # Verify rows were actually updated
+    assert len(data["rows"]) == 2
+    assert data["rows"][0]["values"]["col1"] == "value1"
+    assert data["rows"][0]["values"]["col2"] == "value2"
+    assert data["rows"][1]["values"]["col1"] == "value3"
+    assert data["rows"][1]["values"]["col2"] == "value4"
 
 
 def test_update_balance_table_locked_cells(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient):
-    """PATCH /api/balance-tables/{id} should update locked cells.
-
-    NOTE: This endpoint signature matches the spec (using query parameters),
-    but FastAPI cannot parse list[str] from query parameters either.
-    The endpoint returns 200 but doesn't actually update because the
-    parameter defaults to None.
-    """
+    """PATCH /api/balance-tables/{id} should update locked cells."""
     table = BalanceTable(
         id="balance_lock",
         requirement_id="req_001",
@@ -179,24 +166,21 @@ def test_update_balance_table_locked_cells(temp_workspace: StudioWorkspace, work
     temp_workspace.balance_tables.save(table)
 
     locked_cells = ["cell1", "cell2"]
-    # Pass parameters as JSON string (FastAPI limitation workaround)
+    # Use request body instead of query parameters
     response = test_client.patch(
-        f"/api/balance-tables/balance_lock?workspace={get_workspace_param(workspace_path)}&locked_cells={json.dumps(locked_cells)}",
+        f"/api/balance-tables/balance_lock?workspace={get_workspace_param(workspace_path)}",
+        json={"locked_cells": locked_cells},
     )
-    # Endpoint returns 200 but doesn't update due to FastAPI limitation
     assert response.status_code == 200
     data = response.json()
-    # Locked cells remain empty because FastAPI can't parse the parameter
-    assert len(data["locked_cells"]) == 0
+    # Verify locked cells were actually updated
+    assert len(data["locked_cells"]) == 2
+    assert "cell1" in data["locked_cells"]
+    assert "cell2" in data["locked_cells"]
 
 
 def test_update_balance_table_invalid_rows(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient):
-    """PATCH /api/balance-tables/{id} should return 400 for invalid row data.
-
-    NOTE: Due to FastAPI limitations, we cannot test the actual validation
-    logic for invalid row data because FastAPI cannot parse the query parameter
-    at all. The parameter defaults to None, so no validation occurs.
-    """
+    """PATCH /api/balance-tables/{id} should return 400 for invalid row data."""
     table = BalanceTable(
         id="balance_invalid",
         requirement_id="req_001",
@@ -207,12 +191,11 @@ def test_update_balance_table_invalid_rows(temp_workspace: StudioWorkspace, work
 
     # Invalid row data (missing 'values' key)
     invalid_rows = [{"invalid": "data"}]
-    # Pass parameters as JSON string (FastAPI limitation workaround)
+    # Use request body instead of query parameters
     response = test_client.patch(
-        f"/api/balance-tables/balance_invalid?workspace={get_workspace_param(workspace_path)}&rows={json.dumps(invalid_rows)}",
+        f"/api/balance-tables/balance_invalid?workspace={get_workspace_param(workspace_path)}",
+        json={"rows": invalid_rows},
     )
-    # Due to FastAPI limitation, parameter is None, so no validation error
-    assert response.status_code == 200
-    data = response.json()
-    # No update occurs because parameter couldn't be parsed
-    assert len(data["rows"]) == 0
+    # Should return 400 due to validation error
+    assert response.status_code == 400
+    assert "detail" in response.json()

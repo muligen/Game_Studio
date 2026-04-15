@@ -3,12 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from studio.schemas.balance_table import BalanceTable, BalanceTableRow
 from studio.storage.workspace import StudioWorkspace
 
 router = APIRouter(prefix="/balance-tables", tags=["balance-tables"])
+
+
+class BalanceTableUpdate(BaseModel):
+    """Request model for updating a balance table."""
+
+    rows: list[dict[str, object]] | None = None
+    locked_cells: list[str] | None = None
 
 
 def _get_workspace(workspace: str) -> StudioWorkspace:
@@ -59,22 +66,21 @@ async def get_balance_table(workspace: str, table_id: str) -> BalanceTable:
 async def update_balance_table(
     workspace: str,
     table_id: str,
-    rows: list[dict[str, object]] | None = None,
-    locked_cells: list[str] | None = None,
+    update: BalanceTableUpdate,
 ) -> BalanceTable:
     """Update a balance table."""
     store = _get_workspace(workspace)
     table = store.balance_tables.get(table_id)
 
     updates: dict[str, object] = {}
-    if rows is not None:
+    if update.rows is not None:
         # Convert dict rows to BalanceTableRow objects
         try:
-            updates["rows"] = [BalanceTableRow(**r) for r in rows]
+            updates["rows"] = [BalanceTableRow(**r) for r in update.rows]
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
-    if locked_cells is not None:
-        updates["locked_cells"] = locked_cells
+    if update.locked_cells is not None:
+        updates["locked_cells"] = update.locked_cells
 
     updated = table.model_copy(update=updates)
     try:
