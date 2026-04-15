@@ -168,3 +168,37 @@ langgraph dev
 2. Open the Studio URL shown by the CLI.
 3. Run the `game_studio_demo` graph with input such as `{"prompt": "Design a simple 2D game concept"}`.
 4. Confirm Studio shows the `planner -> worker -> reviewer` flow and the run completes successfully.
+
+## Web UI
+
+The Game Studio kernel includes a web-based UI for board-centric visualization and real-time collaboration.
+
+### Starting the Web UI
+
+**Development (requires both backend and frontend):**
+
+Terminal 1 - Backend:
+```batch
+uv run uvicorn studio.api.main:create_app --reload
+```
+
+Terminal 2 - Frontend:
+```batch
+cd web
+npm install
+npm run dev
+```
+
+Then open http://localhost:5173
+
+### Features
+
+- **Requirements Board**: Kanban-style view with drag-and-drop status transitions
+- **Bugs Board**: Track bug status with severity indicators
+- **Design Editor**: View and approve design documents
+- **Logs**: Full audit trail of all actions
+- **Real-time Updates**: Changes via CLI are immediately reflected in the UI
+
+### API Documentation
+
+When the backend server is running, visit http://localhost:8000/docs for interactive API documentation.
