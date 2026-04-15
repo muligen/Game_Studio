@@ -77,13 +77,12 @@ export const requirementsApi = {
     title: string,
     priority: 'low' | 'medium' | 'high' = 'medium'
   ): Promise<RequirementCard> => {
-    const formData = new FormData()
-    formData.append('title', title)
-    formData.append('priority', priority)
-
     return apiRequest('/requirements', 'post', {
       params: { workspace },
-      body: formData,
+      body: JSON.stringify({ title, priority }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
     }) as Promise<RequirementCard>
   },
 
@@ -97,12 +96,12 @@ export const requirementsApi = {
     id: string,
     nextStatus: TransitionRequirementRequest['next_status']
   ): Promise<RequirementCard> => {
-    const formData = new FormData()
-    formData.append('next_status', nextStatus)
-
     return apiRequest(`/requirements/${id}/transition`, 'post', {
       params: { workspace },
-      body: formData,
+      body: JSON.stringify({ next_status: nextStatus }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
     }) as Promise<RequirementCard>
   },
 } as const
@@ -187,14 +186,12 @@ export const bugsApi = {
     title: string,
     severity: BugCard['severity']
   ): Promise<BugCard> => {
-    const formData = new FormData()
-    formData.append('requirement_id', requirementId)
-    formData.append('title', title)
-    formData.append('severity', severity)
-
     return apiRequest('/bugs', 'post', {
       params: { workspace },
-      body: formData,
+      body: JSON.stringify({ requirement_id: requirementId, title, severity }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
     }) as Promise<BugCard>
   },
 
@@ -203,12 +200,12 @@ export const bugsApi = {
     id: string,
     nextStatus: BugCard['status']
   ): Promise<BugCard> => {
-    const formData = new FormData()
-    formData.append('next_status', nextStatus)
-
     return apiRequest(`/bugs/${id}/transition`, 'post', {
       params: { workspace },
-      body: formData,
+      body: JSON.stringify({ next_status: nextStatus }),
+      headers: {
+        'Content-Type': 'application/json',
+      },
     }) as Promise<BugCard>
   },
 } as const
