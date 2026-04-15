@@ -5,6 +5,7 @@ import { useWorkspace } from '@/lib/workspace'
 import { designDocsApi } from '@/lib/api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
+import type { DesignDoc } from '@/lib/types'
 
 export function DesignEditor() {
   const { id } = useParams<{ id: string }>()
@@ -13,7 +14,7 @@ export function DesignEditor() {
 
   const { data: design, isLoading } = useQuery({
     queryKey: ['design-doc', id, workspace],
-    queryFn: () => designDocsApi.get(workspace, id!),
+    queryFn: () => designDocsApi.get(workspace, id!) as Promise<DesignDoc>,
     enabled: !!id,
   })
 
@@ -45,10 +46,10 @@ export function DesignEditor() {
     <div className="max-w-4xl mx-auto space-y-6 p-6">
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-3xl font-bold">{(design as any).title}</h1>
+          <h1 className="text-3xl font-bold">{design.title}</h1>
           <p className="text-muted-foreground">{id}</p>
         </div>
-        <Badge>{(design as any).status}</Badge>
+        <Badge>{design.status}</Badge>
       </div>
 
       <Card>
@@ -56,7 +57,7 @@ export function DesignEditor() {
           <CardTitle>Summary</CardTitle>
         </CardHeader>
         <CardContent>
-          <p>{(design as any).summary}</p>
+          <p>{design.summary}</p>
         </CardContent>
       </Card>
 
@@ -66,7 +67,7 @@ export function DesignEditor() {
         </CardHeader>
         <CardContent>
           <ul className="list-disc pl-6 space-y-2">
-            {(design as any).core_rules?.map((rule: string, i: number) => (
+            {design.core_rules?.map((rule: string, i: number) => (
               <li key={i}>{rule}</li>
             ))}
           </ul>
@@ -79,7 +80,7 @@ export function DesignEditor() {
         </CardHeader>
         <CardContent>
           <ul className="list-disc pl-6 space-y-2">
-            {(design as any).acceptance_criteria?.map((criterion: string, i: number) => (
+            {design.acceptance_criteria?.map((criterion: string, i: number) => (
               <li key={i}>{criterion}</li>
             ))}
           </ul>
@@ -92,7 +93,7 @@ export function DesignEditor() {
         </CardHeader>
         <CardContent>
           <ul className="list-disc pl-6 space-y-2">
-            {(design as any).open_questions?.map((question: string, i: number) => (
+            {design.open_questions?.map((question: string, i: number) => (
               <li key={i}>{question}</li>
             ))}
           </ul>
@@ -102,7 +103,7 @@ export function DesignEditor() {
       <div className="flex gap-4">
         <Button
           onClick={() => approveMutation.mutate()}
-          disabled={(design as any).status !== 'pending_user_review'}
+          disabled={design.status !== 'pending_user_review'}
         >
           ✓ Approve
         </Button>
@@ -112,7 +113,7 @@ export function DesignEditor() {
             const reason = prompt('Reason for sending back:')
             if (reason) sendBackMutation.mutate(reason)
           }}
-          disabled={(design as any).status !== 'pending_user_review'}
+          disabled={design.status !== 'pending_user_review'}
         >
           ⏪ Send Back
         </Button>

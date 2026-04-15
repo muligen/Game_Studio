@@ -1,4 +1,4 @@
-import type { components } from './types'
+import type { components, DesignDoc } from './types'
 
 type Methods = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
@@ -6,6 +6,7 @@ type Methods = 'get' | 'post' | 'put' | 'patch' | 'delete'
 export type RequirementCard = components['schemas']['RequirementCard']
 export type TransitionRequirementRequest = components['schemas']['TransitionRequirementRequest']
 export type BugCard = components['schemas']['BugCard']
+export type { DesignDoc }
 
 // Base API client
 const API_BASE = '/api'
@@ -108,42 +109,42 @@ export const requirementsApi = {
 
 // Design Docs API
 export const designDocsApi = {
-  list: (workspace: string): Promise<unknown[]> =>
+  list: (workspace: string): Promise<DesignDoc[]> =>
     apiRequest('/design-docs', 'get', {
       params: { workspace },
-    }) as Promise<unknown[]>,
+    }) as Promise<DesignDoc[]>,
 
-  get: (workspace: string, id: string): Promise<unknown> =>
+  get: (workspace: string, id: string): Promise<DesignDoc> =>
     apiRequest(`/design-docs/${id}`, 'get', {
       params: { workspace },
-    }) as Promise<unknown>,
+    }) as Promise<DesignDoc>,
 
   update: (
     workspace: string,
     id: string,
-    data: Record<string, unknown>
-  ): Promise<unknown> =>
+    data: Partial<DesignDoc>
+  ): Promise<DesignDoc> =>
     apiRequest(`/design-docs/${id}`, 'patch', {
       params: { workspace },
       body: JSON.stringify(data),
       headers: {
         'Content-Type': 'application/json',
       },
-    }) as Promise<unknown>,
+    }) as Promise<DesignDoc>,
 
-  approve: (workspace: string, id: string): Promise<unknown> =>
+  approve: (workspace: string, id: string): Promise<DesignDoc> =>
     apiRequest(`/design-docs/${id}/approve`, 'post', {
       params: { workspace },
-    }) as Promise<unknown>,
+    }) as Promise<DesignDoc>,
 
-  sendBack: (workspace: string, id: string, reason: string): Promise<unknown> => {
+  sendBack: (workspace: string, id: string, reason: string): Promise<DesignDoc> => {
     const formData = new FormData()
     formData.append('reason', reason)
 
     return apiRequest(`/design-docs/${id}/send-back`, 'post', {
       params: { workspace },
       body: formData,
-    }) as Promise<unknown>
+    }) as Promise<DesignDoc>
   },
 } as const
 

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import { RequirementsBoard } from '@/pages/RequirementsBoard'
 import { BugsBoard } from '@/pages/BugsBoard'
-import { DesignEditor } from '@/components/editors/DesignEditor'
+import { DesignEditor } from '@/pages/DesignEditor'
 import './App.css'
 
 const queryClient = new QueryClient()
@@ -23,7 +23,7 @@ function App() {
           <Route path="/" element={<RequirementsBoard />} />
           <Route path="/requirements" element={<RequirementsBoard />} />
           <Route path="/bugs" element={<BugsBoard />} />
-          <Route path="/design/:id" element={<DesignEditor />} />
+          <Route path="/design-docs/:id" element={<DesignEditor />} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>

@@ -164,6 +164,20 @@ export type $defs = Record<string, never>;
 
 export type external = Record<string, never>;
 
+// Design Doc types (not in OpenAPI spec yet)
+export interface DesignDoc {
+  id: string
+  title: string
+  summary: string
+  status: 'draft' | 'pending_user_review' | 'approved' | 'rejected'
+  core_rules: string[]
+  acceptance_criteria: string[]
+  open_questions: string[]
+  requirement_id: string
+  created_at: string
+  updated_at: string
+}
+
 export interface operations {
 
   /** Health */
