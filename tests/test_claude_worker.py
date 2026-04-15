@@ -155,6 +155,64 @@ def test_adapter_parses_fenced_yaml_result() -> None:
     assert payload.genre == "cozy strategy"
 
 
+def test_worker_adapter_delegates_to_role_adapter() -> None:
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class FakeRoleAdapter:
+        def generate(self, role_name: str, context: dict[str, object]) -> dict[str, str]:
+            calls.append((role_name, context))
+            return {
+                "title": "Lantern Vale",
+                "summary": "Restore the valley.",
+                "genre": "cozy strategy",
+            }
+
+    adapter = ClaudeWorkerAdapter(
+        project_root=Path.cwd(),
+        role_adapter=FakeRoleAdapter(),
+    )
+
+    payload = adapter.generate_design_brief("Design a simple 2D game concept")
+
+    assert calls == [("worker", {"prompt": "Design a simple 2D game concept"})]
+    assert isinstance(payload, ClaudeWorkerPayload)
+    assert payload.title == "Lantern Vale"
+    assert payload.summary == "Restore the valley."
+    assert payload.genre == "cozy strategy"
+
+
+def test_worker_adapter_accepts_typed_role_payload() -> None:
+    class TypedRolePayload:
+        title = "Shadow Hopper"
+        summary = "A platformer about drifting through light and shadow."
+        genre = "2D Platformer"
+
+        def model_dump(self) -> dict[str, str]:
+            return {
+                "title": self.title,
+                "summary": self.summary,
+                "genre": self.genre,
+            }
+
+    class FakeRoleAdapter:
+        def generate(self, role_name: str, context: dict[str, object]) -> TypedRolePayload:
+            assert role_name == "worker"
+            assert context == {"prompt": "Design a simple 2D game concept"}
+            return TypedRolePayload()
+
+    adapter = ClaudeWorkerAdapter(
+        project_root=Path.cwd(),
+        role_adapter=FakeRoleAdapter(),
+    )
+
+    payload = adapter.generate_design_brief("Design a simple 2D game concept")
+
+    assert isinstance(payload, ClaudeWorkerPayload)
+    assert payload.title == "Shadow Hopper"
+    assert payload.summary == "A platformer about drifting through light and shadow."
+    assert payload.genre == "2D Platformer"
+
+
 def test_adapter_uses_subprocess_fallback_for_blocking_getcwd(monkeypatch: pytest.MonkeyPatch) -> None:
     adapter = ClaudeWorkerAdapter(project_root=Path.cwd())
 
