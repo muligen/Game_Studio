@@ -27,54 +27,26 @@ async def run_design_workflow(
     """Run the design workflow for a requirement."""
     store = _get_workspace(workspace)
 
-    # Get requirement with error handling
     try:
         requirement = store.requirements.get(requirement_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Requirement {requirement_id} not found")
 
-    # Transition through design states with error handling
+    from studio.runtime.executor import DesignWorkflowExecutor
+
+    executor = DesignWorkflowExecutor()
     try:
-        designing = transition_requirement(requirement, "designing")
-        pending_review = transition_requirement(designing, "pending_user_review")
+        result = executor.run(store, requirement, workspace_root=str(Path(workspace) / ".studio-data"))
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid state transition: {str(e)}")
-
-    # Create design doc
-    design_doc = DesignDoc(
-        id=f"design_{requirement.id.split('_')[-1]}",
-        requirement_id=requirement.id,
-        title=f"{requirement.title} Design",
-        summary=requirement.title,
-        core_rules=["rule 1"],
-        acceptance_criteria=["criterion 1"],
-        open_questions=["question 1"],
-        status="pending_user_review",
-    )
-
-    # Update requirement with design doc link
-    updated_req = pending_review.model_copy(update={"design_doc_id": design_doc.id})
-
-    store.design_docs.save(design_doc)
-    store.requirements.save(updated_req)
-    await broadcast_entity_changed(
-        workspace=workspace,
-        entity_type="design_doc",
-        entity_id=design_doc.id,
-        action="created",
-    )
-    await broadcast_entity_changed(
-        workspace=workspace,
-        entity_type="requirement",
-        entity_id=updated_req.id,
-        action="updated",
-    )
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Workflow execution failed: {str(e)}")
 
     return {
-        "requirement_id": updated_req.id,
-        "requirement_status": updated_req.status,
-        "design_doc_id": design_doc.id,
-        "design_doc_status": design_doc.status,
+        "requirement_id": result.get("requirement_id", requirement_id),
+        "requirement_status": "pending_user_review",
+        "design_doc_id": result.get("design_doc_id"),
+        "design_doc_status": "pending_user_review",
     }
 
 
