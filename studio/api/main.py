@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from studio.api.routes import balance_tables, bugs, design_docs, logs, requirements, workflows
+from studio.api.websocket import get_websocket_manager
 
 
 def create_app() -> FastAPI:
@@ -38,5 +39,33 @@ def create_app() -> FastAPI:
     app.include_router(bugs.router, prefix="/api")
     app.include_router(logs.router, prefix="/api")
     app.include_router(workflows.router, prefix="/api")
+
+    # WebSocket endpoint for real-time updates
+    @app.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket) -> None:
+        """WebSocket endpoint for real-time updates."""
+        manager = get_websocket_manager()
+        await manager.connect(websocket)
+
+        try:
+            # Send connected message
+            await websocket.send_json({"type": "connected"})
+
+            # Keep connection alive and handle incoming messages
+            while True:
+                data = await websocket.receive_json()
+
+                if data.get("type") == "subscribe":
+                    # Subscribe to workspace updates
+                    workspace = data.get("workspace", ".studio-data")
+                    # In a real implementation, we'd start a file watcher here
+                    # For now, just acknowledge
+                    await websocket.send_json({
+                        "type": "subscribed",
+                        "workspace": workspace
+                    })
+
+        except WebSocketDisconnect:
+            manager.disconnect(websocket)
 
     return app
