@@ -1,0 +1,11 @@
+{
+  "id": "bug_b2bd29ae",
+  "requirement_id": "req_bd3981f7",
+  "title": "Add missing error handling",
+  "severity": "medium",
+  "status": "fixing",
+  "reopen_count": 0,
+  "owner": "dev_agent",
+  "repro_steps": [],
+  "notes": []
+}

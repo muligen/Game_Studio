@@ -1,0 +1,11 @@
+{
+  "id": "bug_a7b93cc1",
+  "requirement_id": "req_1a89dc49",
+  "title": "Fix authentication token expiration",
+  "severity": "high",
+  "status": "new",
+  "reopen_count": 0,
+  "owner": "qa_agent",
+  "repro_steps": [],
+  "notes": []
+}

@@ -85,7 +85,7 @@ export function CreateBugDialog({ workspace }: CreateBugDialogProps) {
           </div>
           {createMutation.error && (
             <p className="text-sm text-red-600">
-              Error: {createMutation.error.message}
+              Error: {String(createMutation.error)}
             </p>
           )}
           <div className="flex justify-end gap-3">

@@ -1,0 +1,12 @@
+{
+  "id": "req_7a0fb71c",
+  "title": "Test Feature from curl",
+  "type": "requirement",
+  "priority": "high",
+  "status": "designing",
+  "owner": "design_agent",
+  "design_doc_id": null,
+  "balance_table_ids": [],
+  "bug_ids": [],
+  "notes": []
+}

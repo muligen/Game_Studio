@@ -1,0 +1,12 @@
+{
+  "id": "req_9eb43545",
+  "title": "Implement user authentication",
+  "type": "requirement",
+  "priority": "high",
+  "status": "draft",
+  "owner": "design_agent",
+  "design_doc_id": null,
+  "balance_table_ids": [],
+  "bug_ids": [],
+  "notes": []
+}
