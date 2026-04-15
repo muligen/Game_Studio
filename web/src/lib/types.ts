@@ -174,6 +174,7 @@ export interface DesignDoc {
   acceptance_criteria: string[]
   open_questions: string[]
   requirement_id: string
+  sent_back_reason?: string | null
   created_at: string
   updated_at: string
 }
