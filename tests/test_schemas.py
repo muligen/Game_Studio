@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from studio.schemas.artifact import ArtifactRecord
+from studio.schemas.design_doc import DesignDoc
 from studio.schemas.runtime import NodeDecision, NodeResult, RuntimeState
 
 
@@ -132,3 +133,24 @@ def test_node_result_rejects_extra_fields() -> None:
             oops="no",
         )
     assert "extra" in str(exc.value).lower()
+
+
+def test_design_doc_accepts_sent_back_reason() -> None:
+    doc = DesignDoc(
+        id="design_1",
+        requirement_id="req_1",
+        title="Test",
+        summary="Test summary",
+        sent_back_reason="Need more detail on core rules",
+    )
+    assert doc.sent_back_reason == "Need more detail on core rules"
+
+
+def test_design_doc_sent_back_reason_defaults_none() -> None:
+    doc = DesignDoc(
+        id="design_1",
+        requirement_id="req_1",
+        title="Test",
+        summary="Test summary",
+    )
+    assert doc.sent_back_reason is None

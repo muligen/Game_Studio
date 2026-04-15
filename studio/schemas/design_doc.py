@@ -21,3 +21,4 @@ class DesignDoc(BaseModel):
     acceptance_criteria: list[StrippedNonEmptyStr] = Field(default_factory=list)
     open_questions: list[StrippedNonEmptyStr] = Field(default_factory=list)
     status: DesignDocStatus = "draft"
+    sent_back_reason: str | None = None
