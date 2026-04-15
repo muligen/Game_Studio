@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from studio.api.routes import design_docs, requirements
+from studio.api.routes import balance_tables, design_docs, requirements
 
 
 def create_app() -> FastAPI:
@@ -34,5 +34,6 @@ def create_app() -> FastAPI:
     # Register API routes
     app.include_router(requirements.router, prefix="/api")
     app.include_router(design_docs.router, prefix="/api")
+    app.include_router(balance_tables.router, prefix="/api")
 
     return app
