@@ -25,11 +25,19 @@ async def run_design_workflow(
 ) -> dict[str, object]:
     """Run the design workflow for a requirement."""
     store = _get_workspace(workspace)
-    requirement = store.requirements.get(requirement_id)
 
-    # Transition through design states
-    designing = transition_requirement(requirement, "designing")
-    pending_review = transition_requirement(designing, "pending_user_review")
+    # Get requirement with error handling
+    try:
+        requirement = store.requirements.get(requirement_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Requirement {requirement_id} not found")
+
+    # Transition through design states with error handling
+    try:
+        designing = transition_requirement(requirement, "designing")
+        pending_review = transition_requirement(designing, "pending_user_review")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid state transition: {str(e)}")
 
     # Create design doc
     design_doc = DesignDoc(
@@ -64,25 +72,46 @@ async def run_dev_workflow(
 ) -> dict[str, object]:
     """Run the dev workflow for a requirement."""
     store = _get_workspace(workspace)
-    requirement = store.requirements.get(requirement_id)
+
+    # Get requirement with error handling
+    try:
+        requirement = store.requirements.get(requirement_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Requirement {requirement_id} not found")
 
     # Validate ready for dev
     from studio.domain.services import validate_requirement_ready_for_dev
 
-    design_doc = store.design_docs.get(requirement.design_doc_id or "")
-    balance_tables = [
-        store.balance_tables.get(bt_id)
-        for bt_id in requirement.balance_table_ids
-    ]
+    # Validate design_doc_id exists
+    if not requirement.design_doc_id:
+        raise HTTPException(status_code=400, detail="Requirement must have a design_doc_id to run dev workflow")
+
+    # Get design doc with error handling
+    try:
+        design_doc = store.design_docs.get(requirement.design_doc_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Design doc {requirement.design_doc_id} not found")
+
+    # Get balance tables with error handling - skip missing ones
+    balance_tables = []
+    for bt_id in requirement.balance_table_ids:
+        try:
+            balance_tables.append(store.balance_tables.get(bt_id))
+        except FileNotFoundError:
+            # Skip missing balance tables gracefully
+            continue
 
     try:
         validate_requirement_ready_for_dev(requirement, design_doc, balance_tables)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Transition to implementing
-    implementing = transition_requirement(requirement, "implementing")
-    self_test_passed = transition_requirement(implementing, "self_test_passed")
+    # Transition to implementing with error handling
+    try:
+        implementing = transition_requirement(requirement, "implementing")
+        self_test_passed = transition_requirement(implementing, "self_test_passed")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid state transition: {str(e)}")
 
     updated = store.requirements.save(self_test_passed)
 
@@ -100,10 +129,18 @@ async def run_qa_workflow(
 ) -> dict[str, object]:
     """Run the QA workflow for a requirement."""
     store = _get_workspace(workspace)
-    requirement = store.requirements.get(requirement_id)
 
-    # Transition to testing
-    testing = transition_requirement(requirement, "testing")
+    # Get requirement with error handling
+    try:
+        requirement = store.requirements.get(requirement_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Requirement {requirement_id} not found")
+
+    # Transition to testing with error handling
+    try:
+        testing = transition_requirement(requirement, "testing")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid state transition: {str(e)}")
 
     if not fail:
         # Pass and go to user acceptance

@@ -127,3 +127,122 @@ def test_run_dev_workflow_validation_failure(temp_workspace: StudioWorkspace, wo
     assert response.status_code == 400
     assert "must be approved" in response.json()["detail"].lower()
 
+
+def test_run_design_workflow_missing_requirement(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-design should return 404 when requirement doesn't exist."""
+    # Don't create any requirement - try to run workflow on non-existent one
+    response = test_client.post(
+        f"/api/workflows/run-design?workspace={get_workspace_param(workspace_path)}&requirement_id=nonexistent"
+    )
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_run_design_workflow_invalid_state_transition(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-design should return 400 when state transition is invalid."""
+    # Create requirement in a state that can't transition to "designing"
+    req = RequirementCard(id="req_006", title="Invalid Transition", status="implementing")
+    temp_workspace.requirements.save(req)
+
+    response = test_client.post(
+        f"/api/workflows/run-design?workspace={get_workspace_param(workspace_path)}&requirement_id=req_006"
+    )
+    assert response.status_code == 400
+    assert "invalid state transition" in response.json()["detail"].lower()
+
+
+def test_run_dev_workflow_missing_requirement(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-dev should return 404 when requirement doesn't exist."""
+    response = test_client.post(
+        f"/api/workflows/run-dev?workspace={get_workspace_param(workspace_path)}&requirement_id=nonexistent"
+    )
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_run_dev_workflow_missing_design_doc_id(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-dev should return 400 when design_doc_id is missing."""
+    req = RequirementCard(id="req_007", title="No Design Doc", status="approved", design_doc_id=None)
+    temp_workspace.requirements.save(req)
+
+    response = test_client.post(
+        f"/api/workflows/run-dev?workspace={get_workspace_param(workspace_path)}&requirement_id=req_007"
+    )
+    assert response.status_code == 400
+    assert "design_doc_id" in response.json()["detail"].lower()
+
+
+def test_run_dev_workflow_missing_design_doc(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-dev should return 404 when design doc doesn't exist."""
+    req = RequirementCard(id="req_008", title="Missing Design Doc", status="approved", design_doc_id="nonexistent_design")
+    temp_workspace.requirements.save(req)
+
+    response = test_client.post(
+        f"/api/workflows/run-dev?workspace={get_workspace_param(workspace_path)}&requirement_id=req_008"
+    )
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_run_dev_workflow_missing_balance_tables(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-dev should return proper error when balance tables are missing."""
+    from studio.schemas.balance_table import BalanceTable
+
+    # Create requirement with balance table IDs that don't all exist
+    req = RequirementCard(
+        id="req_009",
+        title="Missing Balance Tables",
+        status="approved",
+        design_doc_id="design_009",
+        balance_table_ids=["existing_bt", "missing_bt"]
+    )
+    temp_workspace.requirements.save(req)
+
+    # Create one of the two balance tables
+    existing_bt = BalanceTable(
+        id="existing_bt",
+        requirement_id="req_009",
+        table_name="Existing Balance Table",
+        rows=[],
+    )
+    temp_workspace.balance_tables.save(existing_bt)
+
+    # Create approved design doc
+    design_doc = DesignDoc(
+        id="design_009",
+        requirement_id="req_009",
+        title="Design",
+        summary="Design",
+        status="approved",
+    )
+    temp_workspace.design_docs.save(design_doc)
+
+    # Should return 400 with validation error about missing balance tables
+    response = test_client.post(
+        f"/api/workflows/run-dev?workspace={get_workspace_param(workspace_path)}&requirement_id=req_009"
+    )
+    assert response.status_code == 400
+    assert "missing" in response.json()["detail"].lower() or "balance" in response.json()["detail"].lower()
+
+
+def test_run_qa_workflow_missing_requirement(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-qa should return 404 when requirement doesn't exist."""
+    response = test_client.post(
+        f"/api/workflows/run-qa?workspace={get_workspace_param(workspace_path)}&requirement_id=nonexistent"
+    )
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_run_qa_workflow_invalid_state_transition(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient) -> None:
+    """POST /api/workflows/run-qa should return 400 when state transition is invalid."""
+    # Create requirement in a state that can't transition to "testing"
+    req = RequirementCard(id="req_010", title="Invalid Transition", status="draft")
+    temp_workspace.requirements.save(req)
+
+    response = test_client.post(
+        f"/api/workflows/run-qa?workspace={get_workspace_param(workspace_path)}&requirement_id=req_010"
+    )
+    assert response.status_code == 400
+    assert "invalid state transition" in response.json()["detail"].lower()
+
