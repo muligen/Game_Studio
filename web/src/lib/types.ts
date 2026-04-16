@@ -35,12 +35,256 @@ export interface paths {
      */
     post: operations["transition_requirement_status_api_requirements__req_id__transition_post"];
   };
+  "/api/design-docs": {
+    /**
+     * List Design Docs
+     * @description List all design docs in the workspace.
+     */
+    get: operations["list_design_docs_api_design_docs_get"];
+  };
+  "/api/design-docs/{design_id}": {
+    /**
+     * Get Design Doc
+     * @description Get a specific design doc by ID.
+     */
+    get: operations["get_design_doc_api_design_docs__design_id__get"];
+    /**
+     * Update Design Doc
+     * @description Update a design doc.
+     */
+    patch: operations["update_design_doc_api_design_docs__design_id__patch"];
+  };
+  "/api/design-docs/{design_id}/approve": {
+    /**
+     * Approve Design
+     * @description Approve a design doc and transition the linked requirement.
+     */
+    post: operations["approve_design_api_design_docs__design_id__approve_post"];
+  };
+  "/api/design-docs/{design_id}/send-back": {
+    /**
+     * Send Back Design
+     * @description Send back a design doc for revision.
+     */
+    post: operations["send_back_design_api_design_docs__design_id__send_back_post"];
+  };
+  "/api/balance-tables": {
+    /**
+     * List Balance Tables
+     * @description List all balance tables.
+     */
+    get: operations["list_balance_tables_api_balance_tables_get"];
+    /**
+     * Create Balance Table
+     * @description Create a new balance table.
+     */
+    post: operations["create_balance_table_api_balance_tables_post"];
+  };
+  "/api/balance-tables/{table_id}": {
+    /**
+     * Get Balance Table
+     * @description Get a specific balance table.
+     */
+    get: operations["get_balance_table_api_balance_tables__table_id__get"];
+    /**
+     * Update Balance Table
+     * @description Update a balance table.
+     */
+    patch: operations["update_balance_table_api_balance_tables__table_id__patch"];
+  };
+  "/api/bugs": {
+    /**
+     * List Bugs
+     * @description List all bugs in the workspace.
+     */
+    get: operations["list_bugs_api_bugs_get"];
+    /**
+     * Create Bug
+     * @description Create a new bug.
+     */
+    post: operations["create_bug_api_bugs_post"];
+  };
+  "/api/bugs/{bug_id}": {
+    /**
+     * Get Bug
+     * @description Get a specific bug by ID.
+     */
+    get: operations["get_bug_api_bugs__bug_id__get"];
+  };
+  "/api/bugs/{bug_id}/transition": {
+    /**
+     * Transition Bug Status
+     * @description Transition a bug to a new status.
+     */
+    post: operations["transition_bug_status_api_bugs__bug_id__transition_post"];
+  };
+  "/api/logs": {
+    /**
+     * List Logs
+     * @description List action logs, most recent first.
+     */
+    get: operations["list_logs_api_logs_get"];
+  };
+  "/api/workflows/run-design": {
+    /**
+     * Run Design Workflow
+     * @description Run the design workflow for a requirement.
+     */
+    post: operations["run_design_workflow_api_workflows_run_design_post"];
+  };
+  "/api/workflows/run-dev": {
+    /**
+     * Run Dev Workflow
+     * @description Run the dev workflow for a requirement.
+     */
+    post: operations["run_dev_workflow_api_workflows_run_dev_post"];
+  };
+  "/api/workflows/run-qa": {
+    /**
+     * Run Qa Workflow
+     * @description Run the QA workflow for a requirement.
+     */
+    post: operations["run_qa_workflow_api_workflows_run_qa_post"];
+  };
 }
 
 export type webhooks = Record<string, never>;
 
 export interface components {
   schemas: {
+    /** ActionLog */
+    ActionLog: {
+      /** Id */
+      id: string;
+      /**
+       * Timestamp
+       * Format: date-time
+       */
+      timestamp: string;
+      /** Actor */
+      actor: string;
+      /** Action */
+      action: string;
+      /** Target Type */
+      target_type: string;
+      /** Target Id */
+      target_id: string;
+      /** Message */
+      message: string;
+      /** Metadata */
+      metadata?: {
+        [key: string]: components["schemas"]["JsonValue"];
+      };
+    };
+    /** BalanceTable */
+    BalanceTable: {
+      /** Id */
+      id: string;
+      /** Requirement Id */
+      requirement_id: string;
+      /** Table Name */
+      table_name: string;
+      /** Columns */
+      columns?: string[];
+      /** Rows */
+      rows?: components["schemas"]["BalanceTableRow"][];
+      /** Locked Cells */
+      locked_cells?: string[];
+      /**
+       * Status
+       * @default draft
+       * @enum {string}
+       */
+      status?: "draft" | "pending_user_review" | "approved" | "sent_back";
+    };
+    /** BalanceTableRow */
+    BalanceTableRow: {
+      /** Values */
+      values: {
+        [key: string]: string | number | boolean;
+      };
+    };
+    /**
+     * BalanceTableUpdate
+     * @description Request model for updating a balance table.
+     */
+    BalanceTableUpdate: {
+      /** Rows */
+      rows?: {
+          [key: string]: unknown;
+        }[] | null;
+      /** Locked Cells */
+      locked_cells?: string[] | null;
+    };
+    /** Body_send_back_design_api_design_docs__design_id__send_back_post */
+    Body_send_back_design_api_design_docs__design_id__send_back_post: {
+      /** Reason */
+      reason: string;
+    };
+    /** Body_update_design_doc_api_design_docs__design_id__patch */
+    Body_update_design_doc_api_design_docs__design_id__patch: {
+      /** Title */
+      title?: string | null;
+      /** Summary */
+      summary?: string | null;
+      /** Core Rules */
+      core_rules?: string[] | null;
+      /** Acceptance Criteria */
+      acceptance_criteria?: string[] | null;
+      /** Open Questions */
+      open_questions?: string[] | null;
+    };
+    /** BugCard */
+    BugCard: {
+      /** Id */
+      id: string;
+      /** Requirement Id */
+      requirement_id: string;
+      /** Title */
+      title: string;
+      /**
+       * Severity
+       * @enum {string}
+       */
+      severity: "low" | "medium" | "high" | "critical";
+      /**
+       * Status
+       * @default new
+       * @enum {string}
+       */
+      status?: "new" | "fixing" | "fixed" | "verifying" | "closed" | "reopened" | "needs_user_decision";
+      /**
+       * Reopen Count
+       * @default 0
+       */
+      reopen_count?: number;
+      /** Owner */
+      owner: string;
+      /** Repro Steps */
+      repro_steps?: string[];
+      /** Notes */
+      notes?: string[];
+    };
+    /**
+     * CreateBugRequest
+     * @description Request model for creating a bug.
+     */
+    CreateBugRequest: {
+      /** Requirement Id */
+      requirement_id: string;
+      /** Title */
+      title: string;
+      /**
+       * Severity
+       * @enum {string}
+       */
+      severity: "low" | "medium" | "high" | "critical";
+      /**
+       * Owner
+       * @default qa_agent
+       */
+      owner?: string;
+    };
     /**
      * CreateRequirementRequest
      * @description Request model for creating a requirement.
@@ -51,14 +295,41 @@ export interface components {
       /**
        * Priority
        * @default medium
+       * @enum {string}
        */
-      priority?: string;
+      priority?: "low" | "medium" | "high";
+    };
+    /** DesignDoc */
+    DesignDoc: {
+      /** Id */
+      id: string;
+      /** Requirement Id */
+      requirement_id: string;
+      /** Title */
+      title: string;
+      /** Summary */
+      summary: string;
+      /** Core Rules */
+      core_rules?: string[];
+      /** Acceptance Criteria */
+      acceptance_criteria?: string[];
+      /** Open Questions */
+      open_questions?: string[];
+      /**
+       * Status
+       * @default draft
+       * @enum {string}
+       */
+      status?: "draft" | "pending_user_review" | "approved" | "sent_back";
+      /** Sent Back Reason */
+      sent_back_reason?: string | null;
     };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
       detail?: components["schemas"]["ValidationError"][];
     };
+    JsonValue: unknown;
     /** RequirementCard */
     RequirementCard: {
       /** Id */
@@ -98,6 +369,17 @@ export interface components {
       notes?: string[];
     };
     /**
+     * TransitionBugRequest
+     * @description Request model for transitioning a bug status.
+     */
+    TransitionBugRequest: {
+      /**
+       * Next Status
+       * @enum {string}
+       */
+      next_status: "new" | "fixing" | "fixed" | "verifying" | "closed" | "reopened" | "needs_user_decision";
+    };
+    /**
      * TransitionRequirementRequest
      * @description Request model for transitioning a requirement status.
      */
@@ -121,37 +403,6 @@ export interface components {
       /** Context */
       ctx?: Record<string, never>;
     };
-    /** BugCard */
-    BugCard: {
-      /** Id */
-      id: string;
-      /** Requirement Id */
-      requirement_id: string;
-      /** Title */
-      title: string;
-      /**
-       * Severity
-       * @enum {string}
-       */
-      severity: "low" | "medium" | "high" | "critical";
-      /**
-       * Status
-       * @default new
-       * @enum {string}
-       */
-      status: "new" | "fixing" | "fixed" | "verifying" | "closed" | "reopened" | "needs_user_decision";
-      /**
-       * Reopen Count
-       * @default 0
-       */
-      reopen_count: number;
-      /** Owner */
-      owner: string;
-      /** Repro Steps */
-      repro_steps?: string[];
-      /** Notes */
-      notes?: string[];
-    };
   };
   responses: never;
   parameters: never;
@@ -163,21 +414,6 @@ export interface components {
 export type $defs = Record<string, never>;
 
 export type external = Record<string, never>;
-
-// Design Doc types (not in OpenAPI spec yet)
-export interface DesignDoc {
-  id: string
-  title: string
-  summary: string
-  status: 'draft' | 'pending_user_review' | 'approved' | 'sent_back'
-  core_rules: string[]
-  acceptance_criteria: string[]
-  open_questions: string[]
-  requirement_id: string
-  sent_back_reason?: string | null
-  created_at: string
-  updated_at: string
-}
 
 export interface operations {
 
@@ -300,6 +536,497 @@ export interface operations {
       200: {
         content: {
           "application/json": components["schemas"]["RequirementCard"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * List Design Docs
+   * @description List all design docs in the workspace.
+   */
+  list_design_docs_api_design_docs_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DesignDoc"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Design Doc
+   * @description Get a specific design doc by ID.
+   */
+  get_design_doc_api_design_docs__design_id__get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        design_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DesignDoc"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Update Design Doc
+   * @description Update a design doc.
+   */
+  update_design_doc_api_design_docs__design_id__patch: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        design_id: string;
+      };
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["Body_update_design_doc_api_design_docs__design_id__patch"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DesignDoc"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Approve Design
+   * @description Approve a design doc and transition the linked requirement.
+   */
+  approve_design_api_design_docs__design_id__approve_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        design_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Send Back Design
+   * @description Send back a design doc for revision.
+   */
+  send_back_design_api_design_docs__design_id__send_back_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        design_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["Body_send_back_design_api_design_docs__design_id__send_back_post"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * List Balance Tables
+   * @description List all balance tables.
+   */
+  list_balance_tables_api_balance_tables_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BalanceTable"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Create Balance Table
+   * @description Create a new balance table.
+   */
+  create_balance_table_api_balance_tables_post: {
+    parameters: {
+      query: {
+        workspace: string;
+        requirement_id: string;
+        table_name: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BalanceTable"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Balance Table
+   * @description Get a specific balance table.
+   */
+  get_balance_table_api_balance_tables__table_id__get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        table_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BalanceTable"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Update Balance Table
+   * @description Update a balance table.
+   */
+  update_balance_table_api_balance_tables__table_id__patch: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        table_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BalanceTableUpdate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BalanceTable"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * List Bugs
+   * @description List all bugs in the workspace.
+   */
+  list_bugs_api_bugs_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BugCard"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Create Bug
+   * @description Create a new bug.
+   */
+  create_bug_api_bugs_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateBugRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BugCard"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Bug
+   * @description Get a specific bug by ID.
+   */
+  get_bug_api_bugs__bug_id__get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        bug_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BugCard"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Transition Bug Status
+   * @description Transition a bug to a new status.
+   */
+  transition_bug_status_api_bugs__bug_id__transition_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        bug_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TransitionBugRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["BugCard"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * List Logs
+   * @description List action logs, most recent first.
+   */
+  list_logs_api_logs_get: {
+    parameters: {
+      query: {
+        workspace: string;
+        limit?: number;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["ActionLog"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Run Design Workflow
+   * @description Run the design workflow for a requirement.
+   */
+  run_design_workflow_api_workflows_run_design_post: {
+    parameters: {
+      query: {
+        workspace: string;
+        requirement_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Run Dev Workflow
+   * @description Run the dev workflow for a requirement.
+   */
+  run_dev_workflow_api_workflows_run_dev_post: {
+    parameters: {
+      query: {
+        workspace: string;
+        requirement_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Run Qa Workflow
+   * @description Run the QA workflow for a requirement.
+   */
+  run_qa_workflow_api_workflows_run_qa_post: {
+    parameters: {
+      query: {
+        workspace: string;
+        requirement_id: string;
+        fail?: boolean;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
         };
       };
       /** @description Validation Error */
