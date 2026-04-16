@@ -7,7 +7,7 @@ import { useWorkspace } from '@/lib/workspace'
 import { designDocsApi } from '@/lib/api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
-import type { DesignDoc } from '@/lib/types'
+import type { DesignDoc } from '@/lib/custom-types'
 
 function EditableList({ items, onChange, disabled }: {
   items: string[]

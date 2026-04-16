@@ -1,11 +1,12 @@
-import type { components, DesignDoc } from './types'
+import type { components } from './types'
+import type { DesignDoc, BugCard } from './custom-types'
 
 type Methods = 'get' | 'post' | 'put' | 'patch' | 'delete'
 
 // Type aliases for convenience
 export type RequirementCard = components['schemas']['RequirementCard']
 export type TransitionRequirementRequest = components['schemas']['TransitionRequirementRequest']
-export type BugCard = components['schemas']['BugCard']
+export type { BugCard }
 export type { DesignDoc }
 export type DesignDocMutationResult = {
   design_doc: DesignDoc
