@@ -101,11 +101,7 @@ class WorkflowPoller:
         # New designs: draft status
         if req.status == "draft":
             return True
-        # Reworks: designing status with sent_back design doc
-        if req.status == "designing" and req.design_doc_id:
-            try:
-                doc = workspace.design_docs.get(req.design_doc_id)
-                return doc.status == "sent_back"
-            except FileNotFoundError:
-                return False
+        # Reworks: designing status means it needs (re-)designing
+        if req.status == "designing":
+            return True
         return False

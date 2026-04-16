@@ -99,10 +99,10 @@ def test_tick_picks_up_sent_back_rework(
     mock_executor.run.assert_called_once()
 
 
-def test_tick_skips_designing_without_sent_back_doc(
+def test_tick_picks_up_designing_without_sent_back_doc(
     tmp_path: Path, workspace: StudioWorkspace, poller: WorkflowPoller
 ):
-    """Poller should skip designing requirements whose design doc is not sent_back."""
+    """Poller should pick up designing requirements regardless of design doc status."""
     req = RequirementCard(
         id="req_1",
         title="Test Game",
@@ -121,8 +121,12 @@ def test_tick_skips_designing_without_sent_back_doc(
 
     with patch("studio.runtime.poller.DesignWorkflowExecutor") as MockExecutor:
         mock_executor = MagicMock()
+        mock_executor.run.return_value = {
+            "requirement_id": "req_1",
+            "design_doc_id": "design_1",
+        }
         MockExecutor.return_value = mock_executor
 
         poller._tick()
 
-    mock_executor.run.assert_not_called()
+    mock_executor.run.assert_called_once()
