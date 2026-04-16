@@ -11,6 +11,14 @@ from studio.storage.workspace import StudioWorkspace
 logger = logging.getLogger(__name__)
 
 
+async def _broadcast_changes(changes: list[dict[str, str]]) -> None:
+    """Broadcast entity changes via WebSocket."""
+    from studio.api.websocket import broadcast_entity_changed
+
+    for change in changes:
+        await broadcast_entity_changed(**change)
+
+
 class WorkflowPoller:
     """Background poller that auto-discovers eligible requirements and runs the design workflow."""
 
@@ -29,7 +37,10 @@ class WorkflowPoller:
         logger.info("WorkflowPoller started (interval=%ds, workspace=%s)", self.interval, self.workspace_path)
         while self._running:
             try:
-                await asyncio.get_event_loop().run_in_executor(None, self._tick)
+                changed = await asyncio.get_event_loop().run_in_executor(None, self._tick)
+                # Broadcast changes via WebSocket
+                if changed:
+                    await _broadcast_changes(changed)
             except Exception:
                 logger.exception("poller tick failed")
             await asyncio.sleep(self.interval)
@@ -39,23 +50,39 @@ class WorkflowPoller:
         self._running = False
         logger.info("WorkflowPoller stopping")
 
-    def _tick(self) -> None:
+    def _tick(self) -> list[dict[str, str]]:
         """Single scan: find eligible requirements and execute."""
         workspace = StudioWorkspace(self.workspace_path)
         workspace.ensure_layout()
 
         requirements = workspace.requirements.list_all()
         executor = DesignWorkflowExecutor()
+        changed: list[dict[str, str]] = []
 
         for req in requirements:
             if self._is_eligible(req, workspace):
                 logger.info("poller picked up requirement %s (status=%s)", req.id, req.status)
                 try:
-                    executor.run(
+                    result = executor.run(
                         workspace,
                         req,
                         workspace_root=str(self.workspace_path),
                     )
+                    workspace_name = str(self.workspace_path.parent) if self.workspace_path.name == ".studio-data" else str(self.workspace_path)
+                    changed.append({
+                        "workspace": workspace_name,
+                        "entity_type": "requirement",
+                        "entity_id": req.id,
+                        "action": "updated",
+                    })
+                    design_doc_id = result.get("design_doc_id")
+                    if design_doc_id:
+                        changed.append({
+                            "workspace": workspace_name,
+                            "entity_type": "design_doc",
+                            "entity_id": str(design_doc_id),
+                            "action": "created",
+                        })
                 except Exception:
                     logger.exception("executor failed for requirement %s", req.id)
                     # Roll back to draft so the poller can retry on the next tick
@@ -66,6 +93,8 @@ class WorkflowPoller:
                             logger.info("rolled back requirement %s to draft", req.id)
                         except Exception:
                             logger.exception("failed to roll back requirement %s", req.id)
+
+        return changed
 
     def _is_eligible(self, req, workspace: StudioWorkspace) -> bool:
         """Check if a requirement is eligible for design workflow execution."""
