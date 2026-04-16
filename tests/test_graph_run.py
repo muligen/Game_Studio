@@ -154,6 +154,65 @@ def test_demo_runtime_preserves_state_patch_fields_in_result_and_checkpoints(
     assert any(payload["risks"] == ["reviewed"] for payload in checkpoint_payloads.values())
 
 
+def test_demo_runtime_stays_completed_when_reviewer_continues_with_risks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _StubAgent:
+        def __init__(self, result: NodeResult) -> None:
+            self._result = result
+
+        def run(self, state, **kwargs):
+            return self._result
+
+    class _StubDispatcher:
+        def __init__(self) -> None:
+            self._agents = {
+                "planner": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={"plan": {"current_node": "planner"}},
+                        trace={"node": "planner"},
+                    )
+                ),
+                "worker": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={"plan": {"current_node": "worker"}},
+                        artifacts=[
+                            ArtifactRecord(
+                                artifact_id="concept-draft",
+                                artifact_type="design_brief",
+                                source_node="worker",
+                                payload={"title": "Relics", "summary": "desc", "genre": "rpg"},
+                            )
+                        ],
+                        trace={"node": "worker"},
+                    )
+                ),
+                "reviewer": _StubAgent(
+                    NodeResult(
+                        decision=NodeDecision.CONTINUE,
+                        state_patch={
+                            "plan": {"current_node": "reviewer"},
+                            "risks": ["watch economy balance"],
+                        },
+                        trace={"node": "reviewer"},
+                    )
+                ),
+            }
+
+        def get(self, node_name: str):
+            return self._agents[node_name]
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _StubDispatcher)
+
+    runtime = build_demo_runtime(tmp_path)
+    result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    assert result["risks"] == ["watch economy balance"]
+    assert result["telemetry"]["status"] == "completed"
+
+
 def test_demo_runtime_handles_missing_review_artifact_without_crashing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

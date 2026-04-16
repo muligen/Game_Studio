@@ -189,7 +189,7 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             risks.extend(str(item) for item in patch_risks)
         if result.decision.value == "retry":
             risks.append("review retry requested")
-        status = "needs_attention" if risks else "completed"
+        status = "needs_attention" if result.decision.value == "retry" else "completed"
         updated = _merge_runtime_state(
             runtime_state,
             state_patch=result.state_patch,
