@@ -53,6 +53,7 @@ export function RequirementCard({ id, title, status, priority, design_doc_id, wo
           currentStatus={statusValue}
           workspace={workspace}
           allStatuses={getRequirementTransitions(statusValue)}
+          designDocId={design_doc_id}
         />
       </div>
       {design_doc_id && (
