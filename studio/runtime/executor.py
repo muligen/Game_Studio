@@ -25,8 +25,12 @@ class DesignWorkflowExecutor:
         workspace_root: str,
     ) -> dict[str, object]:
         graph = build_design_graph()
+        # The actual project root is two levels up from workspace data directory
+        # workspace_root is like ".studio-data/.studio-data", project_root is the repo root
+        project_root = str(Path(workspace_root).parent.parent)
         graph_input: dict[str, object] = {
             "workspace_root": workspace_root,
+            "project_root": project_root,
             "requirement_id": requirement.id,
         }
         result = graph.invoke(graph_input)

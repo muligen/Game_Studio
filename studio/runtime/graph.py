@@ -219,6 +219,7 @@ def build_design_graph():
 
     def design_node(state: dict[str, object]) -> dict[str, object]:
         workspace_root = _require_state_str(state, "workspace_root")
+        project_root = _require_state_str(state, "project_root")
         requirement_id = _require_state_str(state, "requirement_id")
         workspace = StudioWorkspace(Path(workspace_root))
         workspace.ensure_layout()
@@ -239,7 +240,7 @@ def build_design_graph():
             workspace.requirements.save(requirement)
 
         # Run DesignAgent
-        agent = DesignAgent(project_root=Path(workspace_root))
+        agent = DesignAgent(project_root=Path(project_root))
         runtime_state = RuntimeState(
             project_id="design-project",
             run_id=_new_run_id(),
