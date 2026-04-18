@@ -114,7 +114,7 @@ def test_worker_falls_back_when_env_config_is_invalid(tmp_path: Path) -> None:
     assert result.trace["fallback_reason"] == "invalid_mode:broken"
 
 
-def test_worker_runs_claude_generation_in_separate_thread() -> None:
+def test_worker_calls_claude_runner_directly() -> None:
     call_thread_ids: list[int] = []
 
     class ThreadAwareRunner(FakeClaudeRunner):
@@ -131,7 +131,9 @@ def test_worker_runs_claude_generation_in_separate_thread() -> None:
 
     assert result.trace["fallback_used"] is False
     assert call_thread_ids
-    assert call_thread_ids[0] != main_thread_id
+    # Threading is now managed by the centralized pool at poller level,
+    # so the agent call runs in the caller's thread.
+    assert call_thread_ids[0] == main_thread_id
 
 
 def test_adapter_parses_fenced_json_result() -> None:

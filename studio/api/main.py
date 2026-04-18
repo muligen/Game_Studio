@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from studio.api.routes import balance_tables, bugs, design_docs, logs, requirements, workflows
 from studio.api.websocket import get_websocket_manager
+from studio.runtime import pool
 from studio.runtime.poller import WorkflowPoller
 
 
@@ -25,6 +26,7 @@ async def _default_lifespan(app: FastAPI):
         await task
     except asyncio.CancelledError:
         pass
+    pool.shutdown()
 
 
 def create_app() -> FastAPI:

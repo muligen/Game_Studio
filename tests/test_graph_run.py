@@ -418,7 +418,7 @@ def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None
     workspace.requirements.save(RequirementCard(id="req_001", title="Add relic system"))
 
     runtime = build_design_graph()
-    result = runtime.invoke({"workspace_root": str(workspace_root), "requirement_id": "req_001"})
+    result = runtime.invoke({"workspace_root": str(workspace_root), "project_root": str(tmp_path), "requirement_id": "req_001"})
 
     updated_requirement = workspace.requirements.get("req_001")
     design_doc = workspace.design_docs.get(result["design_doc_id"])
@@ -446,8 +446,11 @@ def test_design_graph_rejects_missing_required_inputs(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="workspace_root is required"):
         runtime.invoke({"requirement_id": "req_001"})
 
+    with pytest.raises(ValueError, match="project_root is required"):
+        runtime.invoke({"workspace_root": str(tmp_path / ".studio-data"), "requirement_id": "req_001"})
+
     with pytest.raises(ValueError, match="requirement_id is required"):
-        runtime.invoke({"workspace_root": str(tmp_path / ".studio-data")})
+        runtime.invoke({"workspace_root": str(tmp_path / ".studio-data"), "project_root": str(tmp_path)})
 
 
 def test_design_graph_uses_design_agent():
@@ -490,6 +493,7 @@ def test_design_graph_uses_design_agent():
         graph = build_design_graph()
         result = graph.invoke({
             "workspace_root": "/tmp/test-workspace",
+            "project_root": "/tmp",
             "requirement_id": "req_1",
         })
 

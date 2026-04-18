@@ -50,7 +50,7 @@ def test_langgraph_studio_adapter_exposes_workflow_graphs(tmp_path: Path) -> Non
     workspace.requirements.save(RequirementCard(id="req_001", title="Add relic system"))
 
     design_result = module.design_graph.invoke(
-        {"workspace_root": str(workspace_root), "requirement_id": "req_001"}
+        {"workspace_root": str(workspace_root), "project_root": str(tmp_path), "requirement_id": "req_001"}
     )
     default_result = module.graph.invoke({"prompt": "Design a simple 2D game concept"})
     helper_result = module.build_langgraph_dev_runtime().invoke(

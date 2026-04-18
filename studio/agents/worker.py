@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from studio.llm import ClaudeWorkerAdapter, ClaudeWorkerError
@@ -70,9 +69,7 @@ class WorkerAgent:
         }
 
     def _run_claude_in_thread(self, prompt: str):
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(self._claude_runner.generate_design_brief, prompt)
-            return future.result()
+        return self._claude_runner.generate_design_brief(prompt)
 
     def consume_llm_log_entry(self) -> dict[str, object] | None:
         return self._claude_runner.consume_debug_record()
