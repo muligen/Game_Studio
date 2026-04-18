@@ -244,3 +244,21 @@ export const workflowsApi = {
       params: { workspace, requirement_id: requirementId, fail },
     }) as Promise<unknown>,
 } as const
+
+// Pool Status
+export interface PoolStatus {
+  max_workers: number
+  active_count: number
+  idle: boolean
+  tasks: Array<{
+    task_id: string
+    agent_type: string
+    requirement_id: string
+    requirement_title: string
+  }>
+}
+
+export const poolApi = {
+  status: (): Promise<PoolStatus> =>
+    apiRequest('/pool/status', 'get') as Promise<PoolStatus>,
+} as const

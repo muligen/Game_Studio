@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from studio.api.routes import balance_tables, bugs, design_docs, logs, requirements, workflows
+from studio.api.routes import balance_tables, bugs, design_docs, logs, pool as pool_routes, requirements, workflows
 from studio.api.websocket import get_websocket_manager
 from studio.runtime import pool
 from studio.runtime.poller import WorkflowPoller
@@ -62,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(bugs.router, prefix="/api")
     app.include_router(logs.router, prefix="/api")
     app.include_router(workflows.router, prefix="/api")
+    app.include_router(pool_routes.router, prefix="/api")
 
     # WebSocket endpoint for real-time updates
     @app.websocket("/ws")

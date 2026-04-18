@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { KanbanBoard } from '@/components/board/KanbanBoard'
 import { CreateRequirementDialog } from '@/components/common/CreateRequirementDialog'
+import { PoolStatusBar } from '@/components/common/PoolStatusBar'
 import { requirementsApi } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -78,6 +79,10 @@ export function RequirementsBoard() {
             <CreateRequirementDialog workspace={workspace} />
           </div>
         )}
+
+        <div className="mt-6">
+          <PoolStatusBar />
+        </div>
       </div>
     </div>
   )

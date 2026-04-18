@@ -77,16 +77,33 @@ class WorkflowPoller:
         design_executor = DesignWorkflowExecutor()
         delivery_executor = DeliveryWorkflowExecutor()
 
-        # Submit all eligible requirements to the shared thread pool
+        # Submit all eligible requirements to the shared agent pool so pool
+        # status telemetry can reflect both design and delivery work.
         future_to_req: dict[object, tuple[object, str]] = {}
         for req in design_eligible:
             logger.info("poller picked up requirement %s for design (status=%s)", req.id, req.status)
-            future = pool.submit(design_executor.run, workspace, req, workspace_root=str(self.workspace_path))
+            future = pool.submit_agent(
+                "design",
+                req.id,
+                req.title,
+                design_executor.run,
+                workspace,
+                req,
+                workspace_root=str(self.workspace_path),
+            )
             future_to_req[future] = (req, "design")
 
         for req in delivery_eligible:
             logger.info("poller picked up requirement %s for delivery (status=%s)", req.id, req.status)
-            future = pool.submit(delivery_executor.run, workspace, req, workspace_root=str(self.workspace_path))
+            future = pool.submit_agent(
+                "delivery",
+                req.id,
+                req.title,
+                delivery_executor.run,
+                workspace,
+                req,
+                workspace_root=str(self.workspace_path),
+            )
             future_to_req[future] = (req, "delivery")
 
         # Collect results as they complete
