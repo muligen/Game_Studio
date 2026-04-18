@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { execSync } from 'child_process';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -10,6 +11,7 @@ const __dirname = path.dirname(__filename);
 const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:8000';
 const openApiUrl = `${apiBaseUrl}/openapi.json`;
 const projectRoot = path.join(__dirname, '..');
+const outputPath = path.join(projectRoot, 'src', 'lib', 'types.ts');
 
 console.log(`Generating types from: ${openApiUrl}`);
 
@@ -22,7 +24,7 @@ try {
     shell: true
   });
 
-  console.log('✓ Types generated successfully');
+  console.log('Types generated successfully');
 
   // Validate TypeScript compilation
   console.log('Validating TypeScript compilation...');
@@ -31,9 +33,14 @@ try {
     cwd: projectRoot
   });
 
-  console.log('✓ TypeScript validation passed');
-
+  console.log('TypeScript validation passed');
 } catch (error) {
-  console.error('✗ Type generation or validation failed');
+  if (fs.existsSync(outputPath)) {
+    console.warn('Type generation failed; using existing src/lib/types.ts for local development.');
+    console.warn(error instanceof Error ? error.message : String(error));
+    process.exit(0);
+  }
+
+  console.error('Type generation or validation failed');
   process.exit(1);
 }

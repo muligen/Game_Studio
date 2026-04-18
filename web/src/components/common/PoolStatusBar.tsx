@@ -1,9 +1,7 @@
 import { Badge } from '@/components/ui/badge'
-import { poolApi, type PoolStatus } from '@/lib/api'
+import { poolApi } from '@/lib/api'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { useWorkspace } from '@/lib/workspace'
-import { useWebSocket } from '@/hooks/useWebSocket'
 
 const AGENT_COLORS: Record<string, string> = {
   design: 'bg-blue-100 text-blue-800',
@@ -15,7 +13,6 @@ const AGENT_COLORS: Record<string, string> = {
 
 export function PoolStatusBar() {
   const queryClient = useQueryClient()
-  const { connected } = useWebSocket()
 
   const { data: pool } = useQuery({
     queryKey: ['pool-status'],
