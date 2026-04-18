@@ -68,11 +68,14 @@ class WorkflowPoller:
             else str(self.workspace_path)
         )
 
-        # Submit all eligible requirements to the shared thread pool
+        # Submit all eligible requirements to the shared agent pool
         future_to_req: dict[object, object] = {}
         for req in eligible:
             logger.info("poller picked up requirement %s (status=%s)", req.id, req.status)
-            future = pool.submit(executor.run, workspace, req, workspace_root=str(self.workspace_path))
+            future = pool.submit_agent(
+                "design", req.id, req.title,
+                executor.run, workspace, req, workspace_root=str(self.workspace_path),
+            )
             future_to_req[future] = req
 
         # Collect results as they complete
