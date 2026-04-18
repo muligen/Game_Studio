@@ -7,7 +7,7 @@ from concurrent.futures import as_completed
 from pathlib import Path
 
 from studio.runtime import pool
-from studio.runtime.executor import DesignWorkflowExecutor
+from studio.runtime.executor import DeliveryWorkflowExecutor, DesignWorkflowExecutor
 from studio.storage.workspace import StudioWorkspace
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ async def _broadcast_changes(changes: list[dict[str, str]]) -> None:
 
 
 class WorkflowPoller:
-    """Background poller that auto-discovers eligible requirements and runs the design workflow."""
+    """Background poller that auto-discovers eligible requirements and runs workflows."""
 
     def __init__(
         self,
@@ -57,28 +57,42 @@ class WorkflowPoller:
         workspace = StudioWorkspace(self.workspace_path)
         workspace.ensure_layout()
 
-        eligible = [req for req in workspace.requirements.list_all() if self._is_eligible(req, workspace)]
-        if not eligible:
+        design_eligible = []
+        delivery_eligible = []
+        for req in workspace.requirements.list_all():
+            if req.status in ("draft", "designing"):
+                design_eligible.append(req)
+            elif req.status == "approved":
+                delivery_eligible.append(req)
+
+        if not design_eligible and not delivery_eligible:
             return []
 
-        executor = DesignWorkflowExecutor()
         workspace_name = (
             str(self.workspace_path.parent)
             if self.workspace_path.name == ".studio-data"
             else str(self.workspace_path)
         )
 
+        design_executor = DesignWorkflowExecutor()
+        delivery_executor = DeliveryWorkflowExecutor()
+
         # Submit all eligible requirements to the shared thread pool
-        future_to_req: dict[object, object] = {}
-        for req in eligible:
-            logger.info("poller picked up requirement %s (status=%s)", req.id, req.status)
-            future = pool.submit(executor.run, workspace, req, workspace_root=str(self.workspace_path))
-            future_to_req[future] = req
+        future_to_req: dict[object, tuple[object, str]] = {}
+        for req in design_eligible:
+            logger.info("poller picked up requirement %s for design (status=%s)", req.id, req.status)
+            future = pool.submit(design_executor.run, workspace, req, workspace_root=str(self.workspace_path))
+            future_to_req[future] = (req, "design")
+
+        for req in delivery_eligible:
+            logger.info("poller picked up requirement %s for delivery (status=%s)", req.id, req.status)
+            future = pool.submit(delivery_executor.run, workspace, req, workspace_root=str(self.workspace_path))
+            future_to_req[future] = (req, "delivery")
 
         # Collect results as they complete
         changed: list[dict[str, str]] = []
         for future in as_completed(future_to_req):
-            req = future_to_req[future]
+            req, workflow = future_to_req[future]
             try:
                 result = future.result()
                 changed.append({
@@ -87,33 +101,24 @@ class WorkflowPoller:
                     "entity_id": req.id,
                     "action": "updated",
                 })
-                design_doc_id = result.get("design_doc_id")
-                if design_doc_id:
-                    changed.append({
-                        "workspace": workspace_name,
-                        "entity_type": "design_doc",
-                        "entity_id": str(design_doc_id),
-                        "action": "created",
-                    })
+                if workflow == "design":
+                    design_doc_id = result.get("design_doc_id")
+                    if design_doc_id:
+                        changed.append({
+                            "workspace": workspace_name,
+                            "entity_type": "design_doc",
+                            "entity_id": str(design_doc_id),
+                            "action": "created",
+                        })
             except Exception:
-                logger.exception("executor failed for requirement %s", req.id)
-                # Roll back to draft so the poller can retry on the next tick
-                if req.status in ("draft", "designing"):
-                    try:
-                        rolled_back = req.model_copy(update={"status": "draft"})
-                        workspace.requirements.save(rolled_back)
-                        logger.info("rolled back requirement %s to draft", req.id)
-                    except Exception:
-                        logger.exception("failed to roll back requirement %s", req.id)
+                logger.exception("executor failed for requirement %s (%s workflow)", req.id, workflow)
+                # Roll back so the poller can retry on the next tick
+                rollback_status = "draft" if workflow == "design" else "approved"
+                try:
+                    rolled_back = req.model_copy(update={"status": rollback_status})
+                    workspace.requirements.save(rolled_back)
+                    logger.info("rolled back requirement %s to %s", req.id, rollback_status)
+                except Exception:
+                    logger.exception("failed to roll back requirement %s", req.id)
 
         return changed
-
-    def _is_eligible(self, req, workspace: StudioWorkspace) -> bool:
-        """Check if a requirement is eligible for design workflow execution."""
-        # New designs: draft status
-        if req.status == "draft":
-            return True
-        # Reworks: designing status means it needs (re-)designing
-        if req.status == "designing":
-            return True
-        return False

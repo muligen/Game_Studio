@@ -296,7 +296,10 @@ def build_design_graph():
 
 
 def build_delivery_graph():
-    dispatcher = RuntimeDispatcher()
+    from studio.agents.dev import DevAgent
+    from studio.agents.qa import QaAgent
+    from studio.agents.quality import QualityAgent
+
     graph = StateGraph(dict)
 
     def _delivery_llm_logger(state: dict[str, object]) -> LlmRunLogger:
@@ -305,32 +308,116 @@ def build_delivery_graph():
             return LlmRunLogger(Path(workspace_root) / "llm_logs")
         return LlmRunLogger(Path(".runtime-data") / "delivery-logs")
 
-    def _run_agent(node_name: str, state: dict[str, object]) -> dict[str, object]:
-        runtime_state = RuntimeState(
-            project_id=str(state.get("project_id", "delivery-project")),
-            run_id=str(state.get("run_id", "delivery-run")),
-            task_id=str(state.get("task_id", f"delivery-{node_name}")),
-            goal=dict(state),
-        )
-        agent = dispatcher.get(node_name)
-        result = agent.run(runtime_state)
-        llm_entry = _consume_agent_llm_log(agent)
-        if llm_entry is not None:
-            _delivery_llm_logger(state).append(
-                run_id=runtime_state.run_id,
-                node_name=node_name,
-                **llm_entry,
-            )
-        return {**state, **result.state_patch, "node_name": node_name, "trace": result.trace}
+    def _load_requirement(state: dict[str, object]):
+        workspace_root = _require_state_str(state, "workspace_root")
+        requirement_id = _require_state_str(state, "requirement_id")
+        workspace = StudioWorkspace(Path(workspace_root))
+        return workspace, workspace.requirements.get(requirement_id)
 
     def dev_node(state: dict[str, object]) -> dict[str, object]:
-        return _run_agent("dev", state)
+        workspace, requirement = _load_requirement(state)
+        project_root = _require_state_str(state, "project_root")
+
+        # Transition approved → implementing
+        requirement = transition_requirement(requirement, "implementing")
+        workspace.requirements.save(requirement)
+
+        # Run DevAgent
+        agent = DevAgent(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="delivery-project",
+            run_id=_new_run_id(),
+            task_id=f"delivery-dev-{requirement.id}",
+            goal={"prompt": requirement.title, "requirement_id": requirement.id},
+        )
+        result = agent.run(runtime_state)
+
+        # Transition implementing → self_test_passed
+        updated = transition_requirement(requirement, "self_test_passed")
+        workspace.requirements.save(updated)
+
+        return {
+            **state,
+            "node_name": "dev",
+            "dev_result": result.state_patch,
+            "fallback_used": result.trace.get("fallback_used", False),
+        }
 
     def qa_node(state: dict[str, object]) -> dict[str, object]:
-        return _run_agent("qa", state)
+        workspace, requirement = _load_requirement(state)
+        project_root = _require_state_str(state, "project_root")
+
+        # Transition self_test_passed → testing
+        requirement = transition_requirement(requirement, "testing")
+        workspace.requirements.save(requirement)
+
+        # Run QaAgent
+        agent = QaAgent(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="delivery-project",
+            run_id=_new_run_id(),
+            task_id=f"delivery-qa-{requirement.id}",
+            goal={"prompt": requirement.title, "requirement_id": requirement.id},
+        )
+        result = agent.run(runtime_state)
+
+        # Determine pass/fail from agent telemetry
+        telemetry = result.state_patch.get("telemetry", {})
+        passed = telemetry.get("passed", True)
+
+        if passed:
+            # testing → pending_user_acceptance
+            updated = transition_requirement(requirement, "pending_user_acceptance")
+        else:
+            # testing → implementing (rework)
+            updated = transition_requirement(requirement, "implementing")
+        workspace.requirements.save(updated)
+
+        return {
+            **state,
+            "node_name": "qa",
+            "qa_result": result.state_patch,
+            "qa_passed": passed,
+            "fallback_used": result.trace.get("fallback_used", False),
+        }
 
     def quality_node(state: dict[str, object]) -> dict[str, object]:
-        return _run_agent("quality", state)
+        workspace, requirement = _load_requirement(state)
+        project_root = _require_state_str(state, "project_root")
+
+        # Transition pending_user_acceptance → quality_check
+        requirement = transition_requirement(requirement, "quality_check")
+        workspace.requirements.save(requirement)
+
+        # Run QualityAgent
+        agent = QualityAgent(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="delivery-project",
+            run_id=_new_run_id(),
+            task_id=f"delivery-quality-{requirement.id}",
+            goal={"prompt": requirement.title, "requirement_id": requirement.id},
+        )
+        result = agent.run(runtime_state)
+
+        # Determine pass/fail from agent telemetry
+        telemetry = result.state_patch.get("telemetry", {})
+        ready = telemetry.get("ready", True)
+
+        if ready:
+            # quality_check → done
+            updated = transition_requirement(requirement, "done")
+        else:
+            # quality_check → implementing (rework)
+            updated = transition_requirement(requirement, "implementing")
+        workspace.requirements.save(updated)
+
+        return {
+            **state,
+            "node_name": "quality",
+            "quality_result": result.state_patch,
+            "quality_ready": ready,
+            "fallback_used": result.trace.get("fallback_used", False),
+        }
 
     graph.add_node("dev", dev_node)
     graph.add_node("qa", qa_node)

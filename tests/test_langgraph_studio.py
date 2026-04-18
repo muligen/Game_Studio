@@ -59,8 +59,13 @@ def test_langgraph_studio_adapter_exposes_workflow_graphs(tmp_path: Path) -> Non
 
     assert design_result["requirement_id"] == "req_001"
     assert design_result["node_name"] == "design"
+
+    # Delivery graph expects requirement in "approved" status
+    approved = workspace.requirements.get("req_001").model_copy(update={"status": "approved"})
+    workspace.requirements.save(approved)
+
     delivery_result = module.delivery_graph.invoke(
-        {"workspace_root": str(workspace_root), "requirement_id": "req_001"}
+        {"workspace_root": str(workspace_root), "project_root": str(tmp_path), "requirement_id": "req_001"}
     )
     assert delivery_result["node_name"] == "quality"
     assert default_result["plan"]["current_node"] == "reviewer"
