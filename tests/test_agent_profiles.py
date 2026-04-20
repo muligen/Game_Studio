@@ -78,6 +78,30 @@ def test_loader_rejects_non_mapping_yaml(
         load_agent_profile("builder")
 
 
+def test_loader_rejects_unknown_profile_key_with_detail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = _repo_root(tmp_path)
+    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
+        "\n".join(
+            [
+                "name: builder",
+                "system_prompt: Stay focused on the brief.",
+                "claude_project_root: .claude/profiles/demo",
+                "unexpected: nope",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _set_loader_module_path(monkeypatch, repo_root)
+
+    with pytest.raises(AgentProfileValidationError) as exc_info:
+        load_agent_profile("builder")
+
+    assert "unexpected" in str(exc_info.value)
+
+
 def test_loader_rejects_malformed_yaml(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

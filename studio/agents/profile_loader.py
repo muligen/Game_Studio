@@ -57,36 +57,17 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
     if not isinstance(raw, Mapping):
         raise AgentProfileValidationError(f"agent profile must be a mapping: {agent_name}")
 
-    data: dict[str, Any] = dict(raw)
-    required_fields = {"name", "system_prompt", "claude_project_root"}
-    missing_fields = sorted(required_fields - data.keys())
-    if missing_fields:
+    try:
+        profile = AgentProfile.model_validate(raw)
+    except ValidationError as exc:
+        raise AgentProfileValidationError(str(exc)) from exc
+
+    if profile.name != agent_name:
         raise AgentProfileValidationError(
-            f"missing required agent profile fields: {', '.join(missing_fields)}"
+            f"agent profile name mismatch: expected {agent_name}, found {profile.name}"
         )
 
-    name = data["name"]
-    if not isinstance(name, str) or not name.strip():
-        raise AgentProfileValidationError("name must be a non-empty string")
-
-    if name != agent_name:
-        raise AgentProfileValidationError(
-            f"agent profile name mismatch: expected {agent_name}, found {name}"
-        )
-
-    system_prompt = data["system_prompt"]
-    if not isinstance(system_prompt, str) or not system_prompt.strip():
-        raise AgentProfileValidationError("system_prompt must be a non-empty string")
-
-    claude_project_root_raw = data["claude_project_root"]
-    if not isinstance(claude_project_root_raw, (str, Path)) or (
-        isinstance(claude_project_root_raw, str) and not claude_project_root_raw.strip()
-    ):
-        raise AgentProfileValidationError(
-            "claude_project_root must be a string or path-like value"
-        )
-
-    claude_project_root = Path(claude_project_root_raw)
+    claude_project_root = profile.claude_project_root
     try:
         if not claude_project_root.is_absolute():
             claude_project_root = (_repo_root() / claude_project_root).resolve()
@@ -106,9 +87,7 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
             f"missing or invalid claude project root: {claude_project_root}"
         )
 
-    data["claude_project_root"] = claude_project_root
-
     try:
-        return AgentProfile.model_validate(data)
+        return profile.model_copy(update={"claude_project_root": claude_project_root})
     except ValidationError as exc:
-        raise AgentProfileValidationError("invalid agent profile") from exc
+        raise AgentProfileValidationError(str(exc)) from exc
