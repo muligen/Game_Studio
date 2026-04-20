@@ -46,9 +46,13 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
             f"missing required agent profile fields: {', '.join(missing_fields)}"
         )
 
-    if data["name"] != agent_name:
+    name = data["name"]
+    if not isinstance(name, str) or not name.strip():
+        raise AgentProfileValidationError("name must be a non-empty string")
+
+    if name != agent_name:
         raise AgentProfileValidationError(
-            f"agent profile name mismatch: expected {agent_name}, found {data['name']}"
+            f"agent profile name mismatch: expected {agent_name}, found {name}"
         )
 
     system_prompt = data["system_prompt"]
@@ -69,6 +73,12 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
         claude_project_root = (repo_root / claude_project_root).resolve()
     else:
         claude_project_root = claude_project_root.resolve()
+
+    repo_root = repo_root.resolve()
+    if not claude_project_root.is_relative_to(repo_root):
+        raise AgentProfileValidationError(
+            f"claude project root must stay within the repository: {claude_project_root}"
+        )
 
     if not claude_project_root.exists() or not claude_project_root.is_dir():
         raise AgentProfileValidationError(
