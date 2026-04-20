@@ -1,9 +1,15 @@
 from __future__ import annotations
 
-from typing import Annotated
 from pathlib import Path
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, BeforeValidator, ConfigDict, StringConstraints
+
+
+def _reject_empty_claude_project_root(value: Any) -> Any:
+    if isinstance(value, str) and not value.strip():
+        raise ValueError("claude_project_root must be a non-empty string")
+    return value
 
 
 class AgentProfileError(RuntimeError):
@@ -29,4 +35,4 @@ class AgentProfile(BaseModel):
         str,
         StringConstraints(strict=True, strip_whitespace=True, min_length=1),
     ]
-    claude_project_root: Path
+    claude_project_root: Annotated[Path, BeforeValidator(_reject_empty_claude_project_root)]

@@ -49,7 +49,7 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
         raw = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as exc:
         raise AgentProfileValidationError(f"failed to read agent profile: {agent_name}") from exc
-    except yaml.YAMLError as exc:  # pragma: no cover - defensive, covered by validation path
+    except yaml.YAMLError as exc:
         raise AgentProfileValidationError(f"invalid yaml for agent profile: {agent_name}") from exc
 
     if not isinstance(raw, Mapping):
@@ -85,10 +85,13 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
         )
 
     claude_project_root = Path(claude_project_root_raw)
-    if not claude_project_root.is_absolute():
-        claude_project_root = (_repo_root() / claude_project_root).resolve()
-    else:
-        claude_project_root = claude_project_root.resolve()
+    try:
+        if not claude_project_root.is_absolute():
+            claude_project_root = (_repo_root() / claude_project_root).resolve()
+        else:
+            claude_project_root = claude_project_root.resolve()
+    except OSError as exc:
+        raise AgentProfileValidationError("failed to resolve claude project root") from exc
 
     repo_root = _repo_root().resolve()
     if not claude_project_root.is_relative_to(repo_root):

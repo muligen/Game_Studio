@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 import studio.agents.profile_loader as profile_loader
 from studio.agents.profile_loader import load_agent_profile
@@ -69,6 +70,20 @@ def test_loader_rejects_non_mapping_yaml(
     repo_root = _repo_root(tmp_path)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "- builder\n- still not a mapping\n",
+        encoding="utf-8",
+    )
+    _set_loader_module_path(monkeypatch, repo_root)
+
+    with pytest.raises(AgentProfileValidationError):
+        load_agent_profile("builder")
+
+
+def test_loader_rejects_malformed_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = _repo_root(tmp_path)
+    (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
+        "name: [unterminated\n",
         encoding="utf-8",
     )
     _set_loader_module_path(monkeypatch, repo_root)
@@ -181,6 +196,17 @@ def test_loader_rejects_empty_system_prompt(
         load_agent_profile("builder")
 
 
+def test_schema_rejects_empty_claude_project_root() -> None:
+    with pytest.raises(ValidationError):
+        AgentProfile.model_validate(
+            {
+                "name": "builder",
+                "system_prompt": "Stay focused on the brief.",
+                "claude_project_root": "",
+            }
+        )
+
+
 def test_loader_rejects_profile_file_symlink_escape(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -272,6 +298,38 @@ def test_loader_wraps_os_error_on_profile_read(
         return original_read_text(self, *args, **kwargs)
 
     monkeypatch.setattr(profile_loader.Path, "read_text", fake_read_text, raising=False)
+
+    with pytest.raises(AgentProfileValidationError):
+        load_agent_profile("builder")
+
+
+def test_loader_wraps_claude_project_root_resolve_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = _repo_root(tmp_path)
+    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    profile_path = repo_root / "studio" / "agents" / "profiles" / "builder.yaml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "name: builder",
+                "system_prompt: Stay focused on the brief.",
+                "claude_project_root: .claude/profiles/demo",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _set_loader_module_path(monkeypatch, repo_root)
+
+    original_resolve = profile_loader.Path.resolve
+    expected_resolve_target = repo_root / ".claude" / "profiles" / "demo"
+
+    def fake_resolve(self: Path, *args: object, **kwargs: object) -> Path:
+        if self == expected_resolve_target:
+            raise OSError("resolve failed")
+        return original_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(profile_loader.Path, "resolve", fake_resolve, raising=False)
 
     with pytest.raises(AgentProfileValidationError):
         load_agent_profile("builder")
