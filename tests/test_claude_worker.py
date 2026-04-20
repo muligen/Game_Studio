@@ -7,12 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from studio.agents import AgentProfile
 from studio.agents.worker import WorkerAgent
 from studio.llm.claude_worker import (
     ClaudeWorkerAdapter,
     ClaudeWorkerError,
     ClaudeWorkerPayload,
 )
+from studio.llm import claude_worker as claude_worker_module
 from studio.schemas.runtime import RuntimeState
 
 
@@ -45,6 +47,14 @@ def _state(prompt: object = "Design a simple 2D game concept") -> RuntimeState:
         run_id="run-001",
         task_id="task-001",
         goal={"prompt": prompt},
+    )
+
+
+def _profile(*, system_prompt: str, claude_project_root: Path) -> AgentProfile:
+    return AgentProfile(
+        name="worker",
+        system_prompt=system_prompt,
+        claude_project_root=claude_project_root,
     )
 
 
@@ -160,6 +170,80 @@ def test_adapter_parses_fenced_yaml_result() -> None:
     assert payload.genre == "cozy strategy"
 
 
+def test_worker_prompt_uses_profile_system_prompt(tmp_path: Path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    prompt = adapter.debug_prompt("Design a simple 2D game concept")
+
+    assert prompt.startswith("Worker profile system prompt")
+    assert "Context:" in prompt
+    assert '"prompt": "Design a simple 2D game concept"' in prompt
+    assert "You are generating a compact game design brief." not in prompt
+
+
+@pytest.mark.anyio
+async def test_worker_generate_uses_profile_claude_project_root_for_sdk(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_query(*, prompt: str, options: object):
+        captured["prompt"] = prompt
+        captured["cwd"] = getattr(options, "cwd")
+        yield claude_worker_module.ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            structured_output={
+                "title": "Lantern Vale",
+                "summary": "Restore the valley.",
+                "genre": "cozy strategy",
+            },
+        )
+
+    monkeypatch.setattr(claude_worker_module, "query", fake_query)
+
+    payload = await adapter._generate_design_brief(
+        "Design a simple 2D game concept",
+        claude_worker_module.ClaudeWorkerConfig(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="test-key",
+            base_url=None,
+        ),
+    )
+
+    assert payload == ClaudeWorkerPayload(
+        title="Lantern Vale",
+        summary="Restore the valley.",
+        genre="cozy strategy",
+    )
+    assert captured["cwd"] == claude_root
+    assert str(captured["prompt"]).startswith("Worker profile system prompt")
+    assert '"prompt": "Design a simple 2D game concept"' in str(captured["prompt"])
+
+
 def test_worker_adapter_delegates_to_role_adapter() -> None:
     calls: list[tuple[str, dict[str, object]]] = []
 
@@ -219,7 +303,14 @@ def test_worker_adapter_accepts_typed_role_payload() -> None:
 
 
 def test_adapter_uses_subprocess_fallback_for_blocking_getcwd(monkeypatch: pytest.MonkeyPatch) -> None:
-    adapter = ClaudeWorkerAdapter(project_root=Path.cwd())
+    claude_root = Path.cwd() / ".claude" / "agents" / "worker"
+    adapter = ClaudeWorkerAdapter(
+        project_root=Path.cwd(),
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
 
     async def _boom(prompt: str, config: object) -> ClaudeWorkerPayload:
         raise ClaudeWorkerError("Failed to start Claude Code: Blocking call to os.getcwd")
@@ -253,10 +344,18 @@ def test_adapter_uses_subprocess_fallback_for_blocking_getcwd(monkeypatch: pytes
 
 
 def test_subprocess_parser_validates_json_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
-    adapter = ClaudeWorkerAdapter(project_root=Path.cwd())
+    claude_root = Path.cwd() / ".claude" / "agents" / "worker"
+    adapter = ClaudeWorkerAdapter(
+        project_root=Path.cwd(),
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    calls: dict[str, object] = {}
     monkeypatch.setattr(
         "studio.llm.claude_worker.subprocess.run",
-        lambda *args, **kwargs: SimpleNamespace(
+        lambda *args, **kwargs: calls.update({"args": args, "kwargs": kwargs}) or SimpleNamespace(
             returncode=0,
             stdout=json.dumps(
                 {
@@ -272,3 +371,4 @@ def test_subprocess_parser_validates_json_stdout(monkeypatch: pytest.MonkeyPatch
     payload = adapter._generate_design_brief_via_subprocess("Design a simple 2D game concept")
 
     assert payload.genre == "cozy strategy"
+    assert calls["kwargs"]["cwd"] == claude_root

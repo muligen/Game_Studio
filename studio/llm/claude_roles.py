@@ -13,6 +13,8 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import ResultMessage
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from studio.agents.profile_schema import AgentProfile
+
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off", ""}
 
@@ -164,48 +166,6 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
     },
 }
 
-_ROLE_PROMPTS: dict[str, str] = {
-    "art": (
-        "You are the art role.\n"
-        "Return only JSON with summary, style_direction, and asset_list.\n"
-        "summary and style_direction must be concise strings.\n"
-        "asset_list must be a list of concrete strings.\n"
-    ),
-    "dev": (
-        "You are the dev role.\n"
-        "Return only JSON with summary, changes, checks, and follow_ups.\n"
-        "summary must be a concise string.\n"
-        "changes, checks, and follow_ups must be lists of concrete strings.\n"
-    ),
-    "design": (
-        "You are the design role.\n"
-        "Return only JSON with title, summary, core_rules, acceptance_criteria, and open_questions.\n"
-        "title and summary must be concise strings.\n"
-        "core_rules, acceptance_criteria, and open_questions must be lists of concrete strings.\n"
-    ),
-    "reviewer": (
-        "You are the reviewer role.\n"
-        "Return only JSON with decision, reason, and risks.\n"
-        "decision must be continue or stop.\n"
-        "reason must explain the choice.\n"
-        "risks must be a list of concrete issues.\n"
-    ),
-    "qa": (
-        "You are the qa role.\n"
-        "Return only JSON with summary, passed, and suggested_bug.\n"
-        "summary must be a concise string.\n"
-        "passed must be a boolean.\n"
-        "suggested_bug must be either a concise string or null.\n"
-    ),
-    "quality": (
-        "You are the quality role.\n"
-        "Return only JSON with summary, ready, risks, and follow_ups.\n"
-        "summary must be a concise string.\n"
-        "ready must be a boolean.\n"
-        "risks and follow_ups must be lists of concrete strings.\n"
-    ),
-}
-
 _ACTIVE_ROLE_NAMES = set(_ROLE_PAYLOAD_MODELS)
 
 
@@ -262,8 +222,13 @@ def _require_active_role(role_name: str) -> None:
 
 
 class ClaudeRoleAdapter:
-    def __init__(self, project_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        project_root: Path | None = None,
+        profile: AgentProfile | None = None,
+    ) -> None:
         self.project_root = _repo_root_from(project_root)
+        self.profile = profile
         self._env_path = self.project_root / ".env"
         self._last_debug_record: dict[str, object] | None = None
 
@@ -329,7 +294,7 @@ class ClaudeRoleAdapter:
         prompt: str,
     ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
         options = ClaudeAgentOptions(
-            cwd=self.project_root,
+            cwd=self._claude_project_root(),
             model=config.model,
             tools=[] if config.mode == "text" else None,
             permission_mode="default",
@@ -393,10 +358,14 @@ class ClaudeRoleAdapter:
                     str(script_path),
                     "--project-root",
                     str(self.project_root),
+                    "--claude-project-root",
+                    str(self._claude_project_root()),
+                    "--system-prompt",
+                    self._require_profile().system_prompt,
                     "--role-name",
                     role_name,
                 ],
-                cwd=self.project_root,
+                cwd=self._claude_project_root(),
                 input=json.dumps(context, ensure_ascii=False),
                 capture_output=True,
                 text=True,
@@ -420,17 +389,24 @@ class ClaudeRoleAdapter:
         }
         return parse_role_payload(role_name, parsed)
 
-    @staticmethod
-    def _prompt(role_name: str, context: dict[str, object]) -> str:
+    def _prompt(self, role_name: str, context: dict[str, object]) -> str:
         payload = json.dumps(context, ensure_ascii=False, sort_keys=True)
-        prompt = _ROLE_PROMPTS.get(role_name)
-        if prompt is not None:
-            return f"{prompt}Context: {payload}"
-        return (
-            f"You are the {role_name} role.\n"
-            "Return only JSON.\n"
-            f"Context: {payload}"
+        return "\n".join(
+            [
+                self._require_profile().system_prompt,
+                "Return only JSON matching this schema:",
+                json.dumps(self._output_format(role_name), ensure_ascii=False, sort_keys=True),
+                f"Context: {payload}",
+            ]
         )
+
+    def _require_profile(self) -> AgentProfile:
+        if self.profile is None:
+            raise ClaudeRoleError("missing_agent_profile")
+        return self.profile
+
+    def _claude_project_root(self) -> Path:
+        return self._require_profile().claude_project_root
 
     @staticmethod
     def _output_format(role_name: str) -> dict[str, object]:
@@ -490,11 +466,21 @@ def _main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--role-name", required=True)
+    parser.add_argument("--system-prompt")
+    parser.add_argument("--claude-project-root")
     try:
         args = parser.parse_args()
         _require_active_role(args.role_name)
 
-        adapter = ClaudeRoleAdapter(project_root=Path(args.project_root))
+        profile = None
+        if args.system_prompt and args.claude_project_root:
+            profile = AgentProfile(
+                name=args.role_name,
+                system_prompt=args.system_prompt,
+                claude_project_root=Path(args.claude_project_root),
+            )
+
+        adapter = ClaudeRoleAdapter(project_root=Path(args.project_root), profile=profile)
         config = adapter.load_config()
         if not config.enabled:
             raise ClaudeRoleError("claude_disabled")

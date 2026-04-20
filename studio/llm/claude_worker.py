@@ -13,8 +13,21 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import ResultMessage
 import yaml
 
+from studio.agents.profile_schema import AgentProfile
+
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off", ""}
+
+_WORKER_OUTPUT_FORMAT = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+        "genre": {"type": "string"},
+    },
+    "required": ["title", "summary", "genre"],
+    "additionalProperties": False,
+}
 
 
 class ClaudeWorkerError(RuntimeError):
@@ -106,9 +119,11 @@ class ClaudeWorkerAdapter:
     def __init__(
         self,
         project_root: Path | None = None,
+        profile: AgentProfile | None = None,
         role_adapter: Any | None = None,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
+        self.profile = profile
         self._env_path = self.project_root / ".env"
         self._role_adapter = role_adapter
         self._last_debug_record: dict[str, object] | None = None
@@ -167,22 +182,13 @@ class ClaudeWorkerAdapter:
         self, prompt: str, config: ClaudeWorkerConfig
     ) -> ClaudeWorkerPayload:
         options = ClaudeAgentOptions(
-            cwd=self.project_root,
+            cwd=self._claude_project_root(),
             model=config.model,
             tools=[] if config.mode == "text" else None,
             permission_mode="default",
             setting_sources=["project"],
             env=self._sdk_env(config),
-            output_format={
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "genre": {"type": "string"},
-                },
-                "required": ["title", "summary", "genre"],
-                "additionalProperties": False,
-            },
+            output_format=_WORKER_OUTPUT_FORMAT,
         )
 
         result: ResultMessage | None = None
@@ -228,12 +234,16 @@ class ClaudeWorkerAdapter:
             "studio.llm.claude_worker",
             "--project-root",
             str(self.project_root),
+            "--claude-project-root",
+            str(self._claude_project_root()),
+            "--system-prompt",
+            self._require_profile().system_prompt,
             "--prompt",
             prompt,
         ]
         proc = subprocess.run(
             cmd,
-            cwd=self.project_root,
+            cwd=self._claude_project_root(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -284,14 +294,23 @@ class ClaudeWorkerAdapter:
             return None
         return match.group(1).strip()
 
-    @staticmethod
-    def _prompt(user_prompt: str) -> str:
-        return (
-            "You are generating a compact game design brief.\n"
-            "Return only an object with the keys title, summary, and genre.\n"
-            "Do not add markdown fences, explanations, or extra keys.\n"
-            f"User prompt: {user_prompt}"
+    def _prompt(self, user_prompt: str) -> str:
+        return "\n".join(
+            [
+                self._require_profile().system_prompt,
+                "Return only JSON matching this schema:",
+                json.dumps(_WORKER_OUTPUT_FORMAT, ensure_ascii=False, sort_keys=True),
+                f'Context: {json.dumps({"prompt": user_prompt}, ensure_ascii=False, sort_keys=True)}',
+            ]
         )
+
+    def _require_profile(self) -> AgentProfile:
+        if self.profile is None:
+            raise ClaudeWorkerError("missing_agent_profile")
+        return self.profile
+
+    def _claude_project_root(self) -> Path:
+        return self._require_profile().claude_project_root
 
 
 def _main() -> int:
@@ -299,10 +318,20 @@ def _main() -> int:
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-root", required=True)
+    parser.add_argument("--system-prompt")
+    parser.add_argument("--claude-project-root")
     parser.add_argument("--prompt", required=True)
     args = parser.parse_args()
 
-    adapter = ClaudeWorkerAdapter(project_root=Path(args.project_root))
+    profile = None
+    if args.system_prompt and args.claude_project_root:
+        profile = AgentProfile(
+            name="worker",
+            system_prompt=args.system_prompt,
+            claude_project_root=Path(args.claude_project_root),
+        )
+
+    adapter = ClaudeWorkerAdapter(project_root=Path(args.project_root), profile=profile)
     config = adapter.load_config()
     if not config.enabled:
         raise ClaudeWorkerError("claude_disabled")

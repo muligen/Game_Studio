@@ -6,6 +6,7 @@ from argparse import Namespace
 
 import pytest
 
+from studio.agents import AgentProfile
 from studio.llm import (
     ArtPayload,
     ClaudeRoleAdapter,
@@ -17,6 +18,14 @@ from studio.llm import (
     parse_role_payload,
 )
 from studio.llm import claude_roles as claude_roles_module
+
+
+def _profile(*, name: str, system_prompt: str, claude_project_root) -> AgentProfile:
+    return AgentProfile(
+        name=name,
+        system_prompt=system_prompt,
+        claude_project_root=claude_project_root,
+    )
 
 
 def test_parse_role_payload_returns_reviewer_payload() -> None:
@@ -141,21 +150,48 @@ def test_supported_role_registry_includes_qa_with_other_active_roles() -> None:
     }
 
 
-def test_prompt_includes_qa_contract_keywords() -> None:
-    prompt = ClaudeRoleAdapter._prompt("qa", {"feature": "photo mode", "requirement_id": "req_001"})
+def test_prompt_uses_profile_system_prompt_for_qa(tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "qa"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="qa",
+            system_prompt="QA profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
 
-    assert "qa" in prompt
+    prompt = adapter.debug_prompt("qa", {"feature": "photo mode", "requirement_id": "req_001"})
+
+    assert prompt.startswith("QA profile system prompt")
+    assert "Context:" in prompt
+    assert '"feature": "photo mode"' in prompt
     assert "passed" in prompt
     assert "suggested_bug" in prompt
+    assert "You are the qa role." not in prompt
 
 
-def test_prompt_includes_reviewer_contract_keywords() -> None:
-    prompt = ClaudeRoleAdapter._prompt("reviewer", {"feature": "photo mode", "requirement_id": "req_001"})
+def test_prompt_uses_profile_system_prompt_for_reviewer(tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
 
-    assert "reviewer" in prompt
+    prompt = adapter.debug_prompt("reviewer", {"feature": "photo mode", "requirement_id": "req_001"})
+
+    assert prompt.startswith("Reviewer profile system prompt")
+    assert "Context:" in prompt
     assert "decision" in prompt
     assert "reason" in prompt
     assert "risks" in prompt
+    assert "You are the reviewer role." not in prompt
 
 
 def test_output_format_fails_fast_when_active_role_is_missing_schema(monkeypatch) -> None:
@@ -169,6 +205,54 @@ def test_output_format_fails_fast_when_active_role_is_missing_schema(monkeypatch
 
 def test_adapter_does_not_expose_build_prompt() -> None:
     assert not hasattr(ClaudeRoleAdapter, "build_prompt")
+
+
+@pytest.mark.anyio
+async def test_generate_uses_profile_claude_project_root_for_sdk(monkeypatch, tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_query(*, prompt: str, options: object):
+        captured["prompt"] = prompt
+        captured["cwd"] = getattr(options, "cwd")
+        yield claude_roles_module.ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            structured_output={"decision": "continue", "reason": "ok", "risks": []},
+        )
+
+    monkeypatch.setattr(claude_roles_module, "query", fake_query)
+
+    payload = await adapter._generate_payload(
+        "reviewer",
+        {"feature": "photo mode"},
+        claude_roles_module.ClaudeRoleConfig(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="test-key",
+            base_url=None,
+        ),
+        adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
+    )
+
+    assert payload == ReviewerPayload(decision="continue", reason="ok", risks=[])
+    assert captured["cwd"] == claude_root
+    assert str(captured["prompt"]).startswith("Reviewer profile system prompt")
+    assert '"feature": "photo mode"' in str(captured["prompt"])
 
 
 def test_load_config_reads_claude_settings_from_dotenv(tmp_path) -> None:
@@ -205,7 +289,16 @@ def test_generate_falls_back_to_subprocess_for_blocking_getcwd(monkeypatch, tmp_
         ),
         encoding="utf-8",
     )
-    adapter = ClaudeRoleAdapter(project_root=tmp_path)
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
     expected = ReviewerPayload(
         decision="continue",
         reason="subprocess fallback succeeded",
@@ -269,7 +362,16 @@ async def test_generate_uses_subprocess_when_called_from_running_event_loop(monk
         ),
         encoding="utf-8",
     )
-    adapter = ClaudeRoleAdapter(project_root=tmp_path)
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
     expected = ReviewerPayload(
         decision="continue",
         reason="loop-safe subprocess path",
@@ -298,7 +400,16 @@ async def test_generate_uses_subprocess_when_called_from_running_event_loop(monk
 
 
 def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> None:
-    adapter = ClaudeRoleAdapter(project_root=tmp_path)
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
     calls: dict[str, object] = {}
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -316,7 +427,7 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
     payload = adapter._generate_payload_via_subprocess(
         "reviewer",
         {"feature": "photo mode"},
-        ClaudeRoleAdapter._prompt("reviewer", {"feature": "photo mode"}),
+        adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
     )
 
     assert payload == ReviewerPayload(
@@ -327,11 +438,21 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
     assert "-m" not in calls["cmd"]
     assert str(claude_roles_module.Path(claude_roles_module.__file__).resolve()) in calls["cmd"]
     assert "--context-json" not in calls["cmd"]
+    assert calls["kwargs"]["cwd"] == claude_root
     assert calls["kwargs"]["input"] == '{"feature": "photo mode"}'
 
 
 def test_subprocess_fallback_wraps_transport_errors(monkeypatch, tmp_path) -> None:
-    adapter = ClaudeRoleAdapter(project_root=tmp_path)
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise OSError("spawn failed")
@@ -342,12 +463,21 @@ def test_subprocess_fallback_wraps_transport_errors(monkeypatch, tmp_path) -> No
         adapter._generate_payload_via_subprocess(
             "reviewer",
             {"feature": "photo mode"},
-            ClaudeRoleAdapter._prompt("reviewer", {"feature": "photo mode"}),
+            adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
         )
 
 
 def test_subprocess_fallback_wraps_timeout_errors(monkeypatch, tmp_path) -> None:
-    adapter = ClaudeRoleAdapter(project_root=tmp_path)
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
 
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=300)
@@ -358,7 +488,7 @@ def test_subprocess_fallback_wraps_timeout_errors(monkeypatch, tmp_path) -> None
         adapter._generate_payload_via_subprocess(
             "reviewer",
             {"feature": "photo mode"},
-            ClaudeRoleAdapter._prompt("reviewer", {"feature": "photo mode"}),
+            adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
         )
 
 
@@ -382,7 +512,12 @@ def test_main_rejects_unsupported_roles_before_generation(monkeypatch, tmp_path)
     monkeypatch.setattr(
         argparse.ArgumentParser,
         "parse_args",
-        lambda self: Namespace(project_root=str(tmp_path), role_name="planner"),
+        lambda self: Namespace(
+            project_root=str(tmp_path),
+            role_name="planner",
+            system_prompt="Planner profile system prompt",
+            claude_project_root=str(tmp_path),
+        ),
     )
 
     def fake_load_config(self: ClaudeRoleAdapter) -> claude_roles_module.ClaudeRoleConfig:
@@ -414,7 +549,12 @@ def test_main_returns_clean_error_for_generation_failure(monkeypatch, tmp_path, 
     monkeypatch.setattr(
         argparse.ArgumentParser,
         "parse_args",
-        lambda self: Namespace(project_root=str(tmp_path), role_name="reviewer"),
+        lambda self: Namespace(
+            project_root=str(tmp_path),
+            role_name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=str(tmp_path),
+        ),
     )
 
     def fake_load_config(self: ClaudeRoleAdapter) -> claude_roles_module.ClaudeRoleConfig:
