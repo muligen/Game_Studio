@@ -15,6 +15,8 @@ def _repo_root() -> Path:
 
 
 def _validate_agent_name(agent_name: str) -> None:
+    if not isinstance(agent_name, str):
+        raise AgentProfileValidationError(f"invalid agent profile name: {agent_name}")
     agent_path = Path(agent_name)
     if agent_name in {"", ".", ".."} or len(agent_path.parts) != 1 or agent_path.name != agent_name:
         raise AgentProfileValidationError(f"invalid agent profile name: {agent_name}")

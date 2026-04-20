@@ -385,6 +385,11 @@ def test_loader_rejects_agent_name_path_traversal(
         load_agent_profile("../builder")
 
 
+def test_loader_rejects_non_string_agent_name() -> None:
+    with pytest.raises(AgentProfileValidationError):
+        load_agent_profile(123)  # type: ignore[arg-type]
+
+
 def test_loader_rejects_directory_profile_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
