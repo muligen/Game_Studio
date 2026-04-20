@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import ResultMessage
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from studio.agents.profile_schema import AgentProfile
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off", ""}
@@ -30,6 +33,17 @@ class ClaudeRoleConfig:
     model: str | None
     api_key: str | None
     base_url: str | None
+
+
+class ClaudeAdapterProfile(Protocol):
+    system_prompt: str
+    claude_project_root: Path
+
+
+@dataclass(frozen=True)
+class _SubprocessProfile:
+    system_prompt: str
+    claude_project_root: Path
 
 
 class ReviewerPayload(BaseModel):
@@ -247,7 +261,7 @@ class ClaudeRoleAdapter:
     def __init__(
         self,
         project_root: Path | None = None,
-        profile: AgentProfile | None = None,
+        profile: ClaudeAdapterProfile | None = None,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
         self.profile = profile
@@ -392,6 +406,7 @@ class ClaudeRoleAdapter:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                env=self._subprocess_env(),
                 timeout=300,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -422,13 +437,22 @@ class ClaudeRoleAdapter:
             ]
         )
 
-    def _require_profile(self) -> AgentProfile:
+    def _require_profile(self) -> ClaudeAdapterProfile:
         if self.profile is None:
             raise ClaudeRoleError("missing_agent_profile")
         return self.profile
 
     def _claude_project_root(self) -> Path:
         return self._require_profile().claude_project_root
+
+    def _subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        pythonpath_parts = [str(self.project_root)]
+        existing_pythonpath = env.get("PYTHONPATH")
+        if existing_pythonpath:
+            pythonpath_parts.append(existing_pythonpath)
+        env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return env
 
     @staticmethod
     def _output_format(role_name: str) -> dict[str, object]:
@@ -496,8 +520,7 @@ def _main() -> int:
 
         profile = None
         if args.system_prompt and args.claude_project_root:
-            profile = AgentProfile(
-                name=args.role_name,
+            profile = _SubprocessProfile(
                 system_prompt=args.system_prompt,
                 claude_project_root=Path(args.claude_project_root),
             )

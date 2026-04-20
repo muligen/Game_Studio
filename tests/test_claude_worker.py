@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -95,6 +98,28 @@ def test_worker_falls_back_when_claude_runner_errors() -> None:
     assert result.artifacts[0].payload["title"] == "Moonwell Garden"
     assert result.trace["fallback_used"] is True
     assert result.trace["fallback_reason"] == "boom"
+
+
+def test_worker_uses_role_adapter_even_without_local_env(tmp_path: Path) -> None:
+    class FakeRoleAdapter:
+        def generate(self, role_name: str, context: dict[str, object]) -> dict[str, str]:
+            assert role_name == "worker"
+            assert context == {"prompt": "Design a simple 2D game concept"}
+            return {
+                "title": "Lantern Vale",
+                "summary": "Restore the valley.",
+                "genre": "cozy strategy",
+            }
+
+    adapter = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        role_adapter=FakeRoleAdapter(),
+    )
+
+    result = WorkerAgent(claude_runner=adapter).run(_state())
+
+    assert result.artifacts[0].payload["title"] == "Lantern Vale"
+    assert result.trace["fallback_used"] is False
 
 
 def test_worker_rejects_non_string_prompt() -> None:
@@ -357,6 +382,55 @@ def test_worker_adapter_is_compatible_with_real_claude_role_adapter(
     )
 
 
+@pytest.mark.anyio
+async def test_worker_generate_uses_subprocess_when_called_from_running_event_loop(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    monkeypatch.setattr(
+        adapter,
+        "_generate_design_brief",
+        lambda prompt, config: (_ for _ in ()).throw(AssertionError("async path should not run")),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_generate_design_brief_via_subprocess",
+        lambda prompt: ClaudeWorkerPayload(
+            title="Lantern Vale",
+            summary="Restore the valley.",
+            genre="cozy strategy",
+        ),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "load_config",
+        lambda: ClaudeWorkerConfig(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="set",
+            base_url=None,
+        ),
+    )
+
+    payload = adapter.generate_design_brief("Design a simple 2D game concept")
+
+    assert payload == ClaudeWorkerPayload(
+        title="Lantern Vale",
+        summary="Restore the valley.",
+        genre="cozy strategy",
+    )
+
+
 def test_adapter_uses_subprocess_fallback_for_blocking_getcwd(monkeypatch: pytest.MonkeyPatch) -> None:
     claude_root = Path.cwd() / ".claude" / "agents" / "worker"
     adapter = ClaudeWorkerAdapter(
@@ -427,3 +501,22 @@ def test_subprocess_parser_validates_json_stdout(monkeypatch: pytest.MonkeyPatch
 
     assert payload.genre == "cozy strategy"
     assert calls["kwargs"]["cwd"] == claude_root
+    assert str(Path.cwd()) in calls["kwargs"]["env"]["PYTHONPATH"]
+
+
+def test_worker_module_runs_via_python_m(tmp_path: Path) -> None:
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "studio.llm.claude_worker", "--help"],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        timeout=30,
+    )
+
+    assert proc.returncode == 0
+    assert "usage:" in proc.stdout

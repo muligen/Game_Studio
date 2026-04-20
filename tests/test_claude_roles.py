@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 import argparse
+import os
+import subprocess
+import sys
 from argparse import Namespace
 
 import pytest
@@ -466,7 +468,29 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
     assert str(claude_roles_module.Path(claude_roles_module.__file__).resolve()) in calls["cmd"]
     assert "--context-json" not in calls["cmd"]
     assert calls["kwargs"]["cwd"] == claude_root
+    assert str(tmp_path) in calls["kwargs"]["env"]["PYTHONPATH"]
     assert calls["kwargs"]["input"] == '{"feature": "photo mode"}'
+
+
+def test_role_script_runs_from_claude_project_root_without_pythonpath(tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    script_path = claude_roles_module.Path(claude_roles_module.__file__).resolve()
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+
+    proc = subprocess.run(
+        [sys.executable, str(script_path), "--help"],
+        cwd=claude_root,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        timeout=30,
+    )
+
+    assert proc.returncode == 0
+    assert "usage:" in proc.stdout
 
 
 def test_subprocess_fallback_wraps_transport_errors(monkeypatch, tmp_path) -> None:

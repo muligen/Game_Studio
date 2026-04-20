@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import ResultMessage
 import yaml
 
-from studio.agents.profile_schema import AgentProfile
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off", ""}
@@ -28,6 +31,17 @@ _WORKER_OUTPUT_FORMAT = {
     "required": ["title", "summary", "genre"],
     "additionalProperties": False,
 }
+
+
+class ClaudeAdapterProfile(Protocol):
+    system_prompt: str
+    claude_project_root: Path
+
+
+@dataclass(frozen=True)
+class _SubprocessProfile:
+    system_prompt: str
+    claude_project_root: Path
 
 
 class ClaudeWorkerError(RuntimeError):
@@ -119,7 +133,7 @@ class ClaudeWorkerAdapter:
     def __init__(
         self,
         project_root: Path | None = None,
-        profile: AgentProfile | None = None,
+        profile: ClaudeAdapterProfile | None = None,
         role_adapter: Any | None = None,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
@@ -146,6 +160,8 @@ class ClaudeWorkerAdapter:
         )
 
     def is_enabled(self) -> bool:
+        if self._role_adapter is not None:
+            return True
         return self.load_config().enabled
 
     def generate_design_brief(self, prompt: str) -> ClaudeWorkerPayload:
@@ -163,6 +179,8 @@ class ClaudeWorkerAdapter:
             raise ClaudeWorkerError("claude_disabled")
         if not config.api_key:
             raise ClaudeWorkerError("missing_claude_configuration")
+        if self._has_running_loop():
+            return self._generate_design_brief_via_subprocess(prompt)
         try:
             return asyncio.run(self._generate_design_brief(prompt, config))
         except ClaudeWorkerError as exc:
@@ -177,6 +195,14 @@ class ClaudeWorkerAdapter:
         record = self._last_debug_record
         self._last_debug_record = None
         return record
+
+    @staticmethod
+    def _has_running_loop() -> bool:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+        return True
 
     async def _generate_design_brief(
         self, prompt: str, config: ClaudeWorkerConfig
@@ -247,6 +273,7 @@ class ClaudeWorkerAdapter:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            env=self._subprocess_env(),
             timeout=300,
         )
         if proc.returncode != 0:
@@ -304,13 +331,22 @@ class ClaudeWorkerAdapter:
             ]
         )
 
-    def _require_profile(self) -> AgentProfile:
+    def _require_profile(self) -> ClaudeAdapterProfile:
         if self.profile is None:
             raise ClaudeWorkerError("missing_agent_profile")
         return self.profile
 
     def _claude_project_root(self) -> Path:
         return self._require_profile().claude_project_root
+
+    def _subprocess_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        pythonpath_parts = [str(self.project_root)]
+        existing_pythonpath = env.get("PYTHONPATH")
+        if existing_pythonpath:
+            pythonpath_parts.append(existing_pythonpath)
+        env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
+        return env
 
 
 def _main() -> int:
@@ -325,8 +361,7 @@ def _main() -> int:
 
     profile = None
     if args.system_prompt and args.claude_project_root:
-        profile = AgentProfile(
-            name="worker",
+        profile = _SubprocessProfile(
             system_prompt=args.system_prompt,
             claude_project_root=Path(args.claude_project_root),
         )
