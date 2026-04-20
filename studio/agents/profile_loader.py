@@ -14,13 +14,20 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _validate_agent_name(agent_name: str) -> None:
+    agent_path = Path(agent_name)
+    if agent_name in {"", ".", ".."} or len(agent_path.parts) != 1 or agent_path.name != agent_name:
+        raise AgentProfileValidationError(f"invalid agent profile name: {agent_name}")
+
+
 def _profile_path(agent_name: str) -> Path:
+    _validate_agent_name(agent_name)
     return _repo_root() / "studio" / "agents" / "profiles" / f"{agent_name}.yaml"
 
 
 def load_agent_profile(agent_name: str) -> AgentProfile:
     path = _profile_path(agent_name)
-    if not path.exists():
+    if not path.is_file():
         raise AgentProfileNotFoundError(f"agent profile not found: {agent_name}")
 
     try:
@@ -44,8 +51,14 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
             f"agent profile name mismatch: expected {agent_name}, found {data['name']}"
         )
 
+    claude_project_root_raw = data["claude_project_root"]
+    if not isinstance(claude_project_root_raw, (str, Path)):
+        raise AgentProfileValidationError(
+            "claude_project_root must be a string or path-like value"
+        )
+
     repo_root = _repo_root()
-    claude_project_root = Path(data["claude_project_root"])
+    claude_project_root = Path(claude_project_root_raw)
     if not claude_project_root.is_absolute():
         claude_project_root = (repo_root / claude_project_root).resolve()
     else:
