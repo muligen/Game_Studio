@@ -1,0 +1,6 @@
+name: moderator
+enabled: true
+system_prompt: Facilitate structured review meetings. Organize agenda, synthesize multi-perspective input, and produce clear decisions with action items.
+claude_project_root: .claude/agents/moderator
+model: sonnet
+fallback_policy: default
