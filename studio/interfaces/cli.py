@@ -6,9 +6,12 @@ from uuid import uuid4
 
 import typer
 
+from studio.agents.profile_loader import AgentProfileLoader
+from studio.agents.profile_schema import AgentProfileError
 from studio.domain.approvals import approve_design_doc
 from studio.domain.requirement_flow import transition_requirement
 from studio.domain.services import validate_requirement_ready_for_dev
+from studio.llm import ClaudeRoleAdapter, ClaudeRoleError, ClaudeWorkerAdapter, ClaudeWorkerError
 from studio.runtime.graph import build_demo_runtime
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
@@ -20,10 +23,12 @@ app = typer.Typer(help="Game Studio Runtime Kernel CLI.")
 requirement_app = typer.Typer(help="Requirement commands.")
 design_app = typer.Typer(help="Design review commands.")
 workflow_app = typer.Typer(help="Workflow execution commands.")
+agent_app = typer.Typer(help="Direct agent debugging commands.")
 
 app.add_typer(requirement_app, name="requirement")
 app.add_typer(design_app, name="design")
 app.add_typer(workflow_app, name="workflow")
+app.add_typer(agent_app, name="agent")
 
 
 def _workspace_store(workspace: Path) -> StudioWorkspace:
@@ -103,6 +108,45 @@ def _update_requirement_design_doc(
 
 def _append_requirement_bug(requirement: RequirementCard, bug_id: str) -> RequirementCard:
     return requirement.model_copy(update={"bug_ids": [*requirement.bug_ids, bug_id]})
+
+
+def _payload_to_data(payload: object) -> object:
+    if hasattr(payload, "model_dump") and callable(payload.model_dump):
+        return payload.model_dump()
+    if isinstance(payload, dict):
+        return payload
+    if hasattr(payload, "__dict__") and payload.__dict__:
+        return payload.__dict__
+
+    public_attrs: dict[str, object] = {}
+    for name in dir(payload):
+        if name.startswith("_"):
+            continue
+        value = getattr(payload, name)
+        if callable(value):
+            continue
+        public_attrs[name] = value
+    if public_attrs:
+        return public_attrs
+    return str(payload)
+
+
+def _echo_agent_reply(payload: object) -> None:
+    typer.echo(json.dumps(_payload_to_data(payload), indent=2, ensure_ascii=False, default=str))
+
+
+def _profile_path(loader: AgentProfileLoader, agent_name: str) -> Path:
+    repo_root = getattr(loader, "repo_root", Path(__file__).resolve().parents[2])
+    return Path(repo_root) / "studio" / "agents" / "profiles" / f"{agent_name}.yaml"
+
+
+def _run_agent_chat_once(agent_name: str, message: str, profile: object) -> object:
+    if agent_name == "worker":
+        runner = ClaudeWorkerAdapter(profile=profile)
+        return runner.generate_design_brief(message)
+
+    runner = ClaudeRoleAdapter(profile=profile)
+    return runner.generate(agent_name, {"message": message})
 
 
 @app.callback()
@@ -268,6 +312,50 @@ def run_quality(
     )
     store.requirements.save(done)
     typer.echo(f"{done.id} {done.status}")
+
+
+@agent_app.command("chat")
+def agent_chat(
+    agent: str = typer.Option(..., "--agent", help="Managed agent profile name"),
+    message: str | None = typer.Option(None, "--message", help="Single-turn user message"),
+    interactive: bool = typer.Option(False, "--interactive", help="Start a simple REPL"),
+    verbose: bool = typer.Option(False, "--verbose", help="Print debug metadata before the reply"),
+) -> None:
+    if not interactive and not message:
+        _fail_cli("--message is required unless --interactive is set")
+
+    try:
+        loader = AgentProfileLoader()
+        profile = loader.load(agent)
+    except AgentProfileError as exc:
+        _fail_cli(str(exc))
+
+    if verbose:
+        typer.echo(
+            json.dumps(
+                {
+                    "agent": agent,
+                    "profile_path": str(_profile_path(loader, agent)),
+                    "claude_project_root": str(profile.claude_project_root),
+                    "system_prompt": profile.system_prompt,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+
+    try:
+        if interactive:
+            while True:
+                user_input = typer.prompt(f"{agent}>")
+                if user_input.strip().lower() in {"exit", "quit"}:
+                    return
+                _echo_agent_reply(_run_agent_chat_once(agent, user_input, profile))
+            return
+
+        _echo_agent_reply(_run_agent_chat_once(agent, message or "", profile))
+    except (ClaudeRoleError, ClaudeWorkerError) as exc:
+        _fail_cli(str(exc))
 
 
 if __name__ == "__main__":
