@@ -15,6 +15,7 @@ from studio.llm import (
     QaPayload,
     QualityPayload,
     ReviewerPayload,
+    WorkerPayload,
     parse_role_payload,
 )
 from studio.llm import claude_roles as claude_roles_module
@@ -115,6 +116,23 @@ def test_parse_role_payload_returns_art_payload() -> None:
     )
 
 
+def test_parse_role_payload_returns_worker_payload() -> None:
+    payload = parse_role_payload(
+        "worker",
+        {
+            "title": "Lantern Vale",
+            "summary": "Restore the valley.",
+            "genre": "cozy strategy",
+        },
+    )
+
+    assert payload == WorkerPayload(
+        title="Lantern Vale",
+        summary="Restore the valley.",
+        genre="cozy strategy",
+    )
+
+
 def test_parse_role_payload_rejects_invalid_reviewer_output() -> None:
     with pytest.raises(ClaudeRoleError, match="invalid_claude_output"):
         parse_role_payload("reviewer", {"decision": "ship-it"})
@@ -139,7 +157,15 @@ def test_extract_result_payload_parses_embedded_json_object() -> None:
 
 
 def test_supported_role_registry_includes_qa_with_other_active_roles() -> None:
-    assert claude_roles_module._ACTIVE_ROLE_NAMES == {"art", "dev", "design", "qa", "quality", "reviewer"}
+    assert claude_roles_module._ACTIVE_ROLE_NAMES == {
+        "art",
+        "dev",
+        "design",
+        "qa",
+        "quality",
+        "reviewer",
+        "worker",
+    }
     assert set(claude_roles_module._ROLE_PAYLOAD_MODELS) == {
         "art",
         "dev",
@@ -147,6 +173,7 @@ def test_supported_role_registry_includes_qa_with_other_active_roles() -> None:
         "qa",
         "quality",
         "reviewer",
+        "worker",
     }
 
 

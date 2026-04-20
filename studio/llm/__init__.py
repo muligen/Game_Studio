@@ -16,6 +16,7 @@ from .claude_roles import (
     QaPayload,
     QualityPayload,
     ReviewerPayload,
+    WorkerPayload,
     parse_role_payload,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "QaPayload",
     "QualityPayload",
     "ReviewerPayload",
+    "WorkerPayload",
     "parse_role_payload",
 ]

@@ -84,6 +84,14 @@ class ArtPayload(BaseModel):
     asset_list: list[str]
 
 
+class WorkerPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    summary: str
+    genre: str
+
+
 _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "art": ArtPayload,
     "dev": DevPayload,
@@ -91,6 +99,7 @@ _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "qa": QaPayload,
     "quality": QualityPayload,
     "reviewer": ReviewerPayload,
+    "worker": WorkerPayload,
 }
 
 _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
@@ -164,6 +173,16 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
         "required": ["summary", "ready", "risks", "follow_ups"],
         "additionalProperties": False,
     },
+    "worker": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "genre": {"type": "string"},
+        },
+        "required": ["title", "summary", "genre"],
+        "additionalProperties": False,
+    },
 }
 
 _ACTIVE_ROLE_NAMES = set(_ROLE_PAYLOAD_MODELS)
@@ -171,7 +190,7 @@ _ACTIVE_ROLE_NAMES = set(_ROLE_PAYLOAD_MODELS)
 
 def parse_role_payload(
     role_name: str, data: object
-) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
+) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
     model = _ROLE_PAYLOAD_MODELS.get(role_name)
     if model is None:
         raise ClaudeRoleError("invalid_claude_output")
@@ -179,7 +198,10 @@ def parse_role_payload(
         parsed = model.model_validate(data)
     except ValidationError as exc:
         raise ClaudeRoleError("invalid_claude_output") from exc
-    if isinstance(parsed, (ReviewerPayload, DesignPayload, DevPayload, QaPayload, QualityPayload, ArtPayload)):
+    if isinstance(
+        parsed,
+        (ReviewerPayload, DesignPayload, DevPayload, QaPayload, QualityPayload, ArtPayload, WorkerPayload),
+    ):
         return parsed
     raise ClaudeRoleError("invalid_claude_output")
 
@@ -249,7 +271,7 @@ class ClaudeRoleAdapter:
 
     def generate(
         self, role_name: str, context: dict[str, object]
-    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
+    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
         _require_active_role(role_name)
         prompt = self._prompt(role_name, context)
 
@@ -292,7 +314,7 @@ class ClaudeRoleAdapter:
         context: dict[str, object],
         config: ClaudeRoleConfig,
         prompt: str,
-    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
+    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
         options = ClaudeAgentOptions(
             cwd=self._claude_project_root(),
             model=config.model,
@@ -348,7 +370,7 @@ class ClaudeRoleAdapter:
         role_name: str,
         context: dict[str, object],
         prompt: str,
-    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload:
+    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
         _require_active_role(role_name)
         script_path = Path(__file__).resolve()
         try:

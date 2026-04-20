@@ -9,8 +9,11 @@ import pytest
 
 from studio.agents import AgentProfile
 from studio.agents.worker import WorkerAgent
+from studio.llm import ClaudeRoleAdapter
+from studio.llm import claude_roles as claude_roles_module
 from studio.llm.claude_worker import (
     ClaudeWorkerAdapter,
+    ClaudeWorkerConfig,
     ClaudeWorkerError,
     ClaudeWorkerPayload,
 )
@@ -300,6 +303,58 @@ def test_worker_adapter_accepts_typed_role_payload() -> None:
     assert payload.title == "Shadow Hopper"
     assert payload.summary == "A platformer about drifting through light and shadow."
     assert payload.genre == "2D Platformer"
+
+
+def test_worker_adapter_is_compatible_with_real_claude_role_adapter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "GAME_STUDIO_CLAUDE_ENABLED=true",
+                "GAME_STUDIO_CLAUDE_MODE=text",
+                "ANTHROPIC_API_KEY=test-key",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profile = _profile(
+        system_prompt="Worker profile system prompt",
+        claude_project_root=claude_root,
+    )
+
+    async def fake_query(*, prompt: str, options: object):
+        yield claude_roles_module.ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            structured_output={
+                "title": "Lantern Vale",
+                "summary": "Restore the valley.",
+                "genre": "cozy strategy",
+            },
+        )
+
+    monkeypatch.setattr(claude_roles_module, "query", fake_query)
+
+    adapter = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        profile=profile,
+        role_adapter=ClaudeRoleAdapter(project_root=tmp_path, profile=profile),
+    )
+
+    payload = adapter.generate_design_brief("Design a simple 2D game concept")
+
+    assert payload == ClaudeWorkerPayload(
+        title="Lantern Vale",
+        summary="Restore the valley.",
+        genre="cozy strategy",
+    )
 
 
 def test_adapter_uses_subprocess_fallback_for_blocking_getcwd(monkeypatch: pytest.MonkeyPatch) -> None:
