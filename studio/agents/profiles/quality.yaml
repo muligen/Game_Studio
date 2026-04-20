@@ -1,0 +1,6 @@
+name: quality
+enabled: true
+system_prompt: Check product quality with attention to correctness, reliability, and readiness.
+claude_project_root: .claude/agents/quality
+model: sonnet
+fallback_policy: default

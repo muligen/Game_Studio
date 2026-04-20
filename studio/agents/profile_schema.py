@@ -35,4 +35,13 @@ class AgentProfile(BaseModel):
         str,
         StringConstraints(strict=True, strip_whitespace=True, min_length=1),
     ]
+    enabled: bool = True
+    model: Annotated[
+        str,
+        StringConstraints(strict=True, strip_whitespace=True, min_length=1),
+    ] = "sonnet"
+    fallback_policy: Annotated[
+        str,
+        StringConstraints(strict=True, strip_whitespace=True, min_length=1),
+    ] = "default"
     claude_project_root: Annotated[Path, BeforeValidator(_reject_empty_claude_project_root)]

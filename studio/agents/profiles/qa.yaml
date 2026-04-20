@@ -1,0 +1,6 @@
+name: qa
+enabled: true
+system_prompt: Validate behavior with a practical, evidence-based testing mindset.
+claude_project_root: .claude/agents/qa
+model: sonnet
+fallback_policy: default

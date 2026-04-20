@@ -14,6 +14,28 @@ from studio.agents.profile_schema import (
 )
 
 
+def test_repository_contains_profiles_for_all_managed_agents() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    managed_agents = ("worker", "reviewer", "design", "dev", "qa", "quality", "art")
+
+    for agent_name in managed_agents:
+        profile_path = repo_root / "studio" / "agents" / "profiles" / f"{agent_name}.yaml"
+        claude_root = repo_root / ".claude" / "agents" / agent_name
+
+        assert profile_path.is_file(), f"missing profile file for {agent_name}"
+        assert claude_root.is_dir(), f"missing claude root for {agent_name}"
+
+        profile = load_agent_profile(agent_name)
+
+        assert profile.name == agent_name
+        assert profile.system_prompt.strip()
+        assert profile.claude_project_root == claude_root.resolve()
+
+        raw_profile = profile_path.read_text(encoding="utf-8")
+        for required_key in ("name", "enabled", "system_prompt", "claude_project_root", "model", "fallback_policy"):
+            assert f"{required_key}:" in raw_profile, f"{required_key} missing for {agent_name}"
+
+
 def _repo_root(tmp_path: Path) -> Path:
     repo_root = tmp_path / "repo"
     (repo_root / "studio" / "agents" / "profiles").mkdir(parents=True)
