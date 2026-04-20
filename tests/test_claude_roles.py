@@ -160,18 +160,26 @@ def test_extract_result_payload_parses_embedded_json_object() -> None:
 
 def test_supported_role_registry_includes_qa_with_other_active_roles() -> None:
     assert claude_roles_module._ACTIVE_ROLE_NAMES == {
+        "agent_opinion",
         "art",
         "dev",
         "design",
+        "moderator_minutes",
+        "moderator_prepare",
+        "moderator_summary",
         "qa",
         "quality",
         "reviewer",
         "worker",
     }
     assert set(claude_roles_module._ROLE_PAYLOAD_MODELS) == {
+        "agent_opinion",
         "art",
         "dev",
         "design",
+        "moderator_minutes",
+        "moderator_prepare",
+        "moderator_summary",
         "qa",
         "quality",
         "reviewer",

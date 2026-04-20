@@ -119,17 +119,96 @@ class WorkerPayload(BaseModel):
     genre: str
 
 
+class ModeratorPreparePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agenda: list[str]
+    attendees: list[str]
+    focus_questions: list[str]
+
+
+class AgentOpinionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str
+    proposals: list[str]
+    risks: list[str]
+    open_questions: list[str]
+
+
+class ModeratorSummaryPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    consensus_points: list[str]
+    conflict_points: list[str]
+    conflict_resolution_needed: list[str]
+
+
+class ModeratorMinutesPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    summary: str
+    decisions: list[str]
+    action_items: list[str]
+    pending_user_decisions: list[str]
+
+
 _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
+    "agent_opinion": AgentOpinionPayload,
     "art": ArtPayload,
     "dev": DevPayload,
     "design": DesignPayload,
+    "moderator_prepare": ModeratorPreparePayload,
+    "moderator_summary": ModeratorSummaryPayload,
+    "moderator_minutes": ModeratorMinutesPayload,
     "qa": QaPayload,
     "quality": QualityPayload,
     "reviewer": ReviewerPayload,
     "worker": WorkerPayload,
 }
 
+_ROLE_PROMPTS: dict[str, str] = {
+    "moderator_prepare": (
+        "You are the meeting moderator.\n"
+        "Analyze the user's intent and the requirement context.\n"
+        "Return only JSON with agenda (list of discussion topics), "
+        "attendees (subset of: design, art, dev, qa), "
+        "and focus_questions (specific questions for the meeting).\n"
+    ),
+    "moderator_summary": (
+        "You are the meeting moderator.\n"
+        "Given structured opinions from multiple agents, synthesize the results.\n"
+        "Return only JSON with consensus_points, conflict_points, "
+        "and conflict_resolution_needed (conflicts requiring supplementary discussion).\n"
+    ),
+    "moderator_minutes": (
+        "You are the meeting moderator.\n"
+        "Given all meeting context (agenda, opinions, consensus, conflicts, supplementary discussion), "
+        "produce the final meeting minutes.\n"
+        "Return only JSON with title, summary, decisions, action_items, "
+        "and pending_user_decisions (items requiring human approval).\n"
+    ),
+    "agent_opinion": (
+        "You are providing a professional opinion in a structured review meeting.\n"
+        "Analyze the agenda and user intent from your professional perspective.\n"
+        "Return only JSON with summary, proposals (concrete suggestions), "
+        "risks (potential issues), and open_questions (items needing clarification).\n"
+    ),
+}
+
 _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
+    "agent_opinion": {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "proposals": {"type": "array", "items": {"type": "string"}},
+            "risks": {"type": "array", "items": {"type": "string"}},
+            "open_questions": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["summary", "proposals", "risks", "open_questions"],
+        "additionalProperties": False,
+    },
     "art": {
         "type": "object",
         "properties": {
@@ -167,6 +246,38 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
             "acceptance_criteria",
             "open_questions",
         ],
+        "additionalProperties": False,
+    },
+    "moderator_prepare": {
+        "type": "object",
+        "properties": {
+            "agenda": {"type": "array", "items": {"type": "string"}},
+            "attendees": {"type": "array", "items": {"type": "string"}},
+            "focus_questions": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["agenda", "attendees", "focus_questions"],
+        "additionalProperties": False,
+    },
+    "moderator_summary": {
+        "type": "object",
+        "properties": {
+            "consensus_points": {"type": "array", "items": {"type": "string"}},
+            "conflict_points": {"type": "array", "items": {"type": "string"}},
+            "conflict_resolution_needed": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["consensus_points", "conflict_points", "conflict_resolution_needed"],
+        "additionalProperties": False,
+    },
+    "moderator_minutes": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "decisions": {"type": "array", "items": {"type": "string"}},
+            "action_items": {"type": "array", "items": {"type": "string"}},
+            "pending_user_decisions": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["title", "summary", "decisions", "action_items", "pending_user_decisions"],
         "additionalProperties": False,
     },
     "reviewer": {
@@ -217,7 +328,19 @@ _ACTIVE_ROLE_NAMES = set(_ROLE_PAYLOAD_MODELS)
 
 def parse_role_payload(
     role_name: str, data: object
-) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
+) -> (
+    ReviewerPayload
+    | DesignPayload
+    | DevPayload
+    | QaPayload
+    | QualityPayload
+    | ArtPayload
+    | WorkerPayload
+    | ModeratorPreparePayload
+    | AgentOpinionPayload
+    | ModeratorSummaryPayload
+    | ModeratorMinutesPayload
+):
     model = _ROLE_PAYLOAD_MODELS.get(role_name)
     if model is None:
         raise ClaudeRoleError("invalid_claude_output")
@@ -227,7 +350,19 @@ def parse_role_payload(
         raise ClaudeRoleError("invalid_claude_output") from exc
     if isinstance(
         parsed,
-        (ReviewerPayload, DesignPayload, DevPayload, QaPayload, QualityPayload, ArtPayload, WorkerPayload),
+        (
+            ReviewerPayload,
+            DesignPayload,
+            DevPayload,
+            QaPayload,
+            QualityPayload,
+            ArtPayload,
+            WorkerPayload,
+            ModeratorPreparePayload,
+            AgentOpinionPayload,
+            ModeratorSummaryPayload,
+            ModeratorMinutesPayload,
+        ),
     ):
         return parsed
     raise ClaudeRoleError("invalid_claude_output")
@@ -298,7 +433,19 @@ class ClaudeRoleAdapter:
 
     def generate(
         self, role_name: str, context: dict[str, object]
-    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
+    ) -> (
+        ReviewerPayload
+        | DesignPayload
+        | DevPayload
+        | QaPayload
+        | QualityPayload
+        | ArtPayload
+        | WorkerPayload
+        | ModeratorPreparePayload
+        | AgentOpinionPayload
+        | ModeratorSummaryPayload
+        | ModeratorMinutesPayload
+    ):
         _require_active_role(role_name)
         prompt = self._prompt(role_name, context)
 
@@ -341,7 +488,19 @@ class ClaudeRoleAdapter:
         context: dict[str, object],
         config: ClaudeRoleConfig,
         prompt: str,
-    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
+    ) -> (
+        ReviewerPayload
+        | DesignPayload
+        | DevPayload
+        | QaPayload
+        | QualityPayload
+        | ArtPayload
+        | WorkerPayload
+        | ModeratorPreparePayload
+        | AgentOpinionPayload
+        | ModeratorSummaryPayload
+        | ModeratorMinutesPayload
+    ):
         options = ClaudeAgentOptions(
             cwd=self._claude_project_root(),
             model=config.model,
@@ -397,7 +556,19 @@ class ClaudeRoleAdapter:
         role_name: str,
         context: dict[str, object],
         prompt: str,
-    ) -> ReviewerPayload | DesignPayload | DevPayload | QaPayload | QualityPayload | ArtPayload | WorkerPayload:
+    ) -> (
+        ReviewerPayload
+        | DesignPayload
+        | DevPayload
+        | QaPayload
+        | QualityPayload
+        | ArtPayload
+        | WorkerPayload
+        | ModeratorPreparePayload
+        | AgentOpinionPayload
+        | ModeratorSummaryPayload
+        | ModeratorMinutesPayload
+    ):
         _require_active_role(role_name)
         script_path = Path(__file__).resolve()
         try:
