@@ -427,3 +427,204 @@ def build_delivery_graph():
     graph.add_edge("qa", "quality")
     graph.add_edge("quality", END)
     return graph.compile()
+
+
+def build_meeting_graph():
+    from studio.agents.art import ArtAgent
+    from studio.agents.design import DesignAgent
+    from studio.agents.dev import DevAgent
+    from studio.agents.moderator import ModeratorAgent
+    from studio.agents.qa import QaAgent
+    from studio.schemas.meeting import AgentOpinion, MeetingMinutes
+
+    graph = StateGraph(dict)
+
+    _AGENT_MAP = {
+        "design": DesignAgent,
+        "art": ArtAgent,
+        "dev": DevAgent,
+        "qa": QaAgent,
+    }
+
+    def moderator_prepare_node(state: dict[str, object]) -> dict[str, object]:
+        workspace_root = _require_state_str(state, "workspace_root")
+        project_root = _require_state_str(state, "project_root")
+        requirement_id = _require_state_str(state, "requirement_id")
+        user_intent = state.get("user_intent", "")
+
+        workspace = StudioWorkspace(Path(workspace_root))
+        requirement = workspace.requirements.get(requirement_id)
+        intent = str(user_intent) if user_intent else requirement.title
+
+        moderator = ModeratorAgent(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="meeting-project",
+            run_id=_new_run_id(),
+            task_id=f"meeting-prepare-{requirement_id}",
+            goal={"prompt": intent, "requirement_id": requirement_id},
+        )
+        result = moderator.prepare(runtime_state)
+        prep = result.state_patch.get("telemetry", {}).get("moderator_prepare", {})
+
+        return {
+            **state,
+            "node_name": "moderator_prepare",
+            "user_intent": intent,
+            "agenda": prep.get("agenda", [intent]),
+            "attendees": prep.get("attendees", ["design", "dev", "qa"]),
+        }
+
+    def agent_opinion_node(state: dict[str, object]) -> dict[str, object]:
+        project_root = _require_state_str(state, "project_root")
+        attendees = state.get("attendees", [])
+        agenda = state.get("agenda", [])
+        user_intent = state.get("user_intent", "")
+
+        opinions: dict[str, dict[str, object]] = {}
+        for role in attendees:
+            agent_cls = _AGENT_MAP.get(str(role), DesignAgent)
+            agent = agent_cls(project_root=Path(project_root))
+            runtime_state = RuntimeState(
+                project_id="meeting-project",
+                run_id=_new_run_id(),
+                task_id=f"meeting-{role}",
+                goal={
+                    "prompt": str(user_intent),
+                    "phase": "opinion",
+                    "agenda": agenda,
+                    "role": str(role),
+                },
+            )
+            result = agent.run(runtime_state)
+
+            telemetry = result.state_patch.get("telemetry", {})
+            report_key = next(
+                (k for k in telemetry if k.endswith("_report") or k.endswith("_brief")),
+                None,
+            )
+            report = telemetry.get(report_key, {}) if report_key else {}
+
+            opinion: dict[str, object] = {
+                "agent_role": str(role),
+                "summary": str(report.get("summary", f"{role} opinion")),
+                "proposals": [
+                    str(p)
+                    for p in report.get("core_rules", report.get("proposals", report.get("changes", [])))
+                ],
+                "risks": [
+                    str(r)
+                    for r in report.get("open_questions", report.get("risks", []))
+                ],
+                "open_questions": [
+                    str(q)
+                    for q in report.get("acceptance_criteria", report.get("open_questions", []))
+                ],
+            }
+            opinions[str(role)] = opinion
+
+        return {
+            **state,
+            "node_name": "agent_opinion",
+            "opinions": opinions,
+        }
+
+    def moderator_summarize_node(state: dict[str, object]) -> dict[str, object]:
+        project_root = _require_state_str(state, "project_root")
+        requirement_id = _require_state_str(state, "requirement_id")
+        opinions = state.get("opinions", {})
+
+        moderator = ModeratorAgent(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="meeting-project",
+            run_id=_new_run_id(),
+            task_id=f"meeting-summarize-{requirement_id}",
+            goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
+        )
+        result = moderator.summarize(runtime_state, opinions=opinions)
+        summary = result.state_patch.get("telemetry", {}).get("moderator_summary", {})
+
+        return {
+            **state,
+            "node_name": "moderator_summarize",
+            "consensus_points": summary.get("consensus_points", []),
+            "conflict_points": summary.get("conflict_points", []),
+        }
+
+    def moderator_minutes_node(state: dict[str, object]) -> dict[str, object]:
+        workspace_root = _require_state_str(state, "workspace_root")
+        project_root = _require_state_str(state, "project_root")
+        requirement_id = _require_state_str(state, "requirement_id")
+
+        workspace = StudioWorkspace(Path(workspace_root))
+
+        moderator = ModeratorAgent(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="meeting-project",
+            run_id=_new_run_id(),
+            task_id=f"meeting-minutes-{requirement_id}",
+            goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
+        )
+        all_context: dict[str, object] = {
+            "agenda": state.get("agenda", []),
+            "opinions": state.get("opinions", {}),
+            "consensus_points": state.get("consensus_points", []),
+            "conflict_points": state.get("conflict_points", []),
+        }
+        result = moderator.minutes(runtime_state, all_context=all_context)
+        minutes_data = result.state_patch.get("telemetry", {}).get("moderator_minutes", {})
+
+        req_suffix = requirement_id.split("_")[-1]
+        minutes = MeetingMinutes(
+            id=f"meeting_{req_suffix}",
+            requirement_id=requirement_id,
+            title=str(minutes_data.get("title", "Meeting Notes")),
+            agenda=[str(a) for a in state.get("agenda", [])],
+            attendees=[str(a) for a in state.get("attendees", [])],
+            opinions=[
+                AgentOpinion(
+                    agent_role=str(op["agent_role"]),
+                    summary=str(op["summary"]),
+                    proposals=[str(p) for p in op.get("proposals", [])],
+                    risks=[str(r) for r in op.get("risks", [])],
+                    open_questions=[str(q) for q in op.get("open_questions", [])],
+                )
+                for op in state.get("opinions", {}).values()
+            ],
+            consensus_points=[str(c) for c in state.get("consensus_points", [])],
+            conflict_points=[str(c) for c in state.get("conflict_points", [])],
+            supplementary={
+                **(
+                    {k: str(v) for k, v in state.get("supplementary").items()}
+                    if isinstance(state.get("supplementary"), dict)
+                    else {}
+                ),
+                "moderator_summary": str(minutes_data.get("summary", "")),
+            },
+            decisions=[str(d) for d in minutes_data.get("decisions", [])],
+            action_items=[str(a) for a in minutes_data.get("action_items", [])],
+            pending_user_decisions=[str(d) for d in minutes_data.get("pending_user_decisions", [])],
+            status="completed",
+        )
+
+        # Save to workspace if meetings repo exists (Task 6 will add this)
+        if hasattr(workspace, "meetings"):
+            workspace.meetings.save(minutes)
+
+        return {
+            **state,
+            "node_name": "moderator_minutes",
+            "minutes": minutes.model_dump(),
+        }
+
+    graph.add_node("moderator_prepare", moderator_prepare_node)
+    graph.add_node("agent_opinion", agent_opinion_node)
+    graph.add_node("moderator_summarize", moderator_summarize_node)
+    graph.add_node("moderator_minutes", moderator_minutes_node)
+
+    graph.add_edge(START, "moderator_prepare")
+    graph.add_edge("moderator_prepare", "agent_opinion")
+    graph.add_edge("agent_opinion", "moderator_summarize")
+    graph.add_edge("moderator_summarize", "moderator_minutes")
+    graph.add_edge("moderator_minutes", END)
+
+    return graph.compile()
