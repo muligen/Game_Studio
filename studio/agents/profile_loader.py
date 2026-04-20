@@ -51,8 +51,14 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
             f"agent profile name mismatch: expected {agent_name}, found {data['name']}"
         )
 
+    system_prompt = data["system_prompt"]
+    if not isinstance(system_prompt, str) or not system_prompt.strip():
+        raise AgentProfileValidationError("system_prompt must be a non-empty string")
+
     claude_project_root_raw = data["claude_project_root"]
-    if not isinstance(claude_project_root_raw, (str, Path)):
+    if not isinstance(claude_project_root_raw, (str, Path)) or (
+        isinstance(claude_project_root_raw, str) and not claude_project_root_raw.strip()
+    ):
         raise AgentProfileValidationError(
             "claude_project_root must be a string or path-like value"
         )

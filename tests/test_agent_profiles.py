@@ -83,6 +83,27 @@ def test_loader_rejects_missing_system_prompt(
         load_agent_profile("builder")
 
 
+def test_loader_rejects_empty_system_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = _repo_root(tmp_path)
+    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
+        "\n".join(
+            [
+                "name: builder",
+                "system_prompt: ''",
+                "claude_project_root: .claude/profiles/demo",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _set_loader_module_path(monkeypatch, repo_root)
+
+    with pytest.raises(AgentProfileValidationError):
+        load_agent_profile("builder")
+
+
 def test_loader_rejects_missing_claude_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -93,6 +114,26 @@ def test_loader_rejects_missing_claude_directory(
                 "name: builder",
                 "system_prompt: Stay focused on the brief.",
                 "claude_project_root: .claude/profiles/missing",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _set_loader_module_path(monkeypatch, repo_root)
+
+    with pytest.raises(AgentProfileValidationError):
+        load_agent_profile("builder")
+
+
+def test_loader_rejects_empty_claude_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = _repo_root(tmp_path)
+    (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
+        "\n".join(
+            [
+                "name: builder",
+                "system_prompt: Stay focused on the brief.",
+                "claude_project_root: ''",
             ]
         ),
         encoding="utf-8",
