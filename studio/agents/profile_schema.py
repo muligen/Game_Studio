@@ -21,6 +21,12 @@ class AgentProfileValidationError(AgentProfileError):
 class AgentProfile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-    system_prompt: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    name: Annotated[
+        str,
+        StringConstraints(strict=True, strip_whitespace=True, min_length=1),
+    ]
+    system_prompt: Annotated[
+        str,
+        StringConstraints(strict=True, strip_whitespace=True, min_length=1),
+    ]
     claude_project_root: Path

@@ -25,13 +25,30 @@ def _profile_path(agent_name: str) -> Path:
     return _repo_root() / "studio" / "agents" / "profiles" / f"{agent_name}.yaml"
 
 
+def _profiles_root() -> Path:
+    return _repo_root() / "studio" / "agents" / "profiles"
+
+
 def load_agent_profile(agent_name: str) -> AgentProfile:
     path = _profile_path(agent_name)
     if not path.is_file():
         raise AgentProfileNotFoundError(f"agent profile not found: {agent_name}")
 
+    profiles_root = _profiles_root().resolve()
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        resolved_path = path.resolve(strict=True)
+    except OSError as exc:
+        raise AgentProfileValidationError(f"failed to resolve agent profile: {agent_name}") from exc
+
+    if not resolved_path.is_relative_to(profiles_root):
+        raise AgentProfileValidationError(
+            f"agent profile must stay within the profiles directory: {agent_name}"
+        )
+
+    try:
+        raw = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise AgentProfileValidationError(f"failed to read agent profile: {agent_name}") from exc
     except yaml.YAMLError as exc:  # pragma: no cover - defensive, covered by validation path
         raise AgentProfileValidationError(f"invalid yaml for agent profile: {agent_name}") from exc
 
@@ -67,14 +84,13 @@ def load_agent_profile(agent_name: str) -> AgentProfile:
             "claude_project_root must be a string or path-like value"
         )
 
-    repo_root = _repo_root()
     claude_project_root = Path(claude_project_root_raw)
     if not claude_project_root.is_absolute():
-        claude_project_root = (repo_root / claude_project_root).resolve()
+        claude_project_root = (_repo_root() / claude_project_root).resolve()
     else:
         claude_project_root = claude_project_root.resolve()
 
-    repo_root = repo_root.resolve()
+    repo_root = _repo_root().resolve()
     if not claude_project_root.is_relative_to(repo_root):
         raise AgentProfileValidationError(
             f"claude project root must stay within the repository: {claude_project_root}"
