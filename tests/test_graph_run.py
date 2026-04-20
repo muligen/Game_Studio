@@ -10,6 +10,9 @@ from studio.schemas.runtime import NodeDecision, NodeResult
 from studio.storage.workspace import StudioWorkspace
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 @pytest.fixture(autouse=True)
 def _disable_live_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -418,7 +421,13 @@ def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None
     workspace.requirements.save(RequirementCard(id="req_001", title="Add relic system"))
 
     runtime = build_design_graph()
-    result = runtime.invoke({"workspace_root": str(workspace_root), "project_root": str(tmp_path), "requirement_id": "req_001"})
+    result = runtime.invoke(
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(_REPO_ROOT),
+            "requirement_id": "req_001",
+        }
+    )
 
     updated_requirement = workspace.requirements.get("req_001")
     design_doc = workspace.design_docs.get(result["design_doc_id"])

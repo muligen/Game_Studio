@@ -46,6 +46,19 @@ class _SubprocessProfile:
     claude_project_root: Path
 
 
+def _subprocess_profile_from_args(
+    *, system_prompt: str | None, claude_project_root: str | None
+) -> _SubprocessProfile | None:
+    if bool(system_prompt) != bool(claude_project_root):
+        raise ClaudeRoleError("missing_agent_profile")
+    if not system_prompt or not claude_project_root:
+        return None
+    return _SubprocessProfile(
+        system_prompt=system_prompt,
+        claude_project_root=Path(claude_project_root),
+    )
+
+
 class ReviewerPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -518,12 +531,10 @@ def _main() -> int:
         args = parser.parse_args()
         _require_active_role(args.role_name)
 
-        profile = None
-        if args.system_prompt and args.claude_project_root:
-            profile = _SubprocessProfile(
-                system_prompt=args.system_prompt,
-                claude_project_root=Path(args.claude_project_root),
-            )
+        profile = _subprocess_profile_from_args(
+            system_prompt=args.system_prompt,
+            claude_project_root=args.claude_project_root,
+        )
 
         adapter = ClaudeRoleAdapter(project_root=Path(args.project_root), profile=profile)
         config = adapter.load_config()

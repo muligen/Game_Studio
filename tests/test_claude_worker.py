@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -131,7 +132,17 @@ def test_worker_falls_back_when_env_config_is_incomplete(tmp_path: Path) -> None
     env_path = tmp_path / ".env"
     env_path.write_text("GAME_STUDIO_CLAUDE_ENABLED=true\n", encoding="utf-8")
 
-    result = WorkerAgent(project_root=tmp_path).run(_state())
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    runner = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    result = WorkerAgent(claude_runner=runner).run(_state())
 
     assert result.artifacts[0].payload["title"] == "Moonwell Garden"
     assert result.trace["fallback_used"] is True
@@ -145,7 +156,17 @@ def test_worker_falls_back_when_env_config_is_invalid(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = WorkerAgent(project_root=tmp_path).run(_state())
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    runner = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    result = WorkerAgent(claude_runner=runner).run(_state())
 
     assert result.artifacts[0].payload["title"] == "Moonwell Garden"
     assert result.trace["fallback_used"] is True
@@ -520,3 +541,38 @@ def test_worker_module_runs_via_python_m(tmp_path: Path) -> None:
 
     assert proc.returncode == 0
     assert "usage:" in proc.stdout
+
+
+def test_worker_main_rejects_incomplete_profile_cli_args_before_loading_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        argparse.ArgumentParser,
+        "parse_args",
+        lambda self: argparse.Namespace(
+            project_root=str(tmp_path),
+            system_prompt="Worker profile system prompt",
+            claude_project_root=None,
+            prompt="Design a simple 2D game concept",
+        ),
+    )
+
+    def fail_load_config(self: ClaudeWorkerAdapter) -> ClaudeWorkerConfig:
+        raise AssertionError("load_config should not run without a full profile")
+
+    async def fail_generate_design_brief(
+        self: ClaudeWorkerAdapter,
+        prompt: str,
+        config: object,
+    ) -> ClaudeWorkerPayload:
+        raise AssertionError("generation path should not run without a full profile")
+
+    monkeypatch.setattr(ClaudeWorkerAdapter, "load_config", fail_load_config)
+    monkeypatch.setattr(ClaudeWorkerAdapter, "_generate_design_brief", fail_generate_design_brief)
+
+    exit_code = claude_worker_module._main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.out == ""
+    assert captured.err.strip() == "missing_agent_profile"

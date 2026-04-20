@@ -44,6 +44,19 @@ class _SubprocessProfile:
     claude_project_root: Path
 
 
+def _subprocess_profile_from_args(
+    *, system_prompt: str | None, claude_project_root: str | None
+) -> _SubprocessProfile | None:
+    if bool(system_prompt) != bool(claude_project_root):
+        raise ClaudeWorkerError("missing_agent_profile")
+    if not system_prompt or not claude_project_root:
+        return None
+    return _SubprocessProfile(
+        system_prompt=system_prompt,
+        claude_project_root=Path(claude_project_root),
+    )
+
+
 class ClaudeWorkerError(RuntimeError):
     pass
 
@@ -357,23 +370,25 @@ def _main() -> int:
     parser.add_argument("--system-prompt")
     parser.add_argument("--claude-project-root")
     parser.add_argument("--prompt", required=True)
-    args = parser.parse_args()
-
-    profile = None
-    if args.system_prompt and args.claude_project_root:
-        profile = _SubprocessProfile(
+    try:
+        args = parser.parse_args()
+        profile = _subprocess_profile_from_args(
             system_prompt=args.system_prompt,
-            claude_project_root=Path(args.claude_project_root),
+            claude_project_root=args.claude_project_root,
         )
 
-    adapter = ClaudeWorkerAdapter(project_root=Path(args.project_root), profile=profile)
-    config = adapter.load_config()
-    if not config.enabled:
-        raise ClaudeWorkerError("claude_disabled")
-    if not config.api_key:
-        raise ClaudeWorkerError("missing_claude_configuration")
+        adapter = ClaudeWorkerAdapter(project_root=Path(args.project_root), profile=profile)
+        config = adapter.load_config()
+        if not config.enabled:
+            raise ClaudeWorkerError("claude_disabled")
+        if not config.api_key:
+            raise ClaudeWorkerError("missing_claude_configuration")
 
-    payload = asyncio.run(adapter._generate_design_brief(args.prompt, config))
+        payload = asyncio.run(adapter._generate_design_brief(args.prompt, config))
+    except ClaudeWorkerError as exc:
+        print(str(exc) or exc.__class__.__name__, file=sys.stderr)
+        return 1
+
     print(json.dumps(payload.__dict__, ensure_ascii=False))
     return 0
 

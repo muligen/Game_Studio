@@ -636,3 +636,41 @@ def test_main_returns_clean_error_for_generation_failure(monkeypatch, tmp_path, 
     assert exit_code == 1
     assert captured.out == ""
     assert captured.err.strip() == "invalid_claude_output"
+
+
+def test_main_rejects_incomplete_profile_cli_args_before_loading_config(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setattr(
+        argparse.ArgumentParser,
+        "parse_args",
+        lambda self: Namespace(
+            project_root=str(tmp_path),
+            role_name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=None,
+        ),
+    )
+
+    def fail_load_config(self: ClaudeRoleAdapter) -> claude_roles_module.ClaudeRoleConfig:
+        raise AssertionError("load_config should not run without a full profile")
+
+    async def fail_generate_payload(
+        self: ClaudeRoleAdapter,
+        role_name: str,
+        context: dict[str, object],
+        config: object,
+        prompt: str,
+    ) -> ReviewerPayload:
+        raise AssertionError("generation path should not run without a full profile")
+
+    monkeypatch.setattr(ClaudeRoleAdapter, "load_config", fail_load_config)
+    monkeypatch.setattr(ClaudeRoleAdapter, "_generate_payload", fail_generate_payload)
+    monkeypatch.setattr(claude_roles_module.sys, "stdin", type("FakeStdin", (), {"read": lambda self: "{}"})())
+
+    exit_code = claude_roles_module._main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.out == ""
+    assert captured.err.strip() == "missing_agent_profile"

@@ -7,6 +7,9 @@ from studio.schemas.requirement import RequirementCard
 from studio.storage.workspace import StudioWorkspace
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 @pytest.fixture(autouse=True)
 def _disable_live_claude(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -50,7 +53,11 @@ def test_langgraph_studio_adapter_exposes_workflow_graphs(tmp_path: Path) -> Non
     workspace.requirements.save(RequirementCard(id="req_001", title="Add relic system"))
 
     design_result = module.design_graph.invoke(
-        {"workspace_root": str(workspace_root), "project_root": str(tmp_path), "requirement_id": "req_001"}
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(_REPO_ROOT),
+            "requirement_id": "req_001",
+        }
     )
     default_result = module.graph.invoke({"prompt": "Design a simple 2D game concept"})
     helper_result = module.build_langgraph_dev_runtime().invoke(
@@ -65,7 +72,11 @@ def test_langgraph_studio_adapter_exposes_workflow_graphs(tmp_path: Path) -> Non
     workspace.requirements.save(approved)
 
     delivery_result = module.delivery_graph.invoke(
-        {"workspace_root": str(workspace_root), "project_root": str(tmp_path), "requirement_id": "req_001"}
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(_REPO_ROOT),
+            "requirement_id": "req_001",
+        }
     )
     assert delivery_result["node_name"] == "quality"
     assert default_result["plan"]["current_node"] == "reviewer"
