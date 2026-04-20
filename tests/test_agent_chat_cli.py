@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from studio.interfaces.cli import app
+from studio.agents.profile_schema import AgentProfileNotFoundError, AgentProfileValidationError
 from studio.llm import ClaudeRoleError, ClaudeWorkerError
 
 
@@ -253,3 +254,41 @@ def test_agent_chat_surfaces_worker_adapter_errors_without_fallback(monkeypatch)
 
     assert result.exit_code == 1
     assert "worker exploded" in result.stderr
+
+
+def test_agent_chat_surfaces_unknown_agent_name_from_loader(monkeypatch) -> None:
+    class FakeLoader:
+        def __init__(self, repo_root: Path | None = None) -> None:
+            assert repo_root is None
+
+        def load(self, agent_name: str) -> object:
+            raise AgentProfileNotFoundError(f"agent profile not found: {agent_name}")
+
+    monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
+
+    result = CliRunner().invoke(
+        app,
+        ["agent", "chat", "--agent", "unknown", "--message", "Run smoke QA"],
+    )
+
+    assert result.exit_code == 1
+    assert "agent profile not found: unknown" in result.stderr
+
+
+def test_agent_chat_surfaces_profile_loading_failures_from_loader(monkeypatch) -> None:
+    class FakeLoader:
+        def __init__(self, repo_root: Path | None = None) -> None:
+            assert repo_root is None
+
+        def load(self, agent_name: str) -> object:
+            raise AgentProfileValidationError("missing or invalid claude project root")
+
+    monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
+
+    result = CliRunner().invoke(
+        app,
+        ["agent", "chat", "--agent", "qa", "--message", "Run smoke QA"],
+    )
+
+    assert result.exit_code == 1
+    assert "missing or invalid claude project root" in result.stderr
