@@ -17,10 +17,23 @@ from studio.agents.profile_schema import (
 def test_repository_contains_profiles_for_all_managed_agents() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     managed_agents = ("worker", "reviewer", "design", "dev", "qa", "quality", "art")
+    profiles_root = repo_root / "studio" / "agents" / "profiles"
+    claude_agents_root = repo_root / ".claude" / "agents"
+
+    assert profiles_root.is_dir()
+    assert claude_agents_root.is_dir()
+
+    checked_in_profiles = {path.stem for path in profiles_root.glob("*.yaml")}
+    checked_in_claude_roots = {
+        path.name for path in claude_agents_root.iterdir() if path.is_dir()
+    }
+
+    assert checked_in_profiles == set(managed_agents)
+    assert checked_in_claude_roots == set(managed_agents)
 
     for agent_name in managed_agents:
-        profile_path = repo_root / "studio" / "agents" / "profiles" / f"{agent_name}.yaml"
-        claude_root = repo_root / ".claude" / "agents" / agent_name
+        profile_path = profiles_root / f"{agent_name}.yaml"
+        claude_root = claude_agents_root / agent_name
 
         assert profile_path.is_file(), f"missing profile file for {agent_name}"
         assert claude_root.is_dir(), f"missing claude root for {agent_name}"
@@ -54,14 +67,14 @@ def test_loader_reads_valid_profile_and_resolves_relative_claude_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    claude_root = repo_root / ".claude" / "profiles" / "demo"
+    claude_root = repo_root / ".claude" / "agents" / "demo"
     claude_root.mkdir(parents=True)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "\n".join(
             [
                 "name: builder",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -104,13 +117,13 @@ def test_loader_rejects_unknown_profile_key_with_detail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "\n".join(
             [
                 "name: builder",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
                 "unexpected: nope",
             ]
         ),
@@ -142,13 +155,13 @@ def test_loader_rejects_empty_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "\n".join(
             [
                 "name: ''",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -163,13 +176,13 @@ def test_loader_rejects_name_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "\n".join(
             [
                 "name: other",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -184,13 +197,13 @@ def test_loader_rejects_non_string_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "\n".join(
             [
                 "name: []",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -205,12 +218,12 @@ def test_loader_rejects_missing_system_prompt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "\n".join(
             [
                 "name: builder",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -225,13 +238,13 @@ def test_loader_rejects_empty_system_prompt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     (repo_root / "studio" / "agents" / "profiles" / "builder.yaml").write_text(
         "\n".join(
             [
                 "name: builder",
                 "system_prompt: ''",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -265,7 +278,7 @@ def test_loader_rejects_profile_file_symlink_escape(
             [
                 "name: builder",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -295,7 +308,7 @@ def test_loader_rejects_missing_claude_directory(
             [
                 "name: builder",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/missing",
+                "claude_project_root: .claude/agents/missing",
             ]
         ),
         encoding="utf-8",
@@ -328,12 +341,12 @@ def test_loader_wraps_os_error_on_profile_read(
             [
                 "name: builder",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
     )
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     _set_loader_module_path(monkeypatch, repo_root)
 
     original_read_text = profile_loader.Path.read_text
@@ -353,14 +366,14 @@ def test_loader_wraps_claude_project_root_resolve_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo_root = _repo_root(tmp_path)
-    (repo_root / ".claude" / "profiles" / "demo").mkdir(parents=True)
+    (repo_root / ".claude" / "agents" / "demo").mkdir(parents=True)
     profile_path = repo_root / "studio" / "agents" / "profiles" / "builder.yaml"
     profile_path.write_text(
         "\n".join(
             [
                 "name: builder",
                 "system_prompt: Stay focused on the brief.",
-                "claude_project_root: .claude/profiles/demo",
+                "claude_project_root: .claude/agents/demo",
             ]
         ),
         encoding="utf-8",
@@ -368,7 +381,7 @@ def test_loader_wraps_claude_project_root_resolve_failure(
     _set_loader_module_path(monkeypatch, repo_root)
 
     original_resolve = profile_loader.Path.resolve
-    expected_resolve_target = repo_root / ".claude" / "profiles" / "demo"
+    expected_resolve_target = repo_root / ".claude" / "agents" / "demo"
 
     def fake_resolve(self: Path, *args: object, **kwargs: object) -> Path:
         if self == expected_resolve_target:
