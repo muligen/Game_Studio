@@ -39,6 +39,9 @@ def test_repository_contains_profiles_for_all_managed_agents() -> None:
         assert profile_path.is_file(), f"missing profile file for {agent_name}"
         assert claude_root.is_dir(), f"missing claude root for {agent_name}"
         assert claude_markdown.is_file(), f"missing CLAUDE.md for {agent_name}"
+        claude_markdown_text = claude_markdown.read_text(encoding="utf-8")
+        assert agent_name in claude_markdown_text
+        assert "belongs only to" in claude_markdown_text
 
         profile = load_agent_profile(agent_name)
 
