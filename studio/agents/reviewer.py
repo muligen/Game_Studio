@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from studio.agents.profile_loader import AgentProfileLoader
 from studio.llm import ClaudeRoleAdapter, ClaudeRoleError
 from studio.schemas.runtime import NodeDecision, NodeResult, RuntimeState
 
@@ -12,7 +13,12 @@ class ReviewerAgent:
         claude_runner: ClaudeRoleAdapter | None = None,
         project_root: Path | None = None,
     ) -> None:
-        self._claude_runner = claude_runner or ClaudeRoleAdapter(project_root=project_root)
+        if claude_runner is not None:
+            self._claude_runner = claude_runner
+            return
+
+        profile = AgentProfileLoader(repo_root=project_root).load("reviewer")
+        self._claude_runner = ClaudeRoleAdapter(project_root=project_root, profile=profile)
 
     def run(self, state: RuntimeState, **kwargs: object) -> NodeResult:
         raw = kwargs.get("artifact_payload", {})

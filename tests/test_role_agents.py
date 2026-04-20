@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
+
+import pytest
+
+from studio.agents import AgentProfile
+from studio.agents.art import ArtAgent
 from studio.agents.dev import DevAgent
 from studio.agents.design import DesignAgent
-from studio.agents.art import ArtAgent
+from studio.agents.qa import QaAgent
 from studio.agents.quality import QualityAgent
 from studio.agents.reviewer import ReviewerAgent
+from studio.agents.worker import WorkerAgent
 from studio.llm import (
     ArtPayload,
     ClaudeRoleError,
@@ -16,6 +24,16 @@ from studio.llm import (
 )
 from studio.runtime.graph import _merge_runtime_state
 from studio.schemas.runtime import NodeDecision, RuntimeState
+
+
+def _profile(agent_name: str, tmp_path: Path) -> AgentProfile:
+    claude_project_root = tmp_path / ".claude" / "agents" / agent_name
+    claude_project_root.mkdir(parents=True)
+    return AgentProfile(
+        name=agent_name,
+        system_prompt=f"{agent_name} profile prompt",
+        claude_project_root=claude_project_root,
+    )
 
 
 class FakeClaudeRunner:
@@ -51,6 +69,103 @@ def _state() -> RuntimeState:
         task_id="task-001",
         goal={"prompt": "Design a simple 2D game concept"},
     )
+
+
+@pytest.mark.parametrize(
+    ("module_name", "class_name", "agent_name"),
+    [
+        ("studio.agents.worker", "WorkerAgent", "worker"),
+        ("studio.agents.reviewer", "ReviewerAgent", "reviewer"),
+        ("studio.agents.design", "DesignAgent", "design"),
+        ("studio.agents.dev", "DevAgent", "dev"),
+        ("studio.agents.qa", "QaAgent", "qa"),
+        ("studio.agents.quality", "QualityAgent", "quality"),
+        ("studio.agents.art", "ArtAgent", "art"),
+    ],
+)
+def test_managed_agents_load_profiles_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    module_name: str,
+    class_name: str,
+    agent_name: str,
+) -> None:
+    module = importlib.import_module(module_name)
+    agent_cls = getattr(module, class_name)
+    profile = _profile(agent_name, tmp_path)
+    calls: list[tuple[Path | None, str]] = []
+
+    class FakeLoader:
+        def __init__(self, repo_root: Path | None = None) -> None:
+            calls.append((repo_root, "__init__"))
+
+        def load(self, requested_agent_name: str) -> AgentProfile:
+            init_repo_root, _ = calls.pop()
+            calls.append((init_repo_root, requested_agent_name))
+            return profile
+
+    monkeypatch.setattr(module, "AgentProfileLoader", FakeLoader)
+
+    agent = agent_cls(project_root=tmp_path)
+
+    assert calls == [(tmp_path, agent_name)]
+    assert agent._claude_runner.profile == profile
+
+
+@pytest.mark.parametrize(
+    ("module_name", "class_name"),
+    [
+        ("studio.agents.worker", "WorkerAgent"),
+        ("studio.agents.reviewer", "ReviewerAgent"),
+        ("studio.agents.design", "DesignAgent"),
+        ("studio.agents.dev", "DevAgent"),
+        ("studio.agents.qa", "QaAgent"),
+        ("studio.agents.quality", "QualityAgent"),
+        ("studio.agents.art", "ArtAgent"),
+    ],
+)
+def test_managed_agents_preserve_injected_claude_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    module_name: str,
+    class_name: str,
+) -> None:
+    module = importlib.import_module(module_name)
+    agent_cls = getattr(module, class_name)
+
+    class UnexpectedLoader:
+        def __init__(self, repo_root: Path | None = None) -> None:
+            raise AssertionError("loader should not be constructed when claude_runner is injected")
+
+    monkeypatch.setattr(module, "AgentProfileLoader", UnexpectedLoader)
+
+    runner = object()
+    agent = agent_cls(claude_runner=runner, project_root=tmp_path)
+
+    assert agent._claude_runner is runner
+
+
+def test_reviewer_agent_bubbles_profile_loader_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from studio.agents.profile_schema import AgentProfileValidationError
+
+    class FakeLoader:
+        def __init__(self, repo_root: Path | None = None) -> None:
+            assert repo_root == tmp_path
+
+        def load(self, agent_name: str) -> AgentProfile:
+            raise AgentProfileValidationError(
+                "agent profile 'reviewer' missing required field: system_prompt"
+            )
+
+    monkeypatch.setattr("studio.agents.reviewer.AgentProfileLoader", FakeLoader)
+
+    with pytest.raises(
+        AgentProfileValidationError,
+        match="missing required field: system_prompt",
+    ):
+        ReviewerAgent(project_root=tmp_path)
 
 
 def test_reviewer_uses_claude_payload_when_available() -> None:

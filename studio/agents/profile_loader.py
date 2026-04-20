@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from studio.agents.profile_schema import AgentProfile, AgentProfileNotFoundError, AgentProfileValidationError
 
 
-def _repo_root() -> Path:
+def _default_repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
@@ -22,72 +22,79 @@ def _validate_agent_name(agent_name: str) -> None:
         raise AgentProfileValidationError(f"invalid agent profile name: {agent_name}")
 
 
-def _profile_path(agent_name: str) -> Path:
+def _profile_path(repo_root: Path, agent_name: str) -> Path:
     _validate_agent_name(agent_name)
-    return _repo_root() / "studio" / "agents" / "profiles" / f"{agent_name}.yaml"
+    return repo_root / "studio" / "agents" / "profiles" / f"{agent_name}.yaml"
 
 
-def _profiles_root() -> Path:
-    return _repo_root() / "studio" / "agents" / "profiles"
+def _profiles_root(repo_root: Path) -> Path:
+    return repo_root / "studio" / "agents" / "profiles"
+
+
+class AgentProfileLoader:
+    def __init__(self, repo_root: Path | None = None) -> None:
+        self.repo_root = (repo_root or _default_repo_root()).resolve()
+
+    def load(self, agent_name: str) -> AgentProfile:
+        path = _profile_path(self.repo_root, agent_name)
+        if not path.is_file():
+            raise AgentProfileNotFoundError(f"agent profile not found: {agent_name}")
+
+        profiles_root = _profiles_root(self.repo_root).resolve()
+        try:
+            resolved_path = path.resolve(strict=True)
+        except OSError as exc:
+            raise AgentProfileValidationError(f"failed to resolve agent profile: {agent_name}") from exc
+
+        if not resolved_path.is_relative_to(profiles_root):
+            raise AgentProfileValidationError(
+                f"agent profile must stay within the profiles directory: {agent_name}"
+            )
+
+        try:
+            raw = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            raise AgentProfileValidationError(f"failed to read agent profile: {agent_name}") from exc
+        except yaml.YAMLError as exc:
+            raise AgentProfileValidationError(f"invalid yaml for agent profile: {agent_name}") from exc
+
+        if not isinstance(raw, Mapping):
+            raise AgentProfileValidationError(f"agent profile must be a mapping: {agent_name}")
+
+        try:
+            profile = AgentProfile.model_validate(raw)
+        except ValidationError as exc:
+            raise AgentProfileValidationError(str(exc)) from exc
+
+        if profile.name != agent_name:
+            raise AgentProfileValidationError(
+                f"agent profile name mismatch: expected {agent_name}, found {profile.name}"
+            )
+
+        claude_project_root = profile.claude_project_root
+        try:
+            if not claude_project_root.is_absolute():
+                claude_project_root = (self.repo_root / claude_project_root).resolve()
+            else:
+                claude_project_root = claude_project_root.resolve()
+        except OSError as exc:
+            raise AgentProfileValidationError("failed to resolve claude project root") from exc
+
+        if not claude_project_root.is_relative_to(self.repo_root):
+            raise AgentProfileValidationError(
+                f"claude project root must stay within the repository: {claude_project_root}"
+            )
+
+        if not claude_project_root.exists() or not claude_project_root.is_dir():
+            raise AgentProfileValidationError(
+                f"missing or invalid claude project root: {claude_project_root}"
+            )
+
+        try:
+            return profile.model_copy(update={"claude_project_root": claude_project_root})
+        except ValidationError as exc:
+            raise AgentProfileValidationError(str(exc)) from exc
 
 
 def load_agent_profile(agent_name: str) -> AgentProfile:
-    path = _profile_path(agent_name)
-    if not path.is_file():
-        raise AgentProfileNotFoundError(f"agent profile not found: {agent_name}")
-
-    profiles_root = _profiles_root().resolve()
-    try:
-        resolved_path = path.resolve(strict=True)
-    except OSError as exc:
-        raise AgentProfileValidationError(f"failed to resolve agent profile: {agent_name}") from exc
-
-    if not resolved_path.is_relative_to(profiles_root):
-        raise AgentProfileValidationError(
-            f"agent profile must stay within the profiles directory: {agent_name}"
-        )
-
-    try:
-        raw = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError) as exc:
-        raise AgentProfileValidationError(f"failed to read agent profile: {agent_name}") from exc
-    except yaml.YAMLError as exc:
-        raise AgentProfileValidationError(f"invalid yaml for agent profile: {agent_name}") from exc
-
-    if not isinstance(raw, Mapping):
-        raise AgentProfileValidationError(f"agent profile must be a mapping: {agent_name}")
-
-    try:
-        profile = AgentProfile.model_validate(raw)
-    except ValidationError as exc:
-        raise AgentProfileValidationError(str(exc)) from exc
-
-    if profile.name != agent_name:
-        raise AgentProfileValidationError(
-            f"agent profile name mismatch: expected {agent_name}, found {profile.name}"
-        )
-
-    claude_project_root = profile.claude_project_root
-    try:
-        if not claude_project_root.is_absolute():
-            claude_project_root = (_repo_root() / claude_project_root).resolve()
-        else:
-            claude_project_root = claude_project_root.resolve()
-    except OSError as exc:
-        raise AgentProfileValidationError("failed to resolve claude project root") from exc
-
-    repo_root = _repo_root().resolve()
-    if not claude_project_root.is_relative_to(repo_root):
-        raise AgentProfileValidationError(
-            f"claude project root must stay within the repository: {claude_project_root}"
-        )
-
-    if not claude_project_root.exists() or not claude_project_root.is_dir():
-        raise AgentProfileValidationError(
-            f"missing or invalid claude project root: {claude_project_root}"
-        )
-
-    try:
-        return profile.model_copy(update={"claude_project_root": claude_project_root})
-    except ValidationError as exc:
-        raise AgentProfileValidationError(str(exc)) from exc
+    return AgentProfileLoader().load(agent_name)
