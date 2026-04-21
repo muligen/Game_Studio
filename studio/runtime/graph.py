@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import operator
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Send
 
 from studio.artifacts.registry import ArtifactRegistry
 from studio.domain.requirement_flow import transition_requirement
@@ -429,6 +431,21 @@ def build_delivery_graph():
     return graph.compile()
 
 
+class _MeetingState(TypedDict, total=False):
+    workspace_root: str
+    project_root: str
+    requirement_id: str
+    user_intent: str
+    agenda: list[str]
+    attendees: list[str]
+    opinions: Annotated[dict[str, dict[str, object]], operator.or_]
+    consensus_points: list[str]
+    conflict_points: list[str]
+    supplementary: dict[str, str]
+    node_name: str
+    minutes: dict[str, object]
+
+
 def build_meeting_graph():
     from studio.agents.art import ArtAgent
     from studio.agents.design import DesignAgent
@@ -437,16 +454,14 @@ def build_meeting_graph():
     from studio.agents.qa import QaAgent
     from studio.schemas.meeting import AgentOpinion, MeetingMinutes
 
-    graph = StateGraph(dict)
-
-    _AGENT_MAP = {
+    _AGENT_MAP: dict[str, type] = {
         "design": DesignAgent,
         "art": ArtAgent,
         "dev": DevAgent,
         "qa": QaAgent,
     }
 
-    def moderator_prepare_node(state: dict[str, object]) -> dict[str, object]:
+    def moderator_prepare_node(state: _MeetingState) -> dict:
         workspace_root = _require_state_str(state, "workspace_root")
         project_root = _require_state_str(state, "project_root")
         requirement_id = _require_state_str(state, "requirement_id")
@@ -467,68 +482,60 @@ def build_meeting_graph():
         prep = result.state_patch.get("telemetry", {}).get("moderator_prepare", {})
 
         return {
-            **state,
             "node_name": "moderator_prepare",
             "user_intent": intent,
             "agenda": prep.get("agenda", [intent]),
             "attendees": prep.get("attendees", ["design", "dev", "qa"]),
         }
 
-    def agent_opinion_node(state: dict[str, object]) -> dict[str, object]:
+    def agent_opinion_node(state: _MeetingState) -> dict:
         project_root = _require_state_str(state, "project_root")
-        attendees = state.get("attendees", [])
+        target_role = str(state.get("_target_role", "design"))
         agenda = state.get("agenda", [])
         user_intent = state.get("user_intent", "")
 
-        opinions: dict[str, dict[str, object]] = {}
-        for role in attendees:
-            agent_cls = _AGENT_MAP.get(str(role), DesignAgent)
-            agent = agent_cls(project_root=Path(project_root))
-            runtime_state = RuntimeState(
-                project_id="meeting-project",
-                run_id=_new_run_id(),
-                task_id=f"meeting-{role}",
-                goal={
-                    "prompt": str(user_intent),
-                    "phase": "opinion",
-                    "agenda": agenda,
-                    "role": str(role),
-                },
-            )
-            result = agent.run(runtime_state)
+        agent_cls = _AGENT_MAP.get(target_role, DesignAgent)
+        agent = agent_cls(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="meeting-project",
+            run_id=_new_run_id(),
+            task_id=f"meeting-{target_role}",
+            goal={
+                "prompt": str(user_intent),
+                "phase": "opinion",
+                "agenda": agenda,
+                "role": target_role,
+            },
+        )
+        result = agent.run(runtime_state)
 
-            telemetry = result.state_patch.get("telemetry", {})
-            report_key = next(
-                (k for k in telemetry if k.endswith("_report") or k.endswith("_brief")),
-                None,
-            )
-            report = telemetry.get(report_key, {}) if report_key else {}
+        telemetry = result.state_patch.get("telemetry", {})
+        report_key = next(
+            (k for k in telemetry if k.endswith("_report") or k.endswith("_brief")),
+            None,
+        )
+        report = telemetry.get(report_key, {}) if report_key else {}
 
-            opinion: dict[str, object] = {
-                "agent_role": str(role),
-                "summary": str(report.get("summary", f"{role} opinion")),
-                "proposals": [
-                    str(p)
-                    for p in report.get("core_rules", report.get("proposals", report.get("changes", [])))
-                ],
-                "risks": [
-                    str(r)
-                    for r in report.get("open_questions", report.get("risks", []))
-                ],
-                "open_questions": [
-                    str(q)
-                    for q in report.get("acceptance_criteria", report.get("open_questions", []))
-                ],
-            }
-            opinions[str(role)] = opinion
-
-        return {
-            **state,
-            "node_name": "agent_opinion",
-            "opinions": opinions,
+        opinion: dict[str, object] = {
+            "agent_role": target_role,
+            "summary": str(report.get("summary", f"{target_role} opinion")),
+            "proposals": [
+                str(p)
+                for p in report.get("core_rules", report.get("proposals", report.get("changes", [])))
+            ],
+            "risks": [
+                str(r)
+                for r in report.get("open_questions", report.get("risks", []))
+            ],
+            "open_questions": [
+                str(q)
+                for q in report.get("acceptance_criteria", report.get("open_questions", []))
+            ],
         }
 
-    def moderator_summarize_node(state: dict[str, object]) -> dict[str, object]:
+        return {"opinions": {target_role: opinion}}
+
+    def moderator_summarize_node(state: _MeetingState) -> dict:
         project_root = _require_state_str(state, "project_root")
         requirement_id = _require_state_str(state, "requirement_id")
         opinions = state.get("opinions", {})
@@ -544,13 +551,12 @@ def build_meeting_graph():
         summary = result.state_patch.get("telemetry", {}).get("moderator_summary", {})
 
         return {
-            **state,
             "node_name": "moderator_summarize",
             "consensus_points": summary.get("consensus_points", []),
             "conflict_points": summary.get("conflict_points", []),
         }
 
-    def moderator_minutes_node(state: dict[str, object]) -> dict[str, object]:
+    def moderator_minutes_node(state: _MeetingState) -> dict:
         workspace_root = _require_state_str(state, "workspace_root")
         project_root = _require_state_str(state, "project_root")
         requirement_id = _require_state_str(state, "requirement_id")
@@ -594,7 +600,7 @@ def build_meeting_graph():
             conflict_points=[str(c) for c in state.get("conflict_points", [])],
             supplementary={
                 **(
-                    {k: str(v) for k, v in state.get("supplementary").items()}
+                    {k: str(v) for k, v in sup.items()}
                     if isinstance(state.get("supplementary"), dict)
                     else {}
                 ),
@@ -606,23 +612,28 @@ def build_meeting_graph():
             status="completed",
         )
 
-        # Save to workspace if meetings repo exists (Task 6 will add this)
         if hasattr(workspace, "meetings"):
             workspace.meetings.save(minutes)
 
         return {
-            **state,
             "node_name": "moderator_minutes",
             "minutes": minutes.model_dump(),
         }
 
+    def route_to_agents(state: _MeetingState) -> list[Send]:
+        attendees = state.get("attendees", [])
+        if not attendees:
+            return [Send("moderator_summarize", dict(state))]
+        return [Send("agent_opinion", {**state, "_target_role": role}) for role in attendees]
+
+    graph = StateGraph(_MeetingState)
     graph.add_node("moderator_prepare", moderator_prepare_node)
     graph.add_node("agent_opinion", agent_opinion_node)
     graph.add_node("moderator_summarize", moderator_summarize_node)
     graph.add_node("moderator_minutes", moderator_minutes_node)
 
     graph.add_edge(START, "moderator_prepare")
-    graph.add_edge("moderator_prepare", "agent_opinion")
+    graph.add_conditional_edges("moderator_prepare", route_to_agents, ["agent_opinion", "moderator_summarize"])
     graph.add_edge("agent_opinion", "moderator_summarize")
     graph.add_edge("moderator_summarize", "moderator_minutes")
     graph.add_edge("moderator_minutes", END)
