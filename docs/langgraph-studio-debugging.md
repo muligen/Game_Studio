@@ -4,19 +4,22 @@ This guide is a quick reminder for debugging Game Studio graphs in LangGraph Stu
 
 ## Start Studio
 
-From the repo root:
+From the repo root, prefer disabling hot reload while debugging long-running Claude nodes:
 
 ```powershell
-uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.12 langgraph dev
+$env:PYTHONIOENCODING='utf-8'
+uvx --refresh --from "langgraph-cli[inmem]" --with-editable . --python 3.12 langgraph dev --no-reload
 ```
 
 If `langgraph` is already installed locally, this also works:
 
 ```powershell
-langgraph dev
+langgraph dev --no-reload
 ```
 
 Open the local Studio URL printed by the command.
+
+`--no-reload` is important for this project. LangGraph dev writes checkpoint/store files under `.langgraph_api`, and graph runs write workspace files under `.runtime-data` or `.studio-data`. With hot reload enabled, `watchfiles` may detect those generated files and restart background workers while a node is waiting for Claude. That usually appears as `asyncio.exceptions.CancelledError`, often while `moderator_prepare`, `agent_opinion`, or `moderator_minutes` is still running.
 
 ## Available Graphs
 
@@ -60,9 +63,9 @@ Update `requirement_id` if your generated id is different.
   "workspace_root": "F:\\projs\\Game_Studio\\.runtime-data\\langgraph-meeting-acceptance\\.studio-data",
   "project_root": "F:\\projs\\Game_Studio",
   "requirement_id": "req_8fab476c",
-  "user_intent": "为回合制战斗系统召开 kickoff meeting。请重点讨论 MVP 范围、战斗节奏、数值风险和验收标准。当前存在明确冲突：设计希望首版包含行动顺序条和元素克制，开发认为这会超出 MVP，QA 担心验收标准无法量化。请在总结阶段保留需要二轮讨论的 conflict_resolution_needed。",
+  "user_intent": "Run a kickoff meeting for a turn-based combat system. Focus on MVP scope, combat pacing, implementation boundaries, QA acceptance criteria, and known conflicts.",
   "meeting_context": {
-    "summary": "用户想做一个轻量但有策略深度的回合制战斗系统。核心体验是 3 名玩家单位对抗 3 名敌人，强调技能选择、行动顺序和资源消耗。",
+    "summary": "The user wants a lightweight but strategic 3v3 turn-based combat system with attack, skill, defend, turn order, resource use, and battle result resolution.",
     "requirement": {
       "id": "req_8fab476c",
       "title": "Turn-based combat kickoff acceptance",
@@ -70,34 +73,34 @@ Update `requirement_id` if your generated id is different.
       "priority": "medium"
     },
     "design_context": {
-      "core_loop": "玩家选择单位行动，使用普通攻击、技能或防御，击败全部敌人后进入结算。",
+      "core_loop": "The player selects unit actions, uses attack, skill, or defend, defeats all enemies, and reaches a win/loss result.",
       "mvp_scope": [
-        "3v3 回合制战斗",
-        "基础行动顺序",
-        "普通攻击、技能、防御",
-        "战斗胜负结算"
+        "3v3 turn-based combat",
+        "basic deterministic turn order",
+        "attack, skill, defend",
+        "battle win/loss resolution"
       ],
       "out_of_scope": [
-        "复杂装备词条",
-        "多人联机",
-        "大型关卡编辑器"
+        "complex equipment affixes",
+        "multiplayer networking",
+        "large level editor"
       ]
     },
     "goals": [
-      "确认 MVP 是否包含行动顺序条",
-      "确认是否首版加入元素克制",
-      "确认数值验收标准",
-      "确认开发和 QA 的最小可交付边界"
+      "Confirm whether the MVP needs an action timeline",
+      "Confirm whether elemental counters belong in the first version",
+      "Confirm measurable balance and QA acceptance criteria",
+      "Confirm the smallest dev-deliverable scope"
     ],
     "constraints": [
-      "首版必须控制在两周内完成",
-      "优先保证战斗循环可玩",
-      "不要引入过多 UI 和数值复杂度"
+      "First version should fit within two weeks",
+      "Playable combat loop is higher priority than UI polish",
+      "Avoid excessive UI and balance complexity"
     ],
     "open_questions": [
-      "行动顺序条是 MVP 必需，还是可以先用固定速度排序？",
-      "元素克制是否会显著增加 QA 组合测试成本？",
-      "技能数值验收应该用固定样例战斗，还是用胜率区间？"
+      "Is an action timeline required for MVP, or can deterministic turn order ship first?",
+      "Do elemental counters significantly increase QA combination testing cost?",
+      "Should skill balance acceptance use fixed sample battles or win-rate ranges?"
     ],
     "known_conflicts": [
       "Design wants action timeline and elemental counters in MVP.",
@@ -112,6 +115,26 @@ Update `requirement_id` if your generated id is different.
       "qa",
       "design"
     ]
+  }
+}
+```
+
+## Fast Minimal Input
+
+Use this when you only want to check whether the graph can run without waiting on a large prompt:
+
+```json
+{
+  "workspace_root": "F:\\projs\\Game_Studio\\.runtime-data\\langgraph-meeting-acceptance\\.studio-data",
+  "project_root": "F:\\projs\\Game_Studio",
+  "requirement_id": "req_8fab476c",
+  "user_intent": "Run a kickoff meeting for a small turn-based combat MVP.",
+  "meeting_context": {
+    "summary": "Small 3v3 turn-based combat MVP.",
+    "goals": ["Confirm MVP scope"],
+    "constraints": ["Two-week first version"],
+    "open_questions": ["Whether elemental counters are in MVP"],
+    "validated_attendees": ["design"]
   }
 }
 ```
@@ -166,11 +189,54 @@ If a node used deterministic fallback because Claude failed, the LLM call may no
 
 ## Common Problems
 
+### `watchfiles` Keeps Printing `changes detected`
+
+This is the LangGraph dev file watcher. It may print logs like:
+
+```text
+10 changes detected [watchfiles.main]
+1 change detected [watchfiles.main]
+```
+
+In this project, those changes are often generated by LangGraph itself:
+
+```text
+.langgraph_api/.langgraph_checkpoint.*.pckl
+.langgraph_api/store.pckl
+.runtime-data/**/.studio-data/meetings/*.json
+.runtime-data/**/.studio-data/project_agent_sessions/*.json
+```
+
+If hot reload is enabled, these generated files can cause worker shutdown/reload during a long Claude call. The symptom is usually:
+
+```text
+Background run failed, will retry.
+asyncio.exceptions.CancelledError
+```
+
+Use `--no-reload` while debugging graphs. If `CancelledError` still appears with `--no-reload`, then investigate the node itself. Without `--no-reload`, first assume hot reload interrupted the run.
+
+### `moderator_prepare` Is Slow
+
+`moderator_prepare` runs only one agent: `ModeratorAgent`.
+
+It calls Claude with:
+
+- moderator system prompt
+- `moderator_prepare` JSON output schema
+- `goal.prompt`
+- `requirement_id`
+- full `meeting_context`
+
+It can be slow because Claude Code CLI may cold-start, structured JSON output takes longer than chat, and large `meeting_context` objects increase prompt size.
+
 If Studio says `requirement_id` cannot be loaded, check that `workspace_root` points to `.studio-data`, not the outer workspace directory.
 
 If `moderator_discussion` does not run, inspect `moderator_summarize.conflict_resolution_needed`. The graph only enters the second discussion round when that value is truthy.
 
 If all unknown attendees disappear and the graph still runs `design/dev/qa`, that is expected. Empty attendee validation falls back to the default supported attendees.
+
+## Project-Scoped Agent Debugging
 
 If you want project-scoped Claude sessions, initialize through:
 
@@ -178,7 +244,7 @@ If you want project-scoped Claude sessions, initialize through:
 uv run python -m studio.interfaces.cli project kickoff `
   --workspace .runtime-data/project-session-demo `
   --requirement-id <req_id> `
-  --user-intent "为这个项目召开 kickoff meeting"
+  --user-intent "Run a kickoff meeting for this project."
 ```
 
 Then debug an individual agent with:
@@ -188,6 +254,6 @@ uv run python -m studio.interfaces.cli agent chat `
   --agent design `
   --workspace .runtime-data/project-session-demo `
   --project-id <project_id> `
-  --message "刚才会议里我的职责是什么？" `
+  --message "What was my responsibility in the kickoff meeting?" `
   --verbose
 ```
