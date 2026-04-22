@@ -12,13 +12,14 @@ class ArtAgent:
         self,
         claude_runner: ClaudeRoleAdapter | None = None,
         project_root: Path | None = None,
+        session_id: str | None = None,
     ) -> None:
         if claude_runner is not None:
             self._claude_runner = claude_runner
             return
 
         profile = AgentProfileLoader(repo_root=project_root).load("art")
-        self._claude_runner = ClaudeRoleAdapter(project_root=project_root, profile=profile)
+        self._claude_runner = ClaudeRoleAdapter(project_root=project_root, profile=profile, session_id=session_id)
 
     def run(self, state: RuntimeState, **kwargs: object) -> NodeResult:
         trace: dict[str, object] = {

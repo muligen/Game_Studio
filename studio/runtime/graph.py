@@ -436,6 +436,7 @@ class _MeetingState(TypedDict, total=False):
     project_root: str
     requirement_id: str
     user_intent: str
+    project_id: str
     agenda: list[str]
     attendees: list[str]
     opinions: Annotated[dict[str, dict[str, object]], operator.or_]
@@ -453,6 +454,7 @@ def build_meeting_graph():
     from studio.agents.moderator import ModeratorAgent
     from studio.agents.qa import QaAgent
     from studio.schemas.meeting import AgentOpinion, MeetingMinutes
+    from studio.storage.session_registry import SessionRegistry
 
     _AGENT_MAP: dict[str, type] = {
         "design": DesignAgent,
@@ -460,6 +462,20 @@ def build_meeting_graph():
         "dev": DevAgent,
         "qa": QaAgent,
     }
+
+    def _session_id_for(state: _MeetingState, agent_role: str) -> str | None:
+        pid = state.get("project_id")
+        if not pid:
+            return None
+        ws_root = state.get("workspace_root")
+        if not ws_root:
+            return None
+        reg = SessionRegistry(Path(str(ws_root)))
+        rec = reg.find(str(pid), agent_role)
+        if rec is None:
+            return None
+        reg.touch(str(pid), agent_role)
+        return rec.session_id
 
     def moderator_prepare_node(state: _MeetingState) -> dict:
         workspace_root = _require_state_str(state, "workspace_root")
@@ -471,7 +487,11 @@ def build_meeting_graph():
         requirement = workspace.requirements.get(requirement_id)
         intent = str(user_intent) if user_intent else requirement.title
 
-        moderator = ModeratorAgent(project_root=Path(project_root))
+        session_id = _session_id_for(state, "moderator")
+        moderator = ModeratorAgent(
+            project_root=Path(project_root),
+            session_id=session_id,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -495,7 +515,11 @@ def build_meeting_graph():
         user_intent = state.get("user_intent", "")
 
         agent_cls = _AGENT_MAP.get(target_role, DesignAgent)
-        agent = agent_cls(project_root=Path(project_root))
+        session_id = _session_id_for(state, target_role)
+        agent = agent_cls(
+            project_root=Path(project_root),
+            session_id=session_id,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -540,7 +564,11 @@ def build_meeting_graph():
         requirement_id = _require_state_str(state, "requirement_id")
         opinions = state.get("opinions", {})
 
-        moderator = ModeratorAgent(project_root=Path(project_root))
+        session_id = _session_id_for(state, "moderator")
+        moderator = ModeratorAgent(
+            project_root=Path(project_root),
+            session_id=session_id,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -563,7 +591,11 @@ def build_meeting_graph():
 
         workspace = StudioWorkspace(Path(workspace_root))
 
-        moderator = ModeratorAgent(project_root=Path(project_root))
+        session_id = _session_id_for(state, "moderator")
+        moderator = ModeratorAgent(
+            project_root=Path(project_root),
+            session_id=session_id,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
