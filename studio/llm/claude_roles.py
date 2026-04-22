@@ -410,9 +410,11 @@ class ClaudeRoleAdapter:
         self,
         project_root: Path | None = None,
         profile: ClaudeAdapterProfile | None = None,
+        session_id: str | None = None,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
         self.profile = profile
+        self.session_id = session_id
         self._env_path = self.project_root / ".env"
         self._last_debug_record: dict[str, object] | None = None
 
@@ -534,6 +536,8 @@ class ClaudeRoleAdapter:
             setting_sources=["project"],
             env=self._sdk_env(config),
             output_format=self._output_format(role_name),
+            session_id=self.session_id,
+            continue_conversation=self.session_id is not None,
         )
 
         result: ResultMessage | None = None
@@ -578,6 +582,8 @@ class ClaudeRoleAdapter:
             permission_mode="default",
             setting_sources=["project"],
             env=self._sdk_env(config),
+            session_id=self.session_id,
+            continue_conversation=self.session_id is not None,
         )
 
         result: ResultMessage | None = None
