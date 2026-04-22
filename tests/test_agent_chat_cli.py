@@ -10,7 +10,7 @@ from studio.agents.profile_schema import AgentProfileNotFoundError, AgentProfile
 from studio.llm import ClaudeRoleError, ClaudeWorkerError
 
 
-def test_agent_chat_single_turn_uses_profile_loader_and_role_adapter(monkeypatch) -> None:
+def test_agent_chat_single_turn_uses_profile_loader_and_raw_chat(monkeypatch) -> None:
     class FakeProfile:
         system_prompt = "QA prompt."
         claude_project_root = Path("/repo/.claude/agents/qa")
@@ -23,20 +23,14 @@ def test_agent_chat_single_turn_uses_profile_loader_and_role_adapter(monkeypatch
             assert agent_name == "qa"
             return FakeProfile()
 
-    class FakePayload:
-        summary = "QA completed"
-        passed = True
-        suggested_bug = None
-
     class FakeRunner:
         def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
             assert project_root is None
             assert profile is not None
 
-        def generate(self, role_name: str, context: dict[str, object]) -> FakePayload:
-            assert role_name == "qa"
-            assert context == {"message": "Run smoke QA"}
-            return FakePayload()
+        def chat(self, message: str) -> str:
+            assert message == "Run smoke QA"
+            return "QA completed"
 
     monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
     monkeypatch.setattr("studio.interfaces.cli.ClaudeRoleAdapter", FakeRunner)
@@ -47,11 +41,10 @@ def test_agent_chat_single_turn_uses_profile_loader_and_role_adapter(monkeypatch
     )
 
     assert result.exit_code == 0
-    assert '"summary": "QA completed"' in result.stdout
-    assert '"passed": true' in result.stdout
+    assert "QA completed" in result.stdout
 
 
-def test_agent_chat_single_turn_supports_worker_adapter(monkeypatch) -> None:
+def test_agent_chat_single_turn_supports_worker_profile(monkeypatch) -> None:
     class FakeProfile:
         system_prompt = "Worker prompt."
         claude_project_root = Path("/repo/.claude/agents/worker")
@@ -64,22 +57,17 @@ def test_agent_chat_single_turn_supports_worker_adapter(monkeypatch) -> None:
             assert agent_name == "worker"
             return FakeProfile()
 
-    class FakePayload:
-        title = "Moonwell Garden"
-        summary = "A cozy strategy loop."
-        genre = "2d cozy strategy"
-
     class FakeRunner:
         def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
             assert project_root is None
             assert profile is not None
 
-        def generate_design_brief(self, prompt: str) -> FakePayload:
-            assert prompt == "Design a garden sim"
-            return FakePayload()
+        def chat(self, message: str) -> str:
+            assert message == "Design a garden sim"
+            return "Moonwell Garden\nA cozy strategy loop."
 
     monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
-    monkeypatch.setattr("studio.interfaces.cli.ClaudeWorkerAdapter", FakeRunner)
+    monkeypatch.setattr("studio.interfaces.cli.ClaudeRoleAdapter", FakeRunner)
 
     result = CliRunner().invoke(
         app,
@@ -87,8 +75,7 @@ def test_agent_chat_single_turn_supports_worker_adapter(monkeypatch) -> None:
     )
 
     assert result.exit_code == 0
-    assert '"title": "Moonwell Garden"' in result.stdout
-    assert '"genre": "2d cozy strategy"' in result.stdout
+    assert "Moonwell Garden" in result.stdout
 
 
 def test_agent_chat_requires_message_without_interactive() -> None:
@@ -111,22 +98,16 @@ def test_agent_chat_interactive_reuses_adapter(monkeypatch) -> None:
             assert agent_name == "qa"
             return FakeProfile()
 
-    class FakePayload:
-        def __init__(self, summary: str) -> None:
-            self.summary = summary
-            self.passed = True
-            self.suggested_bug = None
-
-    calls: list[tuple[str, dict[str, object]]] = []
+    calls: list[str] = []
 
     class FakeRunner:
         def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
             assert project_root is None
             assert profile is not None
 
-        def generate(self, role_name: str, context: dict[str, object]) -> FakePayload:
-            calls.append((role_name, context))
-            return FakePayload(f"reply {len(calls)}")
+        def chat(self, message: str) -> str:
+            calls.append(message)
+            return f"reply {len(calls)}"
 
     monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
     monkeypatch.setattr("studio.interfaces.cli.ClaudeRoleAdapter", FakeRunner)
@@ -138,12 +119,9 @@ def test_agent_chat_interactive_reuses_adapter(monkeypatch) -> None:
     )
 
     assert result.exit_code == 0
-    assert calls == [
-        ("qa", {"message": "first line"}),
-        ("qa", {"message": "second line"}),
-    ]
-    assert '"summary": "reply 1"' in result.stdout
-    assert '"summary": "reply 2"' in result.stdout
+    assert calls == ["first line", "second line"]
+    assert "reply 1" in result.stdout
+    assert "reply 2" in result.stdout
 
 
 def test_agent_chat_verbose_shows_profile_details(monkeypatch) -> None:
@@ -159,20 +137,14 @@ def test_agent_chat_verbose_shows_profile_details(monkeypatch) -> None:
             assert agent_name == "qa"
             return FakeProfile()
 
-    class FakePayload:
-        summary = "QA completed"
-        passed = True
-        suggested_bug = None
-
     class FakeRunner:
         def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
             assert project_root is None
             assert profile is not None
 
-        def generate(self, role_name: str, context: dict[str, object]) -> FakePayload:
-            assert role_name == "qa"
-            assert context == {"message": "Run smoke QA"}
-            return FakePayload()
+        def chat(self, message: str) -> str:
+            assert message == "Run smoke QA"
+            return "QA completed"
 
     monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
     monkeypatch.setattr("studio.interfaces.cli.ClaudeRoleAdapter", FakeRunner)
@@ -187,7 +159,7 @@ def test_agent_chat_verbose_shows_profile_details(monkeypatch) -> None:
     assert '"profile_path":' in result.stdout
     assert f'"claude_project_root": {json.dumps(str(FakeProfile.claude_project_root))}' in result.stdout
     assert '"system_prompt": "QA prompt."' in result.stdout
-    assert '"summary": "QA completed"' in result.stdout
+    assert "QA completed" in result.stdout
 
 
 def test_agent_chat_surfaces_role_adapter_errors_without_fallback(monkeypatch) -> None:
@@ -208,7 +180,7 @@ def test_agent_chat_surfaces_role_adapter_errors_without_fallback(monkeypatch) -
             assert project_root is None
             assert profile is not None
 
-        def generate(self, role_name: str, context: dict[str, object]) -> object:
+        def chat(self, message: str) -> str:
             raise ClaudeRoleError("adapter exploded")
 
     monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
@@ -221,39 +193,6 @@ def test_agent_chat_surfaces_role_adapter_errors_without_fallback(monkeypatch) -
 
     assert result.exit_code == 1
     assert "adapter exploded" in result.stderr
-
-
-def test_agent_chat_surfaces_worker_adapter_errors_without_fallback(monkeypatch) -> None:
-    class FakeProfile:
-        system_prompt = "Worker prompt."
-        claude_project_root = Path("/repo/.claude/agents/worker")
-
-    class FakeLoader:
-        def __init__(self, repo_root: Path | None = None) -> None:
-            assert repo_root is None
-
-        def load(self, agent_name: str) -> FakeProfile:
-            assert agent_name == "worker"
-            return FakeProfile()
-
-    class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
-            assert project_root is None
-            assert profile is not None
-
-        def generate_design_brief(self, prompt: str) -> object:
-            raise ClaudeWorkerError("worker exploded")
-
-    monkeypatch.setattr("studio.interfaces.cli.AgentProfileLoader", FakeLoader)
-    monkeypatch.setattr("studio.interfaces.cli.ClaudeWorkerAdapter", FakeRunner)
-
-    result = CliRunner().invoke(
-        app,
-        ["agent", "chat", "--agent", "worker", "--message", "Design a garden sim"],
-    )
-
-    assert result.exit_code == 1
-    assert "worker exploded" in result.stderr
 
 
 def test_agent_chat_surfaces_unknown_agent_name_from_loader(monkeypatch) -> None:

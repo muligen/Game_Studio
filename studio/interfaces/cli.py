@@ -11,7 +11,7 @@ from studio.agents.profile_schema import AgentProfileError
 from studio.domain.approvals import approve_design_doc
 from studio.domain.requirement_flow import transition_requirement
 from studio.domain.services import validate_requirement_ready_for_dev
-from studio.llm import ClaudeRoleAdapter, ClaudeRoleError, ClaudeWorkerAdapter, ClaudeWorkerError
+from studio.llm import ClaudeRoleAdapter, ClaudeRoleError
 from studio.runtime.graph import build_demo_runtime
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
@@ -132,6 +132,9 @@ def _payload_to_data(payload: object) -> object:
 
 
 def _echo_agent_reply(payload: object) -> None:
+    if isinstance(payload, str):
+        typer.echo(payload)
+        return
     typer.echo(json.dumps(_payload_to_data(payload), indent=2, ensure_ascii=False, default=str))
 
 
@@ -141,12 +144,8 @@ def _profile_path(loader: AgentProfileLoader, agent_name: str) -> Path:
 
 
 def _run_agent_chat_once(agent_name: str, message: str, profile: object) -> object:
-    if agent_name == "worker":
-        runner = ClaudeWorkerAdapter(profile=profile)
-        return runner.generate_design_brief(message)
-
     runner = ClaudeRoleAdapter(profile=profile)
-    return runner.generate(agent_name, {"message": message})
+    return runner.chat(message)
 
 
 @app.callback()
@@ -354,7 +353,7 @@ def agent_chat(
             return
 
         _echo_agent_reply(_run_agent_chat_once(agent, message or "", profile))
-    except (ClaudeRoleError, ClaudeWorkerError) as exc:
+    except ClaudeRoleError as exc:
         _fail_cli(str(exc))
 
 

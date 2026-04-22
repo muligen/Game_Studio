@@ -469,6 +469,31 @@ class ClaudeRoleAdapter:
         _require_active_role(role_name)
         return self._prompt(role_name, context)
 
+    def chat(self, message: str) -> str:
+        profile = self._require_profile()
+        prompt = "\n".join(
+            [
+                profile.system_prompt,
+                "You are in direct debug chat mode. Reply naturally to the user's message.",
+                f"User message: {message}",
+            ]
+        )
+        config = self.load_config()
+        if not config.enabled:
+            raise ClaudeRoleError("claude_disabled")
+        if not config.api_key:
+            raise ClaudeRoleError("missing_claude_configuration")
+
+        if self._has_running_loop():
+            return self._chat_via_subprocess(prompt)
+
+        try:
+            return asyncio.run(self._chat(prompt, config))
+        except ClaudeRoleError as exc:
+            if "Blocking call to os.getcwd" not in str(exc):
+                raise
+            return self._chat_via_subprocess(prompt)
+
     def consume_debug_record(self) -> dict[str, object] | None:
         record = self._last_debug_record
         self._last_debug_record = None
@@ -545,6 +570,43 @@ class ClaudeRoleAdapter:
         }
         return parse_role_payload(role_name, payload)
 
+    async def _chat(self, prompt: str, config: ClaudeRoleConfig) -> str:
+        options = ClaudeAgentOptions(
+            cwd=self._claude_project_root(),
+            model=config.model,
+            tools=[] if config.mode == "text" else None,
+            permission_mode="default",
+            setting_sources=["project"],
+            env=self._sdk_env(config),
+        )
+
+        result: ResultMessage | None = None
+        try:
+            async for message in query(prompt=prompt, options=options):
+                if isinstance(message, ResultMessage):
+                    result = message
+        except Exception as exc:  # pragma: no cover - exercised via adapter error tests
+            raise ClaudeRoleError(str(exc) or exc.__class__.__name__) from exc
+
+        if result is None:
+            raise ClaudeRoleError("missing_claude_result")
+        if result.is_error:
+            message = "; ".join(result.errors or []) or result.result or "claude_run_failed"
+            raise ClaudeRoleError(message)
+        if result.result:
+            reply = result.result
+        elif result.structured_output is not None:
+            reply = json.dumps(result.structured_output, ensure_ascii=False)
+        else:
+            raise ClaudeRoleError("missing_claude_result")
+
+        self._last_debug_record = {
+            "prompt": prompt,
+            "context": {"message": prompt},
+            "reply": reply,
+        }
+        return reply
+
     def _sdk_env(self, config: ClaudeRoleConfig) -> dict[str, str]:
         env = {"ANTHROPIC_API_KEY": config.api_key or ""}
         if config.base_url:
@@ -609,6 +671,38 @@ class ClaudeRoleAdapter:
             "reply": proc.stdout,
         }
         return parse_role_payload(role_name, parsed)
+
+    def _chat_via_subprocess(self, prompt: str) -> str:
+        script_path = Path(__file__).resolve()
+        try:
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(script_path),
+                    "--project-root",
+                    str(self.project_root),
+                    "--claude-project-root",
+                    str(self._claude_project_root()),
+                    "--system-prompt",
+                    self._require_profile().system_prompt,
+                    "--role-name",
+                    "reviewer",
+                    "--chat",
+                ],
+                cwd=self._claude_project_root(),
+                input=prompt,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=self._subprocess_env(),
+                timeout=300,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc
+        if proc.returncode != 0:
+            message = proc.stderr.strip() or proc.stdout.strip() or "claude_subprocess_failed"
+            raise ClaudeRoleError(message)
+        return proc.stdout
 
     def _prompt(self, role_name: str, context: dict[str, object]) -> str:
         payload = json.dumps(context, ensure_ascii=False, sort_keys=True)
@@ -698,6 +792,7 @@ def _main() -> int:
     parser.add_argument("--role-name", required=True)
     parser.add_argument("--system-prompt")
     parser.add_argument("--claude-project-root")
+    parser.add_argument("--chat", action="store_true")
     try:
         args = parser.parse_args()
         _require_active_role(args.role_name)
@@ -713,6 +808,10 @@ def _main() -> int:
             raise ClaudeRoleError("claude_disabled")
         if not config.api_key:
             raise ClaudeRoleError("missing_claude_configuration")
+
+        if getattr(args, "chat", False):
+            print(asyncio.run(adapter._chat(sys.stdin.read(), config)))
+            return 0
 
         context = json.loads(sys.stdin.read())
         payload = asyncio.run(
