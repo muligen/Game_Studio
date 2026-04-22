@@ -2,7 +2,7 @@
 
 ## Summary
 
-After a kickoff meeting completes, Game Studio should turn the meeting minutes into a visible delivery plan on the web board. The plan must preserve task dependencies, surface unresolved user decisions, and ensure implementation agents receive the meeting context before taking work.
+After a kickoff meeting completes, Game Studio should turn the meeting minutes into a visible delivery plan on the web board. The plan must preserve task dependencies, surface meeting conflicts as a one-time kickoff decision gate, and ensure implementation agents continue from the same project session before taking work.
 
 This feature connects three currently separate pieces:
 
@@ -31,7 +31,7 @@ But nothing turns those outputs into visible implementation work. The original r
 
 - what tasks should be done next
 - which tasks depend on earlier tasks
-- which tasks are blocked by user decisions
+- which meeting conflicts require user direction before development can start
 - which agent should take each task
 - whether the implementation agent has inherited the kickoff meeting context
 
@@ -39,10 +39,10 @@ But nothing turns those outputs into visible implementation work. The original r
 
 - Convert completed meeting minutes into a structured delivery plan.
 - Represent task dependencies explicitly.
-- Represent pending user decisions as first-class board items.
-- Block dependent tasks until required user decisions are resolved.
+- Represent pending user decisions as a kickoff approval gate before development starts.
+- Block development task generation/start until the kickoff decision gate is resolved.
 - Assign tasks to the intended agent role.
-- Pass meeting context and meeting decisions to the assigned agent when it starts implementation.
+- Require assigned agents to resume the same project session used during kickoff.
 - Make the plan visible from the web board.
 - Keep generation bounded and reviewable; do not automatically implement tasks immediately after meeting.
 
@@ -68,7 +68,6 @@ Each generated delivery task has:
 - `description`
 - `owner_agent`
 - `depends_on_task_ids`
-- `blocked_by_decision_ids`
 - `source_meeting_id`
 - `source_requirement_id`
 - `meeting_snapshot`
@@ -77,39 +76,37 @@ Each generated delivery task has:
 The backend validates that the dependency graph has no cycles. A task is `ready` only when:
 
 - every task in `depends_on_task_ids` is completed
-- every decision in `blocked_by_decision_ids` is resolved
 
 Tasks whose dependencies are unmet stay visible on the board, but they show a blocked reason and cannot be claimed or started.
 
 ### 2. How do user decisions appear on the board, and do they block other steps?
 
-User decisions become first-class `DecisionItem` cards on the board.
+User decisions are not long-lived task blockers. They are a one-time kickoff decision gate.
 
-Each `pending_user_decisions` entry from meeting minutes becomes either:
+The gate is built from the meeting's disputed items:
 
-- a decision card if it requires human choice
-- or supporting context attached to an existing decision card if similar
+- `pending_user_decisions`
+- unresolved `conflict_points`
+- moderator `supplementary` notes that ask for user direction
 
-Decision cards have:
+The board should show a `Kickoff Decision Required` card or panel for the meeting. It asks the user to choose a direction for each unresolved meeting conflict, for example:
 
-- `id`
-- `question`
-- `context`
-- `options`
-- `status`: `open`, `resolved`, or `cancelled`
-- `resolution`
-- `source_meeting_id`
-- `source_requirement_id`
+- cooldown vs resource skill system
+- defer elemental counters vs include them in MVP
+- fixed QA sample battle vs simulation-based balance acceptance
 
-Yes, unresolved decisions can block tasks. A task with `blocked_by_decision_ids` cannot move into implementation until those decision cards are resolved.
+Before the user resolves this kickoff gate:
 
-Not every task must be blocked. Work that is independent of the unresolved choice can proceed. For example:
+- no delivery tasks should be started
+- no agent should claim implementation work
+- the board can show a draft delivery plan preview, but it is not actionable
 
-- "Build deterministic turn-order skeleton" can proceed.
-- "Implement skill resource system" is blocked until the user chooses cooldown or resource.
-- "Implement elemental counters" is blocked or deferred until the elemental counter decision is resolved.
+After the user resolves the kickoff gate:
 
-This keeps useful work moving without pretending undecided scope is approved.
+- the selected directions are saved into the delivery plan
+- development tasks are generated or activated from that resolved plan
+- there should be no remaining `pending_user_decisions` during development
+- user involvement resumes at review/acceptance, not during normal implementation
 
 ### 3. Are implementation agents the same agents from the meeting, and do they receive the meeting spirit?
 
@@ -140,15 +137,15 @@ New backend concepts:
 
 - `DeliveryPlan`: one plan generated from one meeting.
 - `DeliveryTask`: a task in the plan, with dependencies and owner.
-- `DecisionItem`: a user decision gate that can block tasks.
+- `KickoffDecisionGate`: a one-time user direction gate for unresolved meeting conflicts.
 
 The web board can then show a combined project view:
 
 - requirement cards
 - delivery task cards
-- decision cards
+- kickoff decision gate cards/panels
 
-This avoids squeezing task dependencies and decision gates into the existing `RequirementCard` schema, while still making the result visible on the board.
+This avoids squeezing task dependencies and kickoff decision state into the existing `RequirementCard` schema, while still making the result visible on the board.
 
 ## Alternatives Considered
 
@@ -162,7 +159,7 @@ Pros:
 Cons:
 
 - `RequirementCard` has no dependency fields.
-- No first-class decision gate.
+- No first-class kickoff decision gate.
 - Easy to accidentally send unresolved conflicts into development.
 - Blurs parent requirement vs implementation task.
 
@@ -176,17 +173,17 @@ Pros:
 Cons:
 
 - Board still does not show actionable work.
-- User cannot resolve decisions from the board.
-- Agents still lack task-level handoff.
+- User cannot resolve kickoff meeting conflicts from the board.
+- Agents still lack task-level session continuity.
 
-### Option 3: Add DeliveryPlan, DeliveryTask, and DecisionItem
+### Option 3: Add DeliveryPlan, DeliveryTask, and KickoffDecisionGate
 
 Pros:
 
 - Models dependencies correctly.
-- Models user decisions as blockers.
+- Models kickoff user decisions as a pre-development gate.
 - Keeps original requirements intact.
-- Supports agent assignment and context handoff.
+- Supports agent assignment and project-session continuity.
 - Can still be displayed on the existing board.
 
 Cons:
@@ -213,9 +210,9 @@ Example:
   "meeting_id": "meeting_8fab476c",
   "requirement_id": "req_8fab476c",
   "project_id": "proj_123",
-  "status": "draft",
+  "status": "awaiting_user_decision",
   "task_ids": ["task_combat_loop", "task_skill_system"],
-  "decision_ids": ["decision_skill_cost"],
+  "decision_gate_id": "gate_meeting_8fab476c",
   "created_at": "2026-04-22T12:00:00Z",
   "updated_at": "2026-04-22T12:00:00Z"
 }
@@ -223,9 +220,9 @@ Example:
 
 Plan statuses:
 
-- `draft`: generated but not accepted.
+- `awaiting_user_decision`: meeting conflicts need user direction before development.
 - `active`: visible and actionable on the board.
-- `completed`: all tasks complete and decisions resolved.
+- `completed`: all tasks complete.
 - `cancelled`: user cancelled the plan.
 
 ### DeliveryTask
@@ -250,7 +247,6 @@ Example:
   "owner_agent": "dev",
   "status": "ready",
   "depends_on_task_ids": [],
-  "blocked_by_decision_ids": [],
   "acceptance_criteria": [
     "A 3v3 battle can complete with win/loss result.",
     "Turn order follows speed sorting."
@@ -268,44 +264,49 @@ Example:
 
 Task statuses:
 
-- `blocked`: dependencies or decisions are unresolved.
+- `blocked`: task dependencies are unresolved.
 - `ready`: can be claimed by the owner agent.
 - `in_progress`: assigned agent is executing.
 - `review`: implementation output is ready for QA/review.
 - `done`: completed.
 - `cancelled`: removed from scope.
 
-### DecisionItem
+### KickoffDecisionGate
 
 Stored at:
 
 ```text
-.studio-data/decision_items/<decision_id>.json
+.studio-data/kickoff_decision_gates/<gate_id>.json
 ```
 
 Example:
 
 ```json
 {
-  "id": "decision_skill_cost",
+  "id": "gate_meeting_8fab476c",
   "plan_id": "plan_meeting_8fab476c",
   "meeting_id": "meeting_8fab476c",
   "requirement_id": "req_8fab476c",
   "project_id": "proj_123",
-  "question": "Should MVP skills use cooldowns or a resource cost?",
-  "context": "Meeting left skill cost system unresolved. Dev needs this before skill framework implementation.",
-  "options": ["cooldown", "resource", "defer skills"],
   "status": "open",
-  "resolution": null,
+  "items": [
+    {
+      "id": "decision_skill_cost",
+      "question": "Should MVP skills use cooldowns or a resource cost?",
+      "context": "Meeting left skill cost system unresolved. Dev needs this before skill framework implementation.",
+      "options": ["cooldown", "resource", "defer skills"],
+      "resolution": null
+    }
+  ],
   "created_at": "2026-04-22T12:00:00Z",
   "updated_at": "2026-04-22T12:00:00Z"
 }
 ```
 
-Decision statuses:
+Gate statuses:
 
 - `open`: waiting for user.
-- `resolved`: user chose a resolution.
+- `resolved`: user resolved every conflict direction.
 - `cancelled`: no longer needed.
 
 ## Generation Flow
@@ -321,6 +322,10 @@ Entry points:
 - Future automatic option after kickoff, but not in the first implementation
 
 The first implementation should require explicit user action. This prevents accidental task creation from a meeting with bad or incomplete minutes.
+
+If the meeting has unresolved `pending_user_decisions`, generation creates an `awaiting_user_decision` plan and an open `KickoffDecisionGate`. It may create a non-actionable draft preview of tasks, but no task can be started until the gate is resolved.
+
+If the meeting has no unresolved user decisions, generation can create an `active` plan immediately.
 
 ### Planner Agent
 
@@ -346,19 +351,20 @@ It returns strict JSON:
       "description": "...",
       "owner_agent": "dev",
       "depends_on": ["Other task title or temporary key"],
-      "blocked_by_decisions": ["Decision temporary key"],
       "acceptance_criteria": ["..."],
       "source_evidence": ["decision/action item text from minutes"]
     }
   ],
-  "decisions": [
+  "decision_gate": {
+    "items": [
     {
       "question": "...",
       "context": "...",
       "options": ["..."],
       "source_evidence": ["pending decision text from minutes"]
     }
-  ]
+    ]
+  }
 }
 ```
 
@@ -370,12 +376,10 @@ The backend must apply these rules after planner output:
 
 - Owner agent must be one of `design`, `dev`, `qa`, `art`, `reviewer`, or `quality`.
 - Tasks cannot depend on unknown tasks.
-- Tasks cannot be blocked by unknown decisions.
 - Dependency graph must be acyclic.
-- A task with unresolved decisions starts as `blocked`.
 - A task with incomplete task dependencies starts as `blocked`.
 - A task with no blockers starts as `ready`.
-- Pending user decisions from `MeetingMinutes.pending_user_decisions` must become decision cards or be explicitly attached to an existing decision card.
+- Pending user decisions from `MeetingMinutes.pending_user_decisions` must become kickoff gate items or be explicitly resolved before plan activation.
 - `conflict_points` should not become development tasks unless a decision resolved them or the minutes contain a clear decision.
 
 ## Board Behavior
@@ -384,8 +388,8 @@ Add a board mode or section for delivery planning.
 
 Columns:
 
-- `Decision Needed`: open `DecisionItem` cards.
-- `Blocked`: delivery tasks blocked by dependencies or decisions.
+- `Kickoff Decision Needed`: open kickoff gate cards/panels.
+- `Blocked`: delivery tasks blocked by dependencies.
 - `Ready`: tasks available for the assigned agent.
 - `In Progress`: claimed/running tasks.
 - `Review`: output ready for QA/review.
@@ -397,37 +401,34 @@ Task cards show:
 - owner agent
 - source meeting id
 - dependency count
-- blocking decision count
 - acceptance criteria preview
 
-Decision cards show:
+Kickoff decision gate cards show:
 
-- question
-- options
+- unresolved meeting conflict questions
+- options for each question
 - source meeting id
-- affected task count
-- resolution action
+- resolution action for the whole gate
 
-When the user resolves a decision:
+When the user resolves the kickoff gate:
 
-- update `DecisionItem.status` to `resolved`
-- store `resolution`
-- recompute task readiness for tasks blocked by that decision
+- update `KickoffDecisionGate.status` to `resolved`
+- store all chosen directions
+- activate or regenerate the delivery tasks using those directions
+- set `DeliveryPlan.status` to `active`
 - broadcast board update
 
 ## Blocking Rules
 
 Tasks are blocked if any of these are true:
 
-- `blocked_by_decision_ids` contains an open decision.
+- the plan's kickoff decision gate is still open
 - `depends_on_task_ids` contains a task not in `done`.
 - required project-agent session is missing.
 
 Blocked tasks remain visible. They cannot be claimed by agents.
 
-Unblocked tasks can proceed even if other independent decisions remain open.
-
-This means user decisions block only the tasks that depend on them, not the entire project by default.
+Once the kickoff decision gate is resolved, development should not introduce new user-decision blockers. User involvement returns at review and acceptance stages.
 
 ## Agent Execution Session Continuity
 
@@ -469,7 +470,7 @@ Response:
 {
   "plan": { "...": "DeliveryPlan" },
   "tasks": [],
-  "decisions": []
+  "decision_gate": {}
 }
 ```
 
@@ -485,25 +486,27 @@ Returns:
 {
   "plans": [],
   "tasks": [],
-  "decisions": []
+  "decision_gate": {}
 }
 ```
 
-### Resolve Decision
+### Resolve Kickoff Decision Gate
 
 ```http
-POST /api/decisions/{decision_id}/resolve?workspace=<workspace>
+POST /api/kickoff-decision-gates/{gate_id}/resolve?workspace=<workspace>
 ```
 
 Body:
 
 ```json
 {
-  "resolution": "Use cooldowns for MVP skills."
+  "resolutions": {
+    "decision_skill_cost": "Use cooldowns for MVP skills."
+  }
 }
 ```
 
-Response includes updated decision and affected tasks.
+Response includes updated gate, activated plan, and generated tasks.
 
 ### Start Task
 
@@ -515,6 +518,7 @@ Rules:
 
 - task must be `ready`
 - owner agent session must exist
+- plan kickoff gate must be resolved
 - task becomes `in_progress`
 - execution can be queued in the existing agent pool
 
@@ -523,9 +527,9 @@ Rules:
 Add or extend board UI:
 
 - Add `Generate Delivery Plan` action on meeting detail.
-- Add delivery board columns for decisions and tasks.
+- Add delivery board columns for kickoff decision gates and tasks.
 - Show blockers directly on cards.
-- Add decision resolution dialog.
+- Add kickoff decision resolution dialog.
 - Add task detail panel with `meeting_snapshot` and source meeting links.
 - Add `Start Agent Work` action only for ready tasks.
 
@@ -544,7 +548,7 @@ First implementation recommendation: add a new `/delivery` route to avoid overlo
 - Planner invalid JSON: fail clearly; do not create partial plan.
 - Dependency cycle: reject the plan and show planner validation error.
 - Unknown owner agent: reject the plan.
-- Unresolved decision blocks task start.
+- Open kickoff decision gate blocks task start.
 - Missing project session blocks task start.
 - Agent execution failure moves task back to `ready` or `blocked` with error detail, depending on blocker state.
 
@@ -556,11 +560,10 @@ Backend tests:
 - Reject generation for missing or draft meeting.
 - Reject invalid planner output.
 - Reject cyclic dependencies.
-- Create decision items from all pending user decisions.
-- Mark tasks with open decisions as `blocked`.
-- Mark independent tasks as `ready`.
-- Resolve decision and recompute affected task readiness.
-- Start task fails when blocked by decision.
+- Create kickoff decision gate from meeting conflicts and pending user decisions.
+- Plan with an open kickoff gate is not actionable.
+- Resolve kickoff gate and activate the delivery plan.
+- Start task fails when kickoff gate is open.
 - Start task fails when dependency task is not done.
 - Start task uses the owner agent's project session.
 - Start task sends only a minimal task prompt when the owner agent attended the meeting.
@@ -568,21 +571,20 @@ Backend tests:
 
 Frontend tests:
 
-- Delivery board lists decision and task cards.
-- Blocked task displays blocking decision.
-- Decision resolution updates affected task cards.
+- Delivery board lists kickoff decision gate and task cards.
+- Open kickoff gate blocks task start.
+- Gate resolution activates task cards.
 - Ready task shows `Start Agent Work`.
 - Blocked task hides/disables `Start Agent Work`.
-- Task detail shows source meeting and handoff context.
+- Task detail shows `meeting_snapshot` and source meeting links.
 
 Manual acceptance:
 
 - Run a kickoff meeting.
 - Generate a delivery plan from the completed meeting.
-- Verify decision cards appear for unresolved meeting decisions.
-- Verify blocked tasks show why they are blocked.
-- Resolve one decision.
-- Verify only affected tasks unblock.
+- Verify a kickoff decision gate appears for unresolved meeting conflicts.
+- Resolve all kickoff gate decisions.
+- Verify the delivery plan becomes active and tasks can start.
 - Start a ready dev task.
 - Verify the dev agent resumes the same project session id used during kickoff.
 
@@ -590,9 +592,9 @@ Manual acceptance:
 
 - Completed meeting minutes can be converted into a delivery plan.
 - Delivery plan preserves task dependencies as an acyclic graph.
-- Pending user decisions appear on the board as decision cards.
-- Open decisions block only dependent tasks.
-- Independent tasks can proceed while unrelated decisions remain open.
+- Pending user decisions appear on the board as a kickoff decision gate.
+- Open kickoff decision gate blocks development task start.
+- Once kickoff decisions are resolved, development proceeds without additional user-decision blockers until review/acceptance.
 - Task owner agent is explicit and limited to registered agents.
 - Task execution uses the project-scoped agent session.
 - Task execution uses the same project-scoped agent session as kickoff.
