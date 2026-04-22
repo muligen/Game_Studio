@@ -16,7 +16,7 @@ from studio.agents.profile_schema import (
 
 def test_repository_contains_profiles_for_all_managed_agents() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    managed_agents = ("worker", "reviewer", "design", "dev", "qa", "quality", "art", "moderator")
+    managed_agents = ("worker", "reviewer", "design", "dev", "qa", "quality", "art", "moderator", "requirement_clarifier")
     profiles_root = repo_root / "studio" / "agents" / "profiles"
     claude_agents_root = repo_root / ".claude" / "agents"
 

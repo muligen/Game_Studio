@@ -190,6 +190,7 @@ def test_supported_role_registry_includes_moderator_discussion() -> None:
         "moderator_summary",
         "qa",
         "quality",
+        "requirement_clarifier",
         "reviewer",
         "worker",
     }
@@ -204,9 +205,16 @@ def test_supported_role_registry_includes_moderator_discussion() -> None:
         "moderator_summary",
         "qa",
         "quality",
+        "requirement_clarifier",
         "reviewer",
         "worker",
     }
+
+
+def test_supported_role_registry_includes_requirement_clarifier() -> None:
+    assert "requirement_clarifier" in claude_roles_module._ACTIVE_ROLE_NAMES
+    assert "requirement_clarifier" in claude_roles_module._ROLE_PAYLOAD_MODELS
+    assert "requirement_clarifier" in claude_roles_module._ROLE_OUTPUT_FORMATS
 
 
 def test_prompt_uses_profile_system_prompt_for_qa(tmp_path) -> None:
