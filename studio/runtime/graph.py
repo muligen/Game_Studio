@@ -436,6 +436,7 @@ class _MeetingState(TypedDict, total=False):
     project_root: str
     requirement_id: str
     user_intent: str
+    project_id: str
     agenda: list[str]
     attendees: list[str]
     opinions: Annotated[dict[str, dict[str, object]], operator.or_]
@@ -456,6 +457,7 @@ def build_meeting_graph():
     from studio.agents.moderator import ModeratorAgent
     from studio.agents.qa import QaAgent
     from studio.schemas.meeting import AgentOpinion, MeetingMinutes
+    from studio.storage.session_registry import SessionRegistry
 
     _AGENT_MAP: dict[str, type] = {
         "design": DesignAgent,
@@ -466,13 +468,37 @@ def build_meeting_graph():
 
     _DEFAULT_ATTENDEES = ["design", "dev", "qa"]
 
-    def _filter_attendees(raw_attendees: list[str], meeting_context: dict[str, object] | None) -> list[str]:
+    def _filter_attendees(raw_attendees: object, meeting_context: dict[str, object] | None) -> list[str]:
         validated = meeting_context.get("validated_attendees") if isinstance(meeting_context, dict) else None
         if isinstance(validated, list):
-            filtered = [a for a in validated if a in _AGENT_MAP]
+            filtered = []
+            for attendee in validated:
+                role = str(attendee).strip()
+                if role in _AGENT_MAP and role not in filtered:
+                    filtered.append(role)
             return list(dict.fromkeys(filtered)) if filtered else list(_DEFAULT_ATTENDEES)
-        known = [a for a in raw_attendees if a in _AGENT_MAP]
+        attendees = raw_attendees if isinstance(raw_attendees, list) else []
+        known = []
+        for attendee in attendees:
+            role = str(attendee).strip()
+            if role in _AGENT_MAP and role not in known:
+                known.append(role)
         return list(dict.fromkeys(known)) if known else list(_DEFAULT_ATTENDEES)
+
+    def _session_for(state: _MeetingState, agent_role: str) -> tuple[str | None, bool]:
+        pid = state.get("project_id")
+        if not pid:
+            return None, False
+        ws_root = state.get("workspace_root")
+        if not ws_root:
+            raise ValueError("workspace_root is required")
+        reg = SessionRegistry(Path(str(ws_root)))
+        rec = reg.find(str(pid), agent_role)
+        if rec is None:
+            raise FileNotFoundError(f"project agent session not found: {pid}/{agent_role}")
+        resume_session = rec.last_used_at != rec.created_at
+        reg.touch(str(pid), agent_role)
+        return rec.session_id, resume_session
 
     def moderator_prepare_node(state: _MeetingState) -> dict:
         workspace_root = _require_state_str(state, "workspace_root")
@@ -485,7 +511,12 @@ def build_meeting_graph():
         requirement = workspace.requirements.get(requirement_id)
         intent = str(user_intent) if user_intent else requirement.title
 
-        moderator = ModeratorAgent(project_root=Path(project_root))
+        session_id, resume_session = _session_for(state, "moderator")
+        moderator = ModeratorAgent(
+            project_root=Path(project_root),
+            session_id=session_id,
+            resume_session=resume_session,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -513,8 +544,9 @@ def build_meeting_graph():
         user_intent = state.get("user_intent", "")
         meeting_context = state.get("meeting_context")
 
-        agent_cls = _AGENT_MAP.get(target_role, DesignAgent)
-        agent = agent_cls(project_root=Path(project_root))
+        agent_cls = _AGENT_MAP.get(target_role)
+        if agent_cls is None:
+            raise ValueError(f"unsupported meeting agent: {target_role}")
         goal: dict[str, object] = {
             "prompt": str(user_intent),
             "phase": "opinion",
@@ -523,6 +555,12 @@ def build_meeting_graph():
         }
         if isinstance(meeting_context, dict):
             goal["meeting_context"] = meeting_context
+        session_id, resume_session = _session_for(state, target_role)
+        agent = agent_cls(
+            project_root=Path(project_root),
+            session_id=session_id,
+            resume_session=resume_session,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -563,7 +601,12 @@ def build_meeting_graph():
         opinions = state.get("opinions", {})
         meeting_context = state.get("meeting_context")
 
-        moderator = ModeratorAgent(project_root=Path(project_root))
+        session_id, resume_session = _session_for(state, "moderator")
+        moderator = ModeratorAgent(
+            project_root=Path(project_root),
+            session_id=session_id,
+            resume_session=resume_session,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -587,7 +630,12 @@ def build_meeting_graph():
         conflict_points = state.get("conflict_points", [])
         meeting_context = state.get("meeting_context")
 
-        moderator = ModeratorAgent(project_root=Path(project_root))
+        session_id, resume_session = _session_for(state, "moderator")
+        moderator = ModeratorAgent(
+            project_root=Path(project_root),
+            session_id=session_id,
+            resume_session=resume_session,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -616,7 +664,12 @@ def build_meeting_graph():
 
         workspace = StudioWorkspace(Path(workspace_root))
 
-        moderator = ModeratorAgent(project_root=Path(project_root))
+        session_id, resume_session = _session_for(state, "moderator")
+        moderator = ModeratorAgent(
+            project_root=Path(project_root),
+            session_id=session_id,
+            resume_session=resume_session,
+        )
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
@@ -629,13 +682,17 @@ def build_meeting_graph():
             "consensus_points": state.get("consensus_points", []),
             "conflict_points": state.get("conflict_points", []),
         }
+        if isinstance(meeting_context, dict):
+            all_context["meeting_context"] = meeting_context
+        supplementary_raw = state.get("supplementary")
+        if isinstance(supplementary_raw, dict):
+            all_context["supplementary"] = {str(k): str(v) for k, v in supplementary_raw.items()}
         unresolved = state.get("unresolved_conflicts")
         if isinstance(unresolved, list):
             all_context["unresolved_conflicts"] = unresolved
         result = moderator.minutes(runtime_state, all_context=all_context)
         minutes_data = result.state_patch.get("telemetry", {}).get("moderator_minutes", {})
 
-        supplementary_raw = state.get("supplementary")
         supplementary_base: dict[str, str] = (
             {k: str(v) for k, v in supplementary_raw.items()}
             if isinstance(supplementary_raw, dict)
@@ -672,7 +729,7 @@ def build_meeting_graph():
             },
             decisions=[str(d) for d in minutes_data.get("decisions", [])],
             action_items=[str(a) for a in minutes_data.get("action_items", [])],
-            pending_user_decisions=[str(d) for d in minutes_data.get("pending_user_decisions", [])],
+            pending_user_decisions=_pending_user_decisions(minutes_data, unresolved),
             status="completed",
         )
 
@@ -685,10 +742,19 @@ def build_meeting_graph():
         }
 
     def route_to_agents(state: _MeetingState) -> list[Send]:
-        attendees = state.get("attendees", [])
+        attendees = _filter_attendees(state.get("attendees", []), state.get("meeting_context"))
         if not attendees:
             return [Send("moderator_summarize", dict(state))]
         return [Send("agent_opinion", {**state, "_target_role": role}) for role in attendees]
+
+    def _pending_user_decisions(minutes_data: dict[str, object], unresolved: object) -> list[str]:
+        pending = [str(d) for d in minutes_data.get("pending_user_decisions", [])]
+        if isinstance(unresolved, list):
+            for item in unresolved:
+                decision = str(item)
+                if decision not in pending:
+                    pending.append(decision)
+        return pending
 
     def needs_discussion(state: _MeetingState) -> str:
         if state.get("conflict_resolution_needed"):

@@ -134,8 +134,15 @@ def test_meeting_graph_uses_meeting_context_and_filters_unknown_attendees(
     }
 
     class FakeModeratorAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def prepare(
             self,
@@ -185,8 +192,15 @@ def test_meeting_graph_uses_meeting_context_and_filters_unknown_attendees(
             )
 
     class FakeParticipantAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def run(self, state) -> NodeResult:
             role = str(state.goal["role"])
@@ -235,8 +249,15 @@ def test_meeting_graph_defaults_attendees_when_validation_removes_everything(
     observed_roles: list[str] = []
 
     class FakeModeratorAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def prepare(
             self,
@@ -285,8 +306,15 @@ def test_meeting_graph_defaults_attendees_when_validation_removes_everything(
             )
 
     class FakeParticipantAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def run(self, state) -> NodeResult:
             role = str(state.goal["role"])
@@ -333,8 +361,15 @@ def test_meeting_graph_runs_single_conflict_discussion_round(
     discussion_calls: list[dict[str, object]] = []
 
     class FakeModeratorAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def prepare(
             self,
@@ -412,8 +447,15 @@ def test_meeting_graph_runs_single_conflict_discussion_round(
             )
 
     class FakeParticipantAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def run(self, state) -> NodeResult:
             role = str(state.goal["role"])
@@ -486,8 +528,15 @@ def test_meeting_graph_compatibility_mode_warns_when_meeting_context_missing(
     workspace_root = _make_workspace(tmp_path)
 
     class FakeModeratorAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def prepare(
             self,
@@ -536,8 +585,15 @@ def test_meeting_graph_compatibility_mode_warns_when_meeting_context_missing(
             )
 
     class FakeParticipantAgent:
-        def __init__(self, project_root: Path | None = None) -> None:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
             self.project_root = project_root
+            self.session_id = session_id
+            self.resume_session = resume_session
 
         def run(self, state) -> NodeResult:
             role = str(state.goal["role"])

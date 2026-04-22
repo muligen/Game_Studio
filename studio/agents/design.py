@@ -12,13 +12,20 @@ class DesignAgent:
         self,
         claude_runner: ClaudeRoleAdapter | None = None,
         project_root: Path | None = None,
+        session_id: str | None = None,
+        resume_session: bool = False,
     ) -> None:
         if claude_runner is not None:
             self._claude_runner = claude_runner
             return
 
         profile = AgentProfileLoader(repo_root=project_root).load("design")
-        self._claude_runner = ClaudeRoleAdapter(project_root=project_root, profile=profile)
+        self._claude_runner = ClaudeRoleAdapter(
+            project_root=project_root,
+            profile=profile,
+            session_id=session_id,
+            resume_session=resume_session,
+        )
 
     def run(self, state: RuntimeState, **kwargs: object) -> NodeResult:
         trace: dict[str, object] = {
