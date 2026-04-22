@@ -13,13 +13,19 @@ class ModeratorAgent:
         claude_runner: ClaudeRoleAdapter | None = None,
         project_root: Path | None = None,
         session_id: str | None = None,
+        resume_session: bool = False,
     ) -> None:
         if claude_runner is not None:
             self._claude_runner = claude_runner
             return
 
         profile = AgentProfileLoader(repo_root=project_root).load("moderator")
-        self._claude_runner = ClaudeRoleAdapter(project_root=project_root, profile=profile, session_id=session_id)
+        self._claude_runner = ClaudeRoleAdapter(
+            project_root=project_root,
+            profile=profile,
+            session_id=session_id,
+            resume_session=resume_session,
+        )
 
     def prepare(self, state: RuntimeState) -> NodeResult:
         trace: dict[str, object] = {"node": "moderator_prepare", "llm_provider": "claude", "fallback_used": True}

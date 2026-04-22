@@ -119,7 +119,8 @@ async def test_generate_payload_passes_session_id_to_sdk_options(monkeypatch, tm
     await adapter._generate_payload("moderator_prepare", {"goal": {"prompt": "test"}}, config, prompt)
     opts = captured_options["options"]
     assert opts.session_id == "sess-123"
-    assert opts.continue_conversation is True
+    assert opts.resume is None
+    assert opts.continue_conversation is False
 
 
 @pytest.mark.anyio
@@ -186,4 +187,44 @@ async def test_chat_passes_session_id_to_sdk_options(monkeypatch, tmp_path: Path
     assert result == "chat reply"
     opts = captured_options["options"]
     assert opts.session_id == "sess-123"
-    assert opts.continue_conversation is True
+    assert opts.resume is None
+    assert opts.continue_conversation is False
+
+
+@pytest.mark.anyio
+async def test_generate_payload_uses_resume_for_existing_session(monkeypatch, tmp_path: Path) -> None:
+    captured_options: dict = {}
+
+    async def fake_query(*, prompt: str, options: object):
+        captured_options["options"] = options
+        yield cr_module.ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="sess-123",
+            structured_output={
+                "agenda": ["test"],
+                "attendees": ["dev"],
+                "focus_questions": [],
+            },
+        )
+
+    monkeypatch.setattr(cr_module, "query", fake_query)
+
+    adapter = ClaudeRoleAdapter(
+        session_id="sess-123",
+        resume_session=True,
+        project_root=tmp_path,
+        profile=_fake_profile(tmp_path),
+    )
+    config = ClaudeRoleConfig(enabled=True, mode="text", model=None, api_key="key", base_url=None)
+    prompt = adapter.debug_prompt("moderator_prepare", {"goal": {"prompt": "test"}})
+
+    await adapter._generate_payload("moderator_prepare", {"goal": {"prompt": "test"}}, config, prompt)
+
+    opts = captured_options["options"]
+    assert opts.session_id is None
+    assert opts.resume == "sess-123"
+    assert opts.continue_conversation is False

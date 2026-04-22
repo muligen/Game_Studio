@@ -32,7 +32,7 @@ def test_agent_chat_with_project_id_passes_session_id(monkeypatch, tmp_path: Pat
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root=None, profile=None, session_id=None):
+        def __init__(self, project_root=None, profile=None, session_id=None, resume_session=False):
             captured_session_ids.append(session_id)
 
         def chat(self, message: str) -> str:
@@ -95,7 +95,7 @@ def test_agent_chat_verbose_with_project_id_shows_session_id(monkeypatch, tmp_pa
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root=None, profile=None, session_id=None):
+        def __init__(self, project_root=None, profile=None, session_id=None, resume_session=False):
             pass
 
         def chat(self, message: str) -> str:
@@ -129,7 +129,7 @@ def test_agent_chat_without_project_id_works_as_before(monkeypatch, tmp_path: Pa
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root=None, profile=None, session_id=None):
+        def __init__(self, project_root=None, profile=None, session_id=None, resume_session=False):
             assert session_id is None
 
         def chat(self, message: str) -> str:

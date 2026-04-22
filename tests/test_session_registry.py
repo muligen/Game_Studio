@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import UUID
 
 import pytest
 
@@ -74,3 +75,11 @@ def test_create_all_agents_uses_unique_session_ids(tmp_path: Path):
     sessions = registry.create_all("proj_1", "req_1", managed_agents)
     session_ids = [s.session_id for s in sessions]
     assert len(set(session_ids)) == len(session_ids)
+
+
+def test_create_all_agents_uses_valid_uuid_session_ids(tmp_path: Path):
+    registry = SessionRegistry(tmp_path)
+    sessions = registry.create_all("proj_1", "req_1", ["moderator", "design"])
+
+    for session in sessions:
+        assert str(UUID(session.session_id)) == session.session_id

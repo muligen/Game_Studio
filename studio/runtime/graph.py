@@ -463,10 +463,20 @@ def build_meeting_graph():
         "qa": QaAgent,
     }
 
-    def _session_id_for(state: _MeetingState, agent_role: str) -> str | None:
+    def _validated_attendees(raw_attendees: object) -> list[str]:
+        attendees = raw_attendees if isinstance(raw_attendees, list) else []
+        validated: list[str] = []
+        for attendee in attendees:
+            role = str(attendee).strip()
+            if role not in _AGENT_MAP or role in validated:
+                continue
+            validated.append(role)
+        return validated or ["design", "dev", "qa"]
+
+    def _session_for(state: _MeetingState, agent_role: str) -> tuple[str | None, bool]:
         pid = state.get("project_id")
         if not pid:
-            return None
+            return None, False
         ws_root = state.get("workspace_root")
         if not ws_root:
             raise ValueError("workspace_root is required")
@@ -474,8 +484,9 @@ def build_meeting_graph():
         rec = reg.find(str(pid), agent_role)
         if rec is None:
             raise FileNotFoundError(f"project agent session not found: {pid}/{agent_role}")
+        resume_session = rec.last_used_at != rec.created_at
         reg.touch(str(pid), agent_role)
-        return rec.session_id
+        return rec.session_id, resume_session
 
     def moderator_prepare_node(state: _MeetingState) -> dict:
         workspace_root = _require_state_str(state, "workspace_root")
@@ -487,10 +498,11 @@ def build_meeting_graph():
         requirement = workspace.requirements.get(requirement_id)
         intent = str(user_intent) if user_intent else requirement.title
 
-        session_id = _session_id_for(state, "moderator")
+        session_id, resume_session = _session_for(state, "moderator")
         moderator = ModeratorAgent(
             project_root=Path(project_root),
             session_id=session_id,
+            resume_session=resume_session,
         )
         runtime_state = RuntimeState(
             project_id="meeting-project",
@@ -505,7 +517,7 @@ def build_meeting_graph():
             "node_name": "moderator_prepare",
             "user_intent": intent,
             "agenda": prep.get("agenda", [intent]),
-            "attendees": prep.get("attendees", ["design", "dev", "qa"]),
+            "attendees": _validated_attendees(prep.get("attendees", ["design", "dev", "qa"])),
         }
 
     def agent_opinion_node(state: _MeetingState) -> dict:
@@ -515,10 +527,11 @@ def build_meeting_graph():
         user_intent = state.get("user_intent", "")
 
         agent_cls = _AGENT_MAP.get(target_role, DesignAgent)
-        session_id = _session_id_for(state, target_role)
+        session_id, resume_session = _session_for(state, target_role)
         agent = agent_cls(
             project_root=Path(project_root),
             session_id=session_id,
+            resume_session=resume_session,
         )
         runtime_state = RuntimeState(
             project_id="meeting-project",
@@ -564,10 +577,11 @@ def build_meeting_graph():
         requirement_id = _require_state_str(state, "requirement_id")
         opinions = state.get("opinions", {})
 
-        session_id = _session_id_for(state, "moderator")
+        session_id, resume_session = _session_for(state, "moderator")
         moderator = ModeratorAgent(
             project_root=Path(project_root),
             session_id=session_id,
+            resume_session=resume_session,
         )
         runtime_state = RuntimeState(
             project_id="meeting-project",
@@ -591,10 +605,11 @@ def build_meeting_graph():
 
         workspace = StudioWorkspace(Path(workspace_root))
 
-        session_id = _session_id_for(state, "moderator")
+        session_id, resume_session = _session_for(state, "moderator")
         moderator = ModeratorAgent(
             project_root=Path(project_root),
             session_id=session_id,
+            resume_session=resume_session,
         )
         runtime_state = RuntimeState(
             project_id="meeting-project",
@@ -653,7 +668,7 @@ def build_meeting_graph():
         }
 
     def route_to_agents(state: _MeetingState) -> list[Send]:
-        attendees = state.get("attendees", [])
+        attendees = _validated_attendees(state.get("attendees", []))
         if not attendees:
             return [Send("moderator_summarize", dict(state))]
         return [Send("agent_opinion", {**state, "_target_role": role}) for role in attendees]

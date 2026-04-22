@@ -411,10 +411,12 @@ class ClaudeRoleAdapter:
         project_root: Path | None = None,
         profile: ClaudeAdapterProfile | None = None,
         session_id: str | None = None,
+        resume_session: bool = False,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
         self.profile = profile
         self.session_id = session_id
+        self.resume_session = resume_session
         self._env_path = self.project_root / ".env"
         self._last_debug_record: dict[str, object] | None = None
 
@@ -536,8 +538,8 @@ class ClaudeRoleAdapter:
             setting_sources=["project"],
             env=self._sdk_env(config),
             output_format=self._output_format(role_name),
-            session_id=self.session_id,
-            continue_conversation=self.session_id is not None,
+            session_id=None if self.resume_session else self.session_id,
+            resume=self.session_id if self.resume_session else None,
         )
 
         result: ResultMessage | None = None
@@ -582,8 +584,8 @@ class ClaudeRoleAdapter:
             permission_mode="default",
             setting_sources=["project"],
             env=self._sdk_env(config),
-            session_id=self.session_id,
-            continue_conversation=self.session_id is not None,
+            session_id=None if self.resume_session else self.session_id,
+            resume=self.session_id if self.resume_session else None,
         )
 
         result: ResultMessage | None = None
@@ -651,7 +653,9 @@ class ClaudeRoleAdapter:
             "--role-name",
             role_name,
         ]
-        if self.session_id is not None:
+        if self.session_id is not None and self.resume_session:
+            cmd.extend(["--session-id", self.session_id, "--resume-session"])
+        elif self.session_id is not None:
             cmd.extend(["--session-id", self.session_id])
         try:
             proc = subprocess.run(
@@ -696,7 +700,9 @@ class ClaudeRoleAdapter:
             "reviewer",
             "--chat",
         ]
-        if self.session_id is not None:
+        if self.session_id is not None and self.resume_session:
+            cmd.extend(["--session-id", self.session_id, "--resume-session"])
+        elif self.session_id is not None:
             cmd.extend(["--session-id", self.session_id])
         try:
             proc = subprocess.run(
@@ -806,6 +812,7 @@ def _main() -> int:
     parser.add_argument("--claude-project-root")
     parser.add_argument("--chat", action="store_true")
     parser.add_argument("--session-id")
+    parser.add_argument("--resume-session", action="store_true")
     try:
         args = parser.parse_args()
         _require_active_role(args.role_name)
@@ -819,6 +826,7 @@ def _main() -> int:
             project_root=Path(args.project_root),
             profile=profile,
             session_id=getattr(args, "session_id", None),
+            resume_session=getattr(args, "resume_session", False),
         )
         config = adapter.load_config()
         if not config.enabled:

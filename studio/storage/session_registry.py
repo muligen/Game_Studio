@@ -41,6 +41,6 @@ class SessionRegistry:
     def create_all(self, project_id: str, requirement_id: str, agents: Sequence[str]) -> list[ProjectAgentSession]:
         sessions: list[ProjectAgentSession] = []
         for agent in agents:
-            session_id = f"{project_id}_{agent}_{uuid.uuid4().hex[:12]}"
+            session_id = str(uuid.uuid4())
             sessions.append(self.create(project_id, requirement_id, agent, session_id))
         return sessions

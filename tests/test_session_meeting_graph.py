@@ -6,6 +6,7 @@ import pytest
 
 from studio.runtime.graph import build_meeting_graph
 from studio.schemas.requirement import RequirementCard
+from studio.schemas.runtime import NodeDecision, NodeResult
 from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
@@ -98,3 +99,35 @@ def test_meeting_graph_with_project_id_missing_session_fails(tmp_path: Path):
             "user_intent": "Design a puzzle game",
             "project_id": "proj_1",
         })
+
+
+def test_meeting_graph_filters_unknown_and_duplicate_attendees(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    workspace, workspace_root = _setup_workspace(tmp_path)
+
+    def fake_prepare(self, state):
+        return NodeResult(
+            decision=NodeDecision.CONTINUE,
+            state_patch={
+                "telemetry": {
+                    "moderator_prepare": {
+                        "agenda": ["Scope"],
+                        "attendees": ["design", "UI/UX Designer", "qa", "design"],
+                        "focus_questions": [],
+                    }
+                }
+            },
+            trace={"node": "moderator_prepare"},
+        )
+
+    monkeypatch.setattr("studio.agents.moderator.ModeratorAgent.prepare", fake_prepare)
+
+    graph = build_meeting_graph()
+    result = graph.invoke({
+        "workspace_root": workspace_root,
+        "project_root": str(_REPO_ROOT),
+        "requirement_id": "req_001",
+        "user_intent": "Design a puzzle game",
+    })
+
+    assert result["minutes"]["attendees"] == ["design", "qa"]
+    assert [opinion["agent_role"] for opinion in result["minutes"]["opinions"]] == ["design", "qa"]

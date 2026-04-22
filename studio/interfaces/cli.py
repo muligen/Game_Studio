@@ -369,6 +369,7 @@ def agent_chat(
         _fail_cli("--workspace is required when --project-id is set")
 
     session_id: str | None = None
+    resume_session = False
     if project_id:
         from studio.storage.session_registry import SessionRegistry
 
@@ -378,6 +379,7 @@ def agent_chat(
         if record is None:
             _fail_cli(f"project agent session not found: {project_id}/{agent}")
         session_id = record.session_id
+        resume_session = record.last_used_at != record.created_at
         registry.touch(project_id, agent)
 
     if verbose:
@@ -394,7 +396,7 @@ def agent_chat(
 
     try:
         if interactive:
-            runner = ClaudeRoleAdapter(profile=profile, session_id=session_id)
+            runner = ClaudeRoleAdapter(profile=profile, session_id=session_id, resume_session=resume_session)
             while True:
                 user_input = typer.prompt(f"{agent}>")
                 if user_input.strip().lower() in {"exit", "quit"}:
@@ -402,7 +404,7 @@ def agent_chat(
                 _echo_agent_reply(runner.chat(user_input))
             return
 
-        runner = ClaudeRoleAdapter(profile=profile, session_id=session_id)
+        runner = ClaudeRoleAdapter(profile=profile, session_id=session_id, resume_session=resume_session)
         _echo_agent_reply(runner.chat(message or ""))
     except ClaudeRoleError as exc:
         _fail_cli(str(exc))

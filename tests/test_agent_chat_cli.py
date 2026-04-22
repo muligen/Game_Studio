@@ -24,7 +24,7 @@ def test_agent_chat_single_turn_uses_profile_loader_and_raw_chat(monkeypatch) ->
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None, resume_session: bool = False) -> None:
             assert project_root is None
             assert profile is not None
             assert session_id is None
@@ -59,7 +59,7 @@ def test_agent_chat_single_turn_supports_worker_profile(monkeypatch) -> None:
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None, resume_session: bool = False) -> None:
             assert project_root is None
             assert profile is not None
             assert session_id is None
@@ -103,7 +103,7 @@ def test_agent_chat_interactive_reuses_adapter(monkeypatch) -> None:
     calls: list[str] = []
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None, resume_session: bool = False) -> None:
             assert project_root is None
             assert profile is not None
             assert session_id is None
@@ -141,7 +141,7 @@ def test_agent_chat_verbose_shows_profile_details(monkeypatch) -> None:
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None, resume_session: bool = False) -> None:
             assert project_root is None
             assert profile is not None
             assert session_id is None
@@ -180,7 +180,7 @@ def test_agent_chat_surfaces_role_adapter_errors_without_fallback(monkeypatch) -
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None, resume_session: bool = False) -> None:
             assert project_root is None
             assert profile is not None
             assert session_id is None
