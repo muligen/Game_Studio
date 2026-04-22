@@ -10,6 +10,7 @@ from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.meeting import MeetingMinutes
 from studio.schemas.requirement import RequirementCard
+from studio.schemas.session import ProjectAgentSession
 from studio.storage.base import JsonRepository
 
 
@@ -46,6 +47,7 @@ class StudioWorkspace:
         self.bugs = JsonRepository(root / "bugs", BugCard)
         self.logs = LogRepository(root / "logs", ActionLog)
         self.meetings = JsonRepository(root / "meetings", MeetingMinutes)
+        self.sessions = JsonRepository(root / "project_agent_sessions", ProjectAgentSession)
 
     def ensure_layout(self) -> None:
         for repo_root in (
@@ -55,5 +57,6 @@ class StudioWorkspace:
             self.bugs.root,
             self.logs.root,
             self.meetings.root,
+            self.sessions.root,
         ):
             repo_root.mkdir(parents=True, exist_ok=True)
