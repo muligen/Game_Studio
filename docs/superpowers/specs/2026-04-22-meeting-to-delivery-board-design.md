@@ -43,6 +43,8 @@ But nothing turns those outputs into visible implementation work. The original r
 - Block development task generation/start until the kickoff decision gate is resolved.
 - Assign tasks to the intended agent role.
 - Require assigned agents to resume the same project session used during kickoff.
+- Prevent concurrent task execution from sharing and corrupting the same agent session.
+- Persist task execution outputs so dependent agents receive concrete upstream artifacts, not only status changes.
 - Make the plan visible from the web board.
 - Keep generation bounded and reviewable; do not automatically implement tasks immediately after meeting.
 
@@ -104,7 +106,8 @@ Before the user resolves this kickoff gate:
 After the user resolves the kickoff gate:
 
 - the selected directions are saved into the delivery plan
-- development tasks are generated or activated from that resolved plan
+- the final development task DAG is generated or regenerated from the resolved directions
+- any pre-resolution task preview must be revalidated against the resolved directions before it can become actionable
 - there should be no remaining `pending_user_decisions` during development
 - user involvement resumes at review/acceptance, not during normal implementation
 
@@ -129,6 +132,8 @@ If the owner agent did not attend the meeting but still has a project session, i
 
 If no project session exists, task execution must fail clearly. It should not create an ad hoc session or silently run without meeting context.
 
+Because the same project-scoped session is the context carrier, the system must not run two tasks concurrently against the same `project_id + agent` session. A same-agent task must acquire a session lease before execution; if another task already holds that lease, the task stays queued or `ready` with a clear "agent session busy" reason. This avoids interleaving unrelated task prompts into one Claude conversation.
+
 ## Recommended Approach
 
 Add a small delivery-planning layer instead of overloading `MeetingMinutes` or immediately mutating the original `RequirementCard`.
@@ -138,6 +143,8 @@ New backend concepts:
 - `DeliveryPlan`: one plan generated from one meeting.
 - `DeliveryTask`: a task in the plan, with dependencies and owner.
 - `KickoffDecisionGate`: a one-time user direction gate for unresolved meeting conflicts.
+- `TaskExecutionResult`: persisted output from one completed delivery task.
+- `AgentSessionLease`: short-lived lock for one `project_id + agent` Claude session.
 
 The web board can then show a combined project view:
 
@@ -213,6 +220,7 @@ Example:
   "status": "awaiting_user_decision",
   "task_ids": ["task_combat_loop", "task_skill_system"],
   "decision_gate_id": "gate_meeting_8fab476c",
+  "decision_resolution_version": null,
   "created_at": "2026-04-22T12:00:00Z",
   "updated_at": "2026-04-22T12:00:00Z"
 }
@@ -247,6 +255,8 @@ Example:
   "owner_agent": "dev",
   "status": "ready",
   "depends_on_task_ids": [],
+  "execution_result_id": null,
+  "output_artifact_ids": [],
   "acceptance_criteria": [
     "A 3v3 battle can complete with win/loss result.",
     "Turn order follows speed sorting."
@@ -264,6 +274,7 @@ Example:
 
 Task statuses:
 
+- `preview`: non-actionable pre-resolution task draft.
 - `blocked`: task dependencies are unresolved.
 - `ready`: can be claimed by the owner agent.
 - `in_progress`: assigned agent is executing.
@@ -289,6 +300,7 @@ Example:
   "requirement_id": "req_8fab476c",
   "project_id": "proj_123",
   "status": "open",
+  "resolution_version": 0,
   "items": [
     {
       "id": "decision_skill_cost",
@@ -309,6 +321,63 @@ Gate statuses:
 - `resolved`: user resolved every conflict direction.
 - `cancelled`: no longer needed.
 
+### TaskExecutionResult
+
+Stored at:
+
+```text
+.studio-data/task_execution_results/<result_id>.json
+```
+
+Example:
+
+```json
+{
+  "id": "result_task_combat_loop",
+  "task_id": "task_combat_loop",
+  "plan_id": "plan_meeting_8fab476c",
+  "project_id": "proj_123",
+  "agent": "dev",
+  "session_id": "claude-session-id",
+  "summary": "Implemented deterministic 3v3 combat loop with attack, skill, defend, and win/loss resolution.",
+  "output_artifact_ids": ["artifact_combat_loop_patch"],
+  "changed_files": ["studio/combat/loop.py", "tests/test_combat_loop.py"],
+  "tests_or_checks": ["uv run pytest tests/test_combat_loop.py"],
+  "follow_up_notes": [],
+  "created_at": "2026-04-22T12:30:00Z"
+}
+```
+
+### AgentSessionLease
+
+Stored at:
+
+```text
+.studio-data/agent_session_leases/<project_id>_<agent>.json
+```
+
+Example:
+
+```json
+{
+  "id": "proj_123_dev",
+  "project_id": "proj_123",
+  "agent": "dev",
+  "task_id": "task_combat_loop",
+  "session_id": "claude-session-id",
+  "status": "held",
+  "expires_at": "2026-04-22T13:00:00Z",
+  "created_at": "2026-04-22T12:00:00Z"
+}
+```
+
+Lease rules:
+
+- A task may start only if no active lease exists for the same `project_id + agent`.
+- Lease acquisition and task status update should be treated as one atomic operation at the repository/service level.
+- A lease must be released when the task reaches `review`, `done`, `blocked`, `ready`, `cancelled`, or execution fails.
+- Expired leases can be recovered by the backend with an explicit warning in logs.
+
 ## Generation Flow
 
 ### Trigger
@@ -327,6 +396,13 @@ If the meeting has unresolved `pending_user_decisions`, generation creates an `a
 
 If the meeting has no unresolved user decisions, generation can create an `active` plan immediately.
 
+Pre-resolution task previews are optional and must use `status = "preview"`. They are for user understanding only. When the kickoff gate is resolved, the backend must either:
+
+- regenerate the final task DAG from the meeting plus gate resolutions
+- or validate every preview task against the gate resolutions and stamp the plan with the matching `decision_resolution_version`
+
+If validation cannot prove that a preview task matches the chosen direction, discard or regenerate it. Do not silently activate stale preview tasks.
+
 ### Planner Agent
 
 Add a profile-backed role:
@@ -335,11 +411,14 @@ Add a profile-backed role:
 delivery_planner
 ```
 
+`delivery_planner` is a normal managed agent. It must have an explicit registered agent profile and Claude project folder configuration before use. If that configuration is missing, plan generation fails clearly. Do not fallback to an unconfigured prompt or reuse another agent's profile.
+
 The planner consumes:
 
 - `MeetingMinutes`
 - source `RequirementCard`
 - project id if available
+- kickoff gate resolutions when present
 
 It returns strict JSON:
 
@@ -375,11 +454,13 @@ The backend normalizes temporary keys into persisted ids, validates dependencies
 The backend must apply these rules after planner output:
 
 - Owner agent must be one of `design`, `dev`, `qa`, `art`, `reviewer`, or `quality`.
+- `delivery_planner` itself must be registered in the agent config before generation starts.
 - Tasks cannot depend on unknown tasks.
 - Dependency graph must be acyclic.
 - A task with incomplete task dependencies starts as `blocked`.
 - A task with no blockers starts as `ready`.
 - Pending user decisions from `MeetingMinutes.pending_user_decisions` must become kickoff gate items or be explicitly resolved before plan activation.
+- `conflict_points` are context only. They become kickoff gate items only when they also appear in `pending_user_decisions`, `unresolved_conflicts`, or another explicit moderator field that marks them unresolved.
 - `conflict_points` should not become development tasks unless a decision resolved them or the minutes contain a clear decision.
 
 ## Board Behavior
@@ -414,7 +495,9 @@ When the user resolves the kickoff gate:
 
 - update `KickoffDecisionGate.status` to `resolved`
 - store all chosen directions
-- activate or regenerate the delivery tasks using those directions
+- increment and store `KickoffDecisionGate.resolution_version`
+- regenerate or validate the final delivery tasks using those directions
+- stamp activated tasks/plan with the matching `decision_resolution_version`
 - set `DeliveryPlan.status` to `active`
 - broadcast board update
 
@@ -425,6 +508,7 @@ Tasks are blocked if any of these are true:
 - the plan's kickoff decision gate is still open
 - `depends_on_task_ids` contains a task not in `done`.
 - required project-agent session is missing.
+- the required `project_id + owner_agent` session lease is held by another running task.
 
 Blocked tasks remain visible. They cannot be claimed by agents.
 
@@ -438,15 +522,17 @@ When a task is started by its owner agent:
 2. Load source `MeetingMinutes`.
 3. Load source `RequirementCard`.
 4. Load project-agent session by `project_id + owner_agent`.
-5. Build a minimal task prompt from:
+5. Acquire a lease for `project_id + owner_agent`.
+6. Build a minimal task prompt from:
    - task title and description
    - acceptance criteria
    - dependency outputs if available
    - `task_id`
    - `meeting_id`
    - `requirement_id`
-6. Invoke the assigned agent using the same project session.
-7. Save execution output and update task status.
+7. Invoke the assigned agent using the same project session.
+8. Save execution output, produced artifact ids, completion summary, logs, and status.
+9. Release the session lease.
 
 The execution agent may or may not have attended the kickoff meeting:
 
@@ -455,6 +541,21 @@ The execution agent may or may not have attended the kickoff meeting:
 - If no session exists, fail clearly. Do not run without meeting context.
 
 This keeps the execution prompt small and makes same-session continuity the primary mechanism for preserving meeting context.
+
+### Dependency Output Handoff
+
+A dependency is not satisfied by status alone. When a task moves to `done`, it must persist a task execution result containing:
+
+- `task_id`
+- `agent`
+- `session_id`
+- `summary`
+- `output_artifact_ids`
+- `changed_files` if code was changed
+- `tests_or_checks`
+- `follow_up_notes`
+
+Downstream task prompts should include compact summaries and artifact ids from completed dependencies. They should not re-send the whole upstream conversation, but they do need the concrete upstream outputs.
 
 ## Backend API
 
@@ -519,6 +620,8 @@ Rules:
 - task must be `ready`
 - owner agent session must exist
 - plan kickoff gate must be resolved
+- task `decision_resolution_version` must match the plan's current `decision_resolution_version`
+- owner agent session lease must be available
 - task becomes `in_progress`
 - execution can be queued in the existing agent pool
 
@@ -550,6 +653,8 @@ First implementation recommendation: add a new `/delivery` route to avoid overlo
 - Unknown owner agent: reject the plan.
 - Open kickoff decision gate blocks task start.
 - Missing project session blocks task start.
+- Busy owner agent session blocks or queues task start.
+- Stale preview task with mismatched decision resolution version blocks task start.
 - Agent execution failure moves task back to `ready` or `blocked` with error detail, depending on blocker state.
 
 ## Tests
@@ -563,11 +668,16 @@ Backend tests:
 - Create kickoff decision gate from meeting conflicts and pending user decisions.
 - Plan with an open kickoff gate is not actionable.
 - Resolve kickoff gate and activate the delivery plan.
+- Resolve kickoff gate regenerates or validates final task DAG and stamps `decision_resolution_version`.
 - Start task fails when kickoff gate is open.
+- Start task fails when decision resolution version is stale.
 - Start task fails when dependency task is not done.
 - Start task uses the owner agent's project session.
+- Start task fails or queues when the owner agent session lease is already held.
 - Start task sends only a minimal task prompt when the owner agent attended the meeting.
 - Start task can include compact `meeting_snapshot` only when the owner agent did not attend.
+- Completed task stores execution result and output artifact ids.
+- Downstream task prompt includes dependency execution summaries and artifact ids.
 
 Frontend tests:
 
@@ -587,6 +697,8 @@ Manual acceptance:
 - Verify the delivery plan becomes active and tasks can start.
 - Start a ready dev task.
 - Verify the dev agent resumes the same project session id used during kickoff.
+- Start two tasks assigned to the same agent and verify the second does not run concurrently in the same session.
+- Complete an upstream task and verify a dependent task receives the upstream execution summary/artifact ids.
 
 ## Acceptance Criteria
 
@@ -599,5 +711,9 @@ Manual acceptance:
 - Task execution uses the project-scoped agent session.
 - Task execution uses the same project-scoped agent session as kickoff.
 - Task execution prompt stays minimal for agents that attended the meeting.
+- Same project-agent session is protected by a lease so concurrent tasks cannot interleave one Claude session.
+- Completed tasks persist execution outputs that downstream tasks can reference.
+- Pre-resolution task previews cannot become actionable unless regenerated or validated against the chosen kickoff decisions.
+- `delivery_planner` has explicit agent configuration and fails clearly if missing.
 - The board makes blockers, dependencies, and owner agents visible.
 - Existing Meeting Graph, project session, and requirements board behavior remain intact.
