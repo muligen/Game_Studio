@@ -12,7 +12,7 @@ from studio.domain.approvals import approve_design_doc
 from studio.domain.requirement_flow import transition_requirement
 from studio.domain.services import validate_requirement_ready_for_dev
 from studio.llm import ClaudeRoleAdapter, ClaudeRoleError
-from studio.runtime.graph import build_demo_runtime
+from studio.runtime.graph import build_demo_runtime, build_meeting_graph
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.balance_table import BalanceTable
@@ -29,6 +29,9 @@ app.add_typer(requirement_app, name="requirement")
 app.add_typer(design_app, name="design")
 app.add_typer(workflow_app, name="workflow")
 app.add_typer(agent_app, name="agent")
+
+project_app = typer.Typer(help="Project management commands")
+app.add_typer(project_app, name="project")
 
 
 def _workspace_store(workspace: Path) -> StudioWorkspace:
@@ -151,6 +154,37 @@ def _run_agent_chat_once(agent_name: str, message: str, profile: object) -> obje
 @app.callback()
 def _main() -> None:
     """Game studio runtime commands."""
+
+
+@project_app.command("kickoff")
+def project_kickoff(
+    workspace: Path = typer.Option(..., "--workspace", "-w", help="Workspace root directory"),
+    requirement_id: str = typer.Option(..., "--requirement-id", help="Requirement to kick off"),
+    user_intent: str | None = typer.Option(None, "--user-intent", help="Override user intent"),
+) -> None:
+    import uuid
+
+    from studio.storage.session_registry import SessionRegistry
+    from studio.storage.workspace import StudioWorkspace
+
+    ws_root = workspace / ".studio-data"
+    ws = StudioWorkspace(ws_root)
+    requirement = _load_requirement(ws, requirement_id)
+    intent = user_intent or requirement.title
+    project_id = f"proj_{uuid.uuid4().hex[:8]}"
+    managed_agents = ["moderator", "design", "dev", "qa", "quality", "art", "reviewer"]
+    registry = SessionRegistry(ws_root)
+    registry.create_all(project_id, requirement_id, managed_agents)
+    project_root = str(workspace.parent.parent) if ws_root.name == ".studio-data" else str(workspace)
+    graph = build_meeting_graph()
+    graph.invoke({
+        "workspace_root": str(ws_root),
+        "project_root": project_root,
+        "requirement_id": requirement_id,
+        "user_intent": intent,
+        "project_id": project_id,
+    })
+    typer.echo(f"{project_id} kickoff_complete")
 
 
 @app.command("run-demo")
@@ -319,6 +353,8 @@ def agent_chat(
     message: str | None = typer.Option(None, "--message", help="Single-turn user message"),
     interactive: bool = typer.Option(False, "--interactive", help="Start a simple REPL"),
     verbose: bool = typer.Option(False, "--verbose", help="Print debug metadata before the reply"),
+    project_id: str | None = typer.Option(None, "--project-id", help="Use project agent session"),
+    workspace: Path | None = typer.Option(None, "--workspace", help="Workspace root (required with --project-id)"),
 ) -> None:
     if not interactive and not message:
         _fail_cli("--message is required unless --interactive is set")
@@ -329,30 +365,45 @@ def agent_chat(
     except AgentProfileError as exc:
         _fail_cli(str(exc))
 
+    if project_id and not workspace:
+        _fail_cli("--workspace is required when --project-id is set")
+
+    session_id: str | None = None
+    if project_id:
+        from studio.storage.session_registry import SessionRegistry
+
+        ws_root = workspace / ".studio-data"
+        registry = SessionRegistry(ws_root)
+        record = registry.find(project_id, agent)
+        if record is None:
+            _fail_cli(f"project agent session not found: {project_id}/{agent}")
+        session_id = record.session_id
+        registry.touch(project_id, agent)
+
     if verbose:
-        typer.echo(
-            json.dumps(
-                {
-                    "agent": agent,
-                    "profile_path": str(_profile_path(loader, agent)),
-                    "claude_project_root": str(profile.claude_project_root),
-                    "system_prompt": profile.system_prompt,
-                },
-                indent=2,
-                ensure_ascii=False,
-            )
-        )
+        debug_info = {
+            "agent": agent,
+            "profile_path": str(_profile_path(loader, agent)),
+            "claude_project_root": str(profile.claude_project_root),
+            "system_prompt": profile.system_prompt,
+        }
+        if session_id:
+            debug_info["project_id"] = project_id
+            debug_info["session_id"] = session_id
+        typer.echo(json.dumps(debug_info, indent=2, ensure_ascii=False))
 
     try:
         if interactive:
+            runner = ClaudeRoleAdapter(profile=profile, session_id=session_id)
             while True:
                 user_input = typer.prompt(f"{agent}>")
                 if user_input.strip().lower() in {"exit", "quit"}:
                     return
-                _echo_agent_reply(_run_agent_chat_once(agent, user_input, profile))
+                _echo_agent_reply(runner.chat(user_input))
             return
 
-        _echo_agent_reply(_run_agent_chat_once(agent, message or "", profile))
+        runner = ClaudeRoleAdapter(profile=profile, session_id=session_id)
+        _echo_agent_reply(runner.chat(message or ""))
     except ClaudeRoleError as exc:
         _fail_cli(str(exc))
 

@@ -24,9 +24,10 @@ def test_agent_chat_single_turn_uses_profile_loader_and_raw_chat(monkeypatch) ->
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
             assert project_root is None
             assert profile is not None
+            assert session_id is None
 
         def chat(self, message: str) -> str:
             assert message == "Run smoke QA"
@@ -58,9 +59,10 @@ def test_agent_chat_single_turn_supports_worker_profile(monkeypatch) -> None:
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
             assert project_root is None
             assert profile is not None
+            assert session_id is None
 
         def chat(self, message: str) -> str:
             assert message == "Design a garden sim"
@@ -101,9 +103,10 @@ def test_agent_chat_interactive_reuses_adapter(monkeypatch) -> None:
     calls: list[str] = []
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
             assert project_root is None
             assert profile is not None
+            assert session_id is None
 
         def chat(self, message: str) -> str:
             calls.append(message)
@@ -138,9 +141,10 @@ def test_agent_chat_verbose_shows_profile_details(monkeypatch) -> None:
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
             assert project_root is None
             assert profile is not None
+            assert session_id is None
 
         def chat(self, message: str) -> str:
             assert message == "Run smoke QA"
@@ -176,9 +180,10 @@ def test_agent_chat_surfaces_role_adapter_errors_without_fallback(monkeypatch) -
             return FakeProfile()
 
     class FakeRunner:
-        def __init__(self, project_root: Path | None = None, profile: object | None = None) -> None:
+        def __init__(self, project_root: Path | None = None, profile: object | None = None, session_id: str | None = None) -> None:
             assert project_root is None
             assert profile is not None
+            assert session_id is None
 
         def chat(self, message: str) -> str:
             raise ClaudeRoleError("adapter exploded")
