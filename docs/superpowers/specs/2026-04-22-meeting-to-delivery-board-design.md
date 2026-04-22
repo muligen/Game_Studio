@@ -71,7 +71,7 @@ Each generated delivery task has:
 - `blocked_by_decision_ids`
 - `source_meeting_id`
 - `source_requirement_id`
-- `handoff_context`
+- `meeting_snapshot`
 - `status`
 
 The backend validates that the dependency graph has no cycles. A task is `ready` only when:
@@ -113,24 +113,22 @@ This keeps useful work moving without pretending undecided scope is approved.
 
 ### 3. Are implementation agents the same agents from the meeting, and do they receive the meeting spirit?
 
-They should use the same project-scoped agent session when possible.
+They must use the same project-scoped agent session.
 
 Kickoff creates per-agent project sessions. Meeting participants such as `design`, `dev`, and `qa` use those sessions during the meeting. Generated tasks are assigned to agent roles, and execution should look up the same `project_id + agent` session before calling Claude.
 
-Each task also stores a compact `handoff_context` built from the meeting minutes:
+Because the same session is resumed, an agent that attended the meeting already has its own meeting context in Claude's session history. Task execution should not resend the full meeting minutes or "meeting spirit" as a large prompt attachment by default.
+
+Each task may store a compact `meeting_snapshot` built from the meeting minutes for board display, audit, and debugging:
 
 - meeting title
 - relevant decisions
 - relevant consensus points
-- relevant conflict points
-- relevant pending decisions
-- assigned-agent opinion summary if present
 - task-specific acceptance notes
 
-When the assigned agent starts work, the prompt includes this handoff context and uses the same project session. This gives two layers of continuity:
+When the assigned agent starts work, the prompt should include the task itself and lightweight references such as `task_id`, `meeting_id`, and `requirement_id`, while resuming the same project session. This makes session continuity the source of meeting memory.
 
-- Claude session continuity from kickoff
-- explicit task handoff context for auditability and deterministic prompt construction
+If the owner agent did not attend the meeting but still has a project session, it can receive the compact `meeting_snapshot` because it does not have the same firsthand meeting context. This is an exception, not the default for agents that attended.
 
 If no project session exists, task execution must fail clearly. It should not create an ad hoc session or silently run without meeting context.
 
@@ -257,12 +255,11 @@ Example:
     "A 3v3 battle can complete with win/loss result.",
     "Turn order follows speed sorting."
   ],
-  "handoff_context": {
+  "meeting_snapshot": {
     "meeting_title": "Turn-Based Combat MVP Kickoff Meeting Minutes",
     "relevant_decisions": ["Core combat loop locked to 3v3 with fixed speed sorting"],
     "relevant_consensus": ["Three action types confirmed: Normal Attack, Skill, Defend"],
-    "relevant_conflicts": [],
-    "agent_opinion_summary": "Dev recommends MVP with deterministic turn order..."
+    "task_acceptance_notes": ["Turn order follows speed sorting."]
   },
   "created_at": "2026-04-22T12:00:00Z",
   "updated_at": "2026-04-22T12:00:00Z"
@@ -432,7 +429,7 @@ Unblocked tasks can proceed even if other independent decisions remain open.
 
 This means user decisions block only the tasks that depend on them, not the entire project by default.
 
-## Agent Execution Handoff
+## Agent Execution Session Continuity
 
 When a task is started by its owner agent:
 
@@ -440,22 +437,23 @@ When a task is started by its owner agent:
 2. Load source `MeetingMinutes`.
 3. Load source `RequirementCard`.
 4. Load project-agent session by `project_id + owner_agent`.
-5. Build prompt context from:
+5. Build a minimal task prompt from:
    - task title and description
    - acceptance criteria
    - dependency outputs if available
-   - `handoff_context`
-   - full meeting id and source requirement id
+   - `task_id`
+   - `meeting_id`
+   - `requirement_id`
 6. Invoke the assigned agent using the same project session.
 7. Save execution output and update task status.
 
 The execution agent may or may not have attended the kickoff meeting:
 
-- If the owner agent attended, it uses the same project session and gets explicit handoff context.
-- If the owner agent did not attend, it still uses the project session if one exists and receives explicit handoff context.
+- If the owner agent attended, it uses the same project session and receives only the minimal task prompt. The meeting context is already in that session.
+- If the owner agent did not attend, it still uses the project session if one exists and may receive the compact `meeting_snapshot`.
 - If no session exists, fail clearly. Do not run without meeting context.
 
-This preserves "meeting spirit" without relying only on implicit chat memory.
+This keeps the execution prompt small and makes same-session continuity the primary mechanism for preserving meeting context.
 
 ## Backend API
 
@@ -528,7 +526,7 @@ Add or extend board UI:
 - Add delivery board columns for decisions and tasks.
 - Show blockers directly on cards.
 - Add decision resolution dialog.
-- Add task detail panel with meeting handoff context.
+- Add task detail panel with `meeting_snapshot` and source meeting links.
 - Add `Start Agent Work` action only for ready tasks.
 
 The existing Requirements Board should remain available. Delivery board can live as:
@@ -565,7 +563,8 @@ Backend tests:
 - Start task fails when blocked by decision.
 - Start task fails when dependency task is not done.
 - Start task uses the owner agent's project session.
-- Start task includes meeting handoff context in the agent prompt.
+- Start task sends only a minimal task prompt when the owner agent attended the meeting.
+- Start task can include compact `meeting_snapshot` only when the owner agent did not attend.
 
 Frontend tests:
 
@@ -585,7 +584,7 @@ Manual acceptance:
 - Resolve one decision.
 - Verify only affected tasks unblock.
 - Start a ready dev task.
-- Verify the dev agent receives meeting handoff context and project session id.
+- Verify the dev agent resumes the same project session id used during kickoff.
 
 ## Acceptance Criteria
 
@@ -596,6 +595,7 @@ Manual acceptance:
 - Independent tasks can proceed while unrelated decisions remain open.
 - Task owner agent is explicit and limited to registered agents.
 - Task execution uses the project-scoped agent session.
-- Task execution prompt includes explicit meeting handoff context.
+- Task execution uses the same project-scoped agent session as kickoff.
+- Task execution prompt stays minimal for agents that attended the meeting.
 - The board makes blockers, dependencies, and owner agents visible.
 - Existing Meeting Graph, project session, and requirements board behavior remain intact.
