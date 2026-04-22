@@ -144,6 +144,13 @@ class ModeratorSummaryPayload(BaseModel):
     conflict_resolution_needed: list[str]
 
 
+class ModeratorDiscussionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    supplementary: dict[str, str]
+    unresolved_conflicts: list[str]
+
+
 class ModeratorMinutesPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -159,6 +166,7 @@ _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "art": ArtPayload,
     "dev": DevPayload,
     "design": DesignPayload,
+    "moderator_discussion": ModeratorDiscussionPayload,
     "moderator_prepare": ModeratorPreparePayload,
     "moderator_summary": ModeratorSummaryPayload,
     "moderator_minutes": ModeratorMinutesPayload,
@@ -181,6 +189,12 @@ _ROLE_PROMPTS: dict[str, str] = {
         "Given structured opinions from multiple agents, synthesize the results.\n"
         "Return only JSON with consensus_points, conflict_points, "
         "and conflict_resolution_needed (conflicts requiring supplementary discussion).\n"
+    ),
+    "moderator_discussion": (
+        "You are the meeting moderator.\n"
+        "Given unresolved conflicts from the meeting, produce supplementary discussion notes.\n"
+        "Return only JSON with supplementary (a mapping from conflict to next-step guidance) "
+        "and unresolved_conflicts (items that still require a human decision).\n"
     ),
     "moderator_minutes": (
         "You are the meeting moderator.\n"
@@ -268,6 +282,18 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
         "required": ["consensus_points", "conflict_points", "conflict_resolution_needed"],
         "additionalProperties": False,
     },
+    "moderator_discussion": {
+        "type": "object",
+        "properties": {
+            "supplementary": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+            },
+            "unresolved_conflicts": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["supplementary", "unresolved_conflicts"],
+        "additionalProperties": False,
+    },
     "moderator_minutes": {
         "type": "object",
         "properties": {
@@ -339,6 +365,7 @@ def parse_role_payload(
     | ModeratorPreparePayload
     | AgentOpinionPayload
     | ModeratorSummaryPayload
+    | ModeratorDiscussionPayload
     | ModeratorMinutesPayload
 ):
     model = _ROLE_PAYLOAD_MODELS.get(role_name)
@@ -361,6 +388,7 @@ def parse_role_payload(
             ModeratorPreparePayload,
             AgentOpinionPayload,
             ModeratorSummaryPayload,
+            ModeratorDiscussionPayload,
             ModeratorMinutesPayload,
         ),
     ):
@@ -444,6 +472,7 @@ class ClaudeRoleAdapter:
         | ModeratorPreparePayload
         | AgentOpinionPayload
         | ModeratorSummaryPayload
+        | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
     ):
         _require_active_role(role_name)
@@ -524,6 +553,7 @@ class ClaudeRoleAdapter:
         | ModeratorPreparePayload
         | AgentOpinionPayload
         | ModeratorSummaryPayload
+        | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
     ):
         options = ClaudeAgentOptions(
@@ -629,6 +659,7 @@ class ClaudeRoleAdapter:
         | ModeratorPreparePayload
         | AgentOpinionPayload
         | ModeratorSummaryPayload
+        | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
     ):
         _require_active_role(role_name)

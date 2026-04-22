@@ -442,8 +442,11 @@ class _MeetingState(TypedDict, total=False):
     consensus_points: list[str]
     conflict_points: list[str]
     supplementary: dict[str, str]
+    unresolved_conflicts: list[str]
+    conflict_resolution_needed: object
     node_name: str
     minutes: dict[str, object]
+    meeting_context: dict[str, object]
 
 
 def build_meeting_graph():
@@ -461,11 +464,22 @@ def build_meeting_graph():
         "qa": QaAgent,
     }
 
+    _DEFAULT_ATTENDEES = ["design", "dev", "qa"]
+
+    def _filter_attendees(raw_attendees: list[str], meeting_context: dict[str, object] | None) -> list[str]:
+        validated = meeting_context.get("validated_attendees") if isinstance(meeting_context, dict) else None
+        if isinstance(validated, list):
+            filtered = [a for a in validated if a in _AGENT_MAP]
+            return list(dict.fromkeys(filtered)) if filtered else list(_DEFAULT_ATTENDEES)
+        known = [a for a in raw_attendees if a in _AGENT_MAP]
+        return list(dict.fromkeys(known)) if known else list(_DEFAULT_ATTENDEES)
+
     def moderator_prepare_node(state: _MeetingState) -> dict:
         workspace_root = _require_state_str(state, "workspace_root")
         project_root = _require_state_str(state, "project_root")
         requirement_id = _require_state_str(state, "requirement_id")
         user_intent = state.get("user_intent", "")
+        meeting_context = state.get("meeting_context")
 
         workspace = StudioWorkspace(Path(workspace_root))
         requirement = workspace.requirements.get(requirement_id)
@@ -478,14 +492,18 @@ def build_meeting_graph():
             task_id=f"meeting-prepare-{requirement_id}",
             goal={"prompt": intent, "requirement_id": requirement_id},
         )
-        result = moderator.prepare(runtime_state)
+        result = moderator.prepare(runtime_state, meeting_context=meeting_context)
         prep = result.state_patch.get("telemetry", {}).get("moderator_prepare", {})
+
+        raw_attendees = prep.get("attendees", list(_DEFAULT_ATTENDEES))
+        filtered = _filter_attendees(raw_attendees, meeting_context)
 
         return {
             "node_name": "moderator_prepare",
             "user_intent": intent,
             "agenda": prep.get("agenda", [intent]),
-            "attendees": prep.get("attendees", ["design", "dev", "qa"]),
+            "attendees": filtered,
+            "meeting_context": meeting_context,
         }
 
     def agent_opinion_node(state: _MeetingState) -> dict:
@@ -493,19 +511,23 @@ def build_meeting_graph():
         target_role = str(state.get("_target_role", "design"))
         agenda = state.get("agenda", [])
         user_intent = state.get("user_intent", "")
+        meeting_context = state.get("meeting_context")
 
         agent_cls = _AGENT_MAP.get(target_role, DesignAgent)
         agent = agent_cls(project_root=Path(project_root))
+        goal: dict[str, object] = {
+            "prompt": str(user_intent),
+            "phase": "opinion",
+            "agenda": agenda,
+            "role": target_role,
+        }
+        if isinstance(meeting_context, dict):
+            goal["meeting_context"] = meeting_context
         runtime_state = RuntimeState(
             project_id="meeting-project",
             run_id=_new_run_id(),
             task_id=f"meeting-{target_role}",
-            goal={
-                "prompt": str(user_intent),
-                "phase": "opinion",
-                "agenda": agenda,
-                "role": target_role,
-            },
+            goal=goal,
         )
         result = agent.run(runtime_state)
 
@@ -539,6 +561,7 @@ def build_meeting_graph():
         project_root = _require_state_str(state, "project_root")
         requirement_id = _require_state_str(state, "requirement_id")
         opinions = state.get("opinions", {})
+        meeting_context = state.get("meeting_context")
 
         moderator = ModeratorAgent(project_root=Path(project_root))
         runtime_state = RuntimeState(
@@ -547,19 +570,49 @@ def build_meeting_graph():
             task_id=f"meeting-summarize-{requirement_id}",
             goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
         )
-        result = moderator.summarize(runtime_state, opinions=opinions)
+        result = moderator.summarize(runtime_state, opinions=opinions, meeting_context=meeting_context)
         summary = result.state_patch.get("telemetry", {}).get("moderator_summary", {})
 
         return {
             "node_name": "moderator_summarize",
             "consensus_points": summary.get("consensus_points", []),
             "conflict_points": summary.get("conflict_points", []),
+            "conflict_resolution_needed": summary.get("conflict_resolution_needed", False),
+        }
+
+    def moderator_discussion_node(state: _MeetingState) -> dict:
+        project_root = _require_state_str(state, "project_root")
+        requirement_id = _require_state_str(state, "requirement_id")
+        opinions = state.get("opinions", {})
+        conflict_points = state.get("conflict_points", [])
+        meeting_context = state.get("meeting_context")
+
+        moderator = ModeratorAgent(project_root=Path(project_root))
+        runtime_state = RuntimeState(
+            project_id="meeting-project",
+            run_id=_new_run_id(),
+            task_id=f"meeting-discussion-{requirement_id}",
+            goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
+        )
+        result = moderator.discuss(
+            runtime_state,
+            conflicts=conflict_points,
+            opinions=opinions,
+            meeting_context=meeting_context,
+        )
+        discussion = result.state_patch.get("telemetry", {}).get("moderator_discussion", {})
+
+        return {
+            "node_name": "moderator_discussion",
+            "supplementary": discussion.get("supplementary", {}),
+            "unresolved_conflicts": discussion.get("unresolved_conflicts", []),
         }
 
     def moderator_minutes_node(state: _MeetingState) -> dict:
         workspace_root = _require_state_str(state, "workspace_root")
         project_root = _require_state_str(state, "project_root")
         requirement_id = _require_state_str(state, "requirement_id")
+        meeting_context = state.get("meeting_context")
 
         workspace = StudioWorkspace(Path(workspace_root))
 
@@ -576,8 +629,23 @@ def build_meeting_graph():
             "consensus_points": state.get("consensus_points", []),
             "conflict_points": state.get("conflict_points", []),
         }
+        unresolved = state.get("unresolved_conflicts")
+        if isinstance(unresolved, list):
+            all_context["unresolved_conflicts"] = unresolved
         result = moderator.minutes(runtime_state, all_context=all_context)
         minutes_data = result.state_patch.get("telemetry", {}).get("moderator_minutes", {})
+
+        supplementary_raw = state.get("supplementary")
+        supplementary_base: dict[str, str] = (
+            {k: str(v) for k, v in supplementary_raw.items()}
+            if isinstance(supplementary_raw, dict)
+            else {}
+        )
+
+        if not isinstance(meeting_context, dict):
+            supplementary_base["compatibility_warning"] = (
+                "meeting_context was not provided; attendee list was not validated."
+            )
 
         req_suffix = requirement_id.split("_")[-1]
         minutes = MeetingMinutes(
@@ -599,11 +667,7 @@ def build_meeting_graph():
             consensus_points=[str(c) for c in state.get("consensus_points", [])],
             conflict_points=[str(c) for c in state.get("conflict_points", [])],
             supplementary={
-                **(
-                    {k: str(v) for k, v in sup.items()}
-                    if isinstance(state.get("supplementary"), dict)
-                    else {}
-                ),
+                **supplementary_base,
                 "moderator_summary": str(minutes_data.get("summary", "")),
             },
             decisions=[str(d) for d in minutes_data.get("decisions", [])],
@@ -626,16 +690,23 @@ def build_meeting_graph():
             return [Send("moderator_summarize", dict(state))]
         return [Send("agent_opinion", {**state, "_target_role": role}) for role in attendees]
 
+    def needs_discussion(state: _MeetingState) -> str:
+        if state.get("conflict_resolution_needed"):
+            return "moderator_discussion"
+        return "moderator_minutes"
+
     graph = StateGraph(_MeetingState)
     graph.add_node("moderator_prepare", moderator_prepare_node)
     graph.add_node("agent_opinion", agent_opinion_node)
     graph.add_node("moderator_summarize", moderator_summarize_node)
+    graph.add_node("moderator_discussion", moderator_discussion_node)
     graph.add_node("moderator_minutes", moderator_minutes_node)
 
     graph.add_edge(START, "moderator_prepare")
     graph.add_conditional_edges("moderator_prepare", route_to_agents, ["agent_opinion", "moderator_summarize"])
     graph.add_edge("agent_opinion", "moderator_summarize")
-    graph.add_edge("moderator_summarize", "moderator_minutes")
+    graph.add_conditional_edges("moderator_summarize", needs_discussion, ["moderator_discussion", "moderator_minutes"])
+    graph.add_edge("moderator_discussion", "moderator_minutes")
     graph.add_edge("moderator_minutes", END)
 
     return graph.compile()

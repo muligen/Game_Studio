@@ -135,6 +135,26 @@ def test_parse_role_payload_returns_worker_payload() -> None:
     )
 
 
+def test_parse_role_payload_returns_moderator_discussion_payload() -> None:
+    payload = parse_role_payload(
+        "moderator_discussion",
+        {
+            "supplementary": {
+                "Scope vs schedule": "Ship the smaller milestone first and defer stretch goals."
+            },
+            "unresolved_conflicts": ["Final platform target is still undecided."],
+        },
+    )
+
+    assert isinstance(payload, claude_roles_module.ModeratorDiscussionPayload)
+    assert payload == claude_roles_module.ModeratorDiscussionPayload(
+        supplementary={
+            "Scope vs schedule": "Ship the smaller milestone first and defer stretch goals."
+        },
+        unresolved_conflicts=["Final platform target is still undecided."],
+    )
+
+
 def test_parse_role_payload_rejects_invalid_reviewer_output() -> None:
     with pytest.raises(ClaudeRoleError, match="invalid_claude_output"):
         parse_role_payload("reviewer", {"decision": "ship-it"})
@@ -158,12 +178,13 @@ def test_extract_result_payload_parses_embedded_json_object() -> None:
     assert payload == {"decision": "continue", "reason": "looks good", "risks": []}
 
 
-def test_supported_role_registry_includes_qa_with_other_active_roles() -> None:
+def test_supported_role_registry_includes_moderator_discussion() -> None:
     assert claude_roles_module._ACTIVE_ROLE_NAMES == {
         "agent_opinion",
         "art",
         "dev",
         "design",
+        "moderator_discussion",
         "moderator_minutes",
         "moderator_prepare",
         "moderator_summary",
@@ -177,6 +198,7 @@ def test_supported_role_registry_includes_qa_with_other_active_roles() -> None:
         "art",
         "dev",
         "design",
+        "moderator_discussion",
         "moderator_minutes",
         "moderator_prepare",
         "moderator_summary",
