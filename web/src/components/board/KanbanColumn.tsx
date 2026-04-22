@@ -11,9 +11,10 @@ interface KanbanColumnProps {
   }>
   onCardClick: (id: string) => void
   workspace: string
+  onClarify?: (id: string, title: string) => void
 }
 
-export function KanbanColumn({ title, requirements, onCardClick, workspace }: KanbanColumnProps) {
+export function KanbanColumn({ title, requirements, onCardClick, workspace, onClarify }: KanbanColumnProps) {
   return (
     <div className="flex-shrink-0 w-80">
       <div className="bg-gray-50 rounded-lg p-4">
@@ -29,6 +30,7 @@ export function KanbanColumn({ title, requirements, onCardClick, workspace }: Ka
               design_doc_id={req.design_doc_id}
               workspace={workspace}
               onClick={() => onCardClick(req.id)}
+              onClarify={onClarify ? () => onClarify(req.id, req.title) : undefined}
             />
           ))}
           {requirements.length === 0 && (

@@ -161,6 +161,14 @@ class ModeratorMinutesPayload(BaseModel):
     pending_user_decisions: list[str]
 
 
+class RequirementClarifierPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reply: str
+    meeting_context: dict[str, object]
+    readiness: dict[str, object]
+
+
 _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "agent_opinion": AgentOpinionPayload,
     "art": ArtPayload,
@@ -172,6 +180,7 @@ _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "moderator_minutes": ModeratorMinutesPayload,
     "qa": QaPayload,
     "quality": QualityPayload,
+    "requirement_clarifier": RequirementClarifierPayload,
     "reviewer": ReviewerPayload,
     "worker": WorkerPayload,
 }
@@ -208,6 +217,15 @@ _ROLE_PROMPTS: dict[str, str] = {
         "Analyze the agenda and user intent from your professional perspective.\n"
         "Return only JSON with summary, proposals (concrete suggestions), "
         "risks (potential issues), and open_questions (items needing clarification).\n"
+    ),
+    "requirement_clarifier": (
+        "You are a requirement clarification agent for game development.\n"
+        "Analyze the user's description and conversation history.\n"
+        "Return only JSON with:\n"
+        "- reply: one concise follow-up question or confirmation\n"
+        "- meeting_context: object with summary, goals, constraints, open_questions, "
+        "acceptance_criteria, risks, references, validated_attendees (subset of: design, art, dev, qa)\n"
+        "- readiness: object with ready (bool), missing_fields (list), notes (list)\n"
     ),
 }
 
@@ -326,6 +344,37 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
         "required": ["summary", "passed", "suggested_bug"],
         "additionalProperties": False,
     },
+    "requirement_clarifier": {
+        "type": "object",
+        "properties": {
+            "reply": {"type": "string"},
+            "meeting_context": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "goals": {"type": "array", "items": {"type": "string"}},
+                    "constraints": {"type": "array", "items": {"type": "string"}},
+                    "open_questions": {"type": "array", "items": {"type": "string"}},
+                    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+                    "risks": {"type": "array", "items": {"type": "string"}},
+                    "references": {"type": "array", "items": {"type": "string"}},
+                    "validated_attendees": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["summary"],
+            },
+            "readiness": {
+                "type": "object",
+                "properties": {
+                    "ready": {"type": "boolean"},
+                    "missing_fields": {"type": "array", "items": {"type": "string"}},
+                    "notes": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["ready", "missing_fields"],
+            },
+        },
+        "required": ["reply", "meeting_context", "readiness"],
+        "additionalProperties": False,
+    },
     "quality": {
         "type": "object",
         "properties": {
@@ -367,6 +416,7 @@ def parse_role_payload(
     | ModeratorSummaryPayload
     | ModeratorDiscussionPayload
     | ModeratorMinutesPayload
+    | RequirementClarifierPayload
 ):
     model = _ROLE_PAYLOAD_MODELS.get(role_name)
     if model is None:
@@ -390,6 +440,7 @@ def parse_role_payload(
             ModeratorSummaryPayload,
             ModeratorDiscussionPayload,
             ModeratorMinutesPayload,
+            RequirementClarifierPayload,
         ),
     ):
         return parsed
@@ -478,6 +529,7 @@ class ClaudeRoleAdapter:
         | ModeratorSummaryPayload
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
+        | RequirementClarifierPayload
     ):
         _require_active_role(role_name)
         prompt = self._prompt(role_name, context)
@@ -559,6 +611,7 @@ class ClaudeRoleAdapter:
         | ModeratorSummaryPayload
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
+        | RequirementClarifierPayload
     ):
         options = ClaudeAgentOptions(
             cwd=self._claude_project_root(),
@@ -669,6 +722,7 @@ class ClaudeRoleAdapter:
         | ModeratorSummaryPayload
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
+        | RequirementClarifierPayload
     ):
         _require_active_role(role_name)
         script_path = Path(__file__).resolve()
