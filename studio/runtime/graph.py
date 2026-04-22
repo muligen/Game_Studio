@@ -469,11 +469,11 @@ def build_meeting_graph():
             return None
         ws_root = state.get("workspace_root")
         if not ws_root:
-            return None
+            raise ValueError("workspace_root is required")
         reg = SessionRegistry(Path(str(ws_root)))
         rec = reg.find(str(pid), agent_role)
         if rec is None:
-            return None
+            raise FileNotFoundError(f"project agent session not found: {pid}/{agent_role}")
         reg.touch(str(pid), agent_role)
         return rec.session_id
 

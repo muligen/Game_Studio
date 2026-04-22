@@ -639,20 +639,23 @@ class ClaudeRoleAdapter:
     ):
         _require_active_role(role_name)
         script_path = Path(__file__).resolve()
+        cmd = [
+            sys.executable,
+            str(script_path),
+            "--project-root",
+            str(self.project_root),
+            "--claude-project-root",
+            str(self._claude_project_root()),
+            "--system-prompt",
+            self._require_profile().system_prompt,
+            "--role-name",
+            role_name,
+        ]
+        if self.session_id is not None:
+            cmd.extend(["--session-id", self.session_id])
         try:
             proc = subprocess.run(
-                [
-                    sys.executable,
-                    str(script_path),
-                    "--project-root",
-                    str(self.project_root),
-                    "--claude-project-root",
-                    str(self._claude_project_root()),
-                    "--system-prompt",
-                    self._require_profile().system_prompt,
-                    "--role-name",
-                    role_name,
-                ],
+                cmd,
                 cwd=self._claude_project_root(),
                 input=json.dumps(context, ensure_ascii=False),
                 capture_output=True,
@@ -680,21 +683,24 @@ class ClaudeRoleAdapter:
 
     def _chat_via_subprocess(self, prompt: str) -> str:
         script_path = Path(__file__).resolve()
+        cmd = [
+            sys.executable,
+            str(script_path),
+            "--project-root",
+            str(self.project_root),
+            "--claude-project-root",
+            str(self._claude_project_root()),
+            "--system-prompt",
+            self._require_profile().system_prompt,
+            "--role-name",
+            "reviewer",
+            "--chat",
+        ]
+        if self.session_id is not None:
+            cmd.extend(["--session-id", self.session_id])
         try:
             proc = subprocess.run(
-                [
-                    sys.executable,
-                    str(script_path),
-                    "--project-root",
-                    str(self.project_root),
-                    "--claude-project-root",
-                    str(self._claude_project_root()),
-                    "--system-prompt",
-                    self._require_profile().system_prompt,
-                    "--role-name",
-                    "reviewer",
-                    "--chat",
-                ],
+                cmd,
                 cwd=self._claude_project_root(),
                 input=prompt,
                 capture_output=True,
@@ -799,6 +805,7 @@ def _main() -> int:
     parser.add_argument("--system-prompt")
     parser.add_argument("--claude-project-root")
     parser.add_argument("--chat", action="store_true")
+    parser.add_argument("--session-id")
     try:
         args = parser.parse_args()
         _require_active_role(args.role_name)
@@ -808,7 +815,11 @@ def _main() -> int:
             claude_project_root=args.claude_project_root,
         )
 
-        adapter = ClaudeRoleAdapter(project_root=Path(args.project_root), profile=profile)
+        adapter = ClaudeRoleAdapter(
+            project_root=Path(args.project_root),
+            profile=profile,
+            session_id=getattr(args, "session_id", None),
+        )
         config = adapter.load_config()
         if not config.enabled:
             raise ClaudeRoleError("claude_disabled")

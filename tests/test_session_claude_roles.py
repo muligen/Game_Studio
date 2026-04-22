@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -25,6 +26,64 @@ def test_adapter_stores_session_id():
 def test_adapter_defaults_session_id_to_none():
     adapter = ClaudeRoleAdapter()
     assert adapter.session_id is None
+
+
+def test_subprocess_payload_path_passes_session_id(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout='{"agenda":["test"],"attendees":["dev"],"focus_questions":[]}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(cr_module.subprocess, "run", fake_run)
+
+    adapter = ClaudeRoleAdapter(
+        session_id="sess-123",
+        project_root=tmp_path,
+        profile=_fake_profile(tmp_path),
+    )
+
+    adapter._generate_payload_via_subprocess(
+        "moderator_prepare",
+        {"goal": {"prompt": "test"}},
+        adapter.debug_prompt("moderator_prepare", {"goal": {"prompt": "test"}}),
+    )
+
+    cmd = captured["cmd"]
+    assert "--session-id" in cmd
+    assert cmd[cmd.index("--session-id") + 1] == "sess-123"
+
+
+def test_chat_subprocess_path_passes_session_id(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout="chat reply",
+            stderr="",
+        )
+
+    monkeypatch.setattr(cr_module.subprocess, "run", fake_run)
+
+    adapter = ClaudeRoleAdapter(
+        session_id="sess-123",
+        project_root=tmp_path,
+        profile=_fake_profile(tmp_path),
+    )
+
+    assert adapter._chat_via_subprocess("hello") == "chat reply"
+
+    cmd = captured["cmd"]
+    assert "--session-id" in cmd
+    assert cmd[cmd.index("--session-id") + 1] == "sess-123"
 
 
 @pytest.mark.anyio

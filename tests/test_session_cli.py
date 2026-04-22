@@ -164,9 +164,11 @@ def test_project_kickoff_creates_sessions_and_runs_meeting(monkeypatch, tmp_path
             "title": "Kickoff",
         },
     }
+    captured_state: dict[str, object] = {}
 
     class FakeGraph:
         def invoke(self, state):
+            captured_state.update(state)
             return {**state, **meeting_result}
 
     monkeypatch.setattr("studio.interfaces.cli.build_meeting_graph", lambda: FakeGraph())
@@ -185,6 +187,7 @@ def test_project_kickoff_creates_sessions_and_runs_meeting(monkeypatch, tmp_path
     reg = SessionRegistry(workspace)
     for agent in ["moderator", "design", "dev", "qa", "quality", "art", "reviewer"]:
         assert reg.find(parts[0], agent) is not None, f"missing {agent}"
+    assert Path(str(captured_state["project_root"])).resolve() == Path(__file__).resolve().parents[1]
 
 
 def test_project_kickoff_fails_without_workspace() -> None:

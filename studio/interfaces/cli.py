@@ -175,7 +175,7 @@ def project_kickoff(
     managed_agents = ["moderator", "design", "dev", "qa", "quality", "art", "reviewer"]
     registry = SessionRegistry(ws_root)
     registry.create_all(project_id, requirement_id, managed_agents)
-    project_root = str(workspace.parent.parent) if ws_root.name == ".studio-data" else str(workspace)
+    project_root = str(Path(__file__).resolve().parents[2])
     graph = build_meeting_graph()
     graph.invoke({
         "workspace_root": str(ws_root),

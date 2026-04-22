@@ -82,7 +82,7 @@ def test_meeting_graph_with_project_id_looks_up_sessions(tmp_path: Path):
     assert len(non_none) > 0
 
 
-def test_meeting_graph_with_project_id_missing_session_still_completes(tmp_path: Path):
+def test_meeting_graph_with_project_id_missing_session_fails(tmp_path: Path):
     workspace, workspace_root = _setup_workspace(tmp_path)
 
     # Only create moderator session, not agent sessions
@@ -90,12 +90,11 @@ def test_meeting_graph_with_project_id_missing_session_still_completes(tmp_path:
     registry.create("proj_1", "req_001", "moderator", "mod-session-123")
 
     graph = build_meeting_graph()
-    result = graph.invoke({
-        "workspace_root": workspace_root,
-        "project_root": str(_REPO_ROOT),
-        "requirement_id": "req_001",
-        "user_intent": "Design a puzzle game",
-        "project_id": "proj_1",
-    })
-
-    assert result["node_name"] == "moderator_minutes"
+    with pytest.raises(FileNotFoundError, match="project agent session not found"):
+        graph.invoke({
+            "workspace_root": workspace_root,
+            "project_root": str(_REPO_ROOT),
+            "requirement_id": "req_001",
+            "user_intent": "Design a puzzle game",
+            "project_id": "proj_1",
+        })
