@@ -11,6 +11,7 @@ interface RequirementCardProps {
   design_doc_id?: string | null
   workspace: string
   onClick: () => void
+  onClarify?: () => void
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -29,7 +30,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   high: 'bg-red-200',
 }
 
-export function RequirementCard({ id, title, status, priority, design_doc_id, workspace, onClick }: RequirementCardProps) {
+export function RequirementCard({ id, title, status, priority, design_doc_id, workspace, onClick, onClarify }: RequirementCardProps) {
   const statusValue = status || 'draft'
   const priorityValue = priority || 'medium'
 
@@ -64,6 +65,14 @@ export function RequirementCard({ id, title, status, priority, design_doc_id, wo
         >
           View Design
         </a>
+      )}
+      {['draft', 'designing'].includes(statusValue) && onClarify && (
+        <button
+          className="text-xs text-blue-600 hover:underline mt-1 block"
+          onClick={(e) => { e.stopPropagation(); onClarify() }}
+        >
+          Clarify
+        </button>
       )}
     </Card>
   )
