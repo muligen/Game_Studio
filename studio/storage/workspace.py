@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from studio.schemas.action_log import ActionLog
+from studio.schemas.clarification import RequirementClarificationSession
 from studio.schemas.balance_table import BalanceTable
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
@@ -48,6 +49,7 @@ class StudioWorkspace:
         self.logs = LogRepository(root / "logs", ActionLog)
         self.meetings = JsonRepository(root / "meetings", MeetingMinutes)
         self.sessions = JsonRepository(root / "project_agent_sessions", ProjectAgentSession)
+        self.clarifications = JsonRepository(root / "requirement_clarifications", RequirementClarificationSession)
 
     def ensure_layout(self) -> None:
         for repo_root in (
@@ -58,5 +60,6 @@ class StudioWorkspace:
             self.logs.root,
             self.meetings.root,
             self.sessions.root,
+            self.clarifications.root,
         ):
             repo_root.mkdir(parents=True, exist_ok=True)
