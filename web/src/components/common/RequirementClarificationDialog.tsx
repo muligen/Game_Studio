@@ -110,6 +110,13 @@ export function RequirementClarificationDialog({
               {sendMutation.isPending && (
                 <div className="bg-gray-50 mr-8 p-2 rounded text-sm text-muted-foreground">Thinking...</div>
               )}
+              {sendMutation.isError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 mr-8 p-2 rounded text-sm">
+                  {sendMutation.error instanceof Error
+                    ? sendMutation.error.message
+                    : 'Clarification agent failed.'}
+                </div>
+              )}
               <div ref={messagesEndRef} />
             </div>
 

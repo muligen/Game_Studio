@@ -23,6 +23,7 @@ router = APIRouter(prefix="/clarifications", tags=["clarifications"])
 
 _SUPPORTED_ATTENDEES = {"design", "art", "dev", "qa"}
 _MANAGED_AGENTS = ["moderator", "design", "dev", "qa", "quality", "art", "reviewer"]
+_CLARIFICATION_TIMEOUT_SECONDS = 45
 
 
 class SendMessageRequest(BaseModel):
@@ -99,7 +100,7 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
 
     try:
         profile = AgentProfileLoader().load("requirement_clarifier")
-        adapter = ClaudeRoleAdapter(profile=profile)
+        adapter = ClaudeRoleAdapter(profile=profile, timeout_seconds=_CLARIFICATION_TIMEOUT_SECONDS)
         history = [{"role": m.role, "content": m.content} for m in session.messages]
         payload = adapter.generate("requirement_clarifier", {
             "requirement_id": req_id,

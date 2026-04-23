@@ -71,6 +71,7 @@ def test_send_message_appends_to_session(client, workspace):
             json={"message": "I want a combat system.", "session_id": session_id},
         )
 
+    assert MockAdapter.call_args.kwargs["timeout_seconds"] == 45
     assert response.status_code == 200
     data = response.json()
     assert data["assistant_message"] == "Should combat be real-time or turn-based?"
@@ -89,6 +90,29 @@ def test_send_message_rejects_empty_message(client, workspace):
         json={"message": "", "session_id": session_id},
     )
     assert response.status_code == 422
+
+
+def test_send_message_persists_user_message_when_agent_fails(client, workspace):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+
+    with patch("studio.api.routes.clarifications.ClaudeRoleAdapter") as MockAdapter:
+        mock_instance = MagicMock()
+        mock_instance.generate.side_effect = RuntimeError("agent timed out")
+        MockAdapter.return_value = mock_instance
+
+        response = client.post(
+            f"/api/clarifications/requirements/req_001/messages?workspace={workspace}",
+            json={"message": "I want a combat system.", "session_id": session_id},
+        )
+
+    assert response.status_code == 502
+    store = StudioWorkspace(Path(workspace) / ".studio-data")
+    session = store.clarifications.get(session_id)
+    assert session.status == "failed"
+    assert len(session.messages) == 1
+    assert session.messages[0].role == "user"
+    assert session.messages[0].content == "I want a combat system."
 
 
 def test_kickoff_rejects_unready_session(client, workspace):

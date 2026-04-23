@@ -491,11 +491,13 @@ class ClaudeRoleAdapter:
         profile: ClaudeAdapterProfile | None = None,
         session_id: str | None = None,
         resume_session: bool = False,
+        timeout_seconds: int = 300,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
         self.profile = profile
         self.session_id = session_id
         self.resume_session = resume_session
+        self.timeout_seconds = timeout_seconds
         self._env_path = self.project_root / ".env"
         self._last_debug_record: dict[str, object] | None = None
 
@@ -627,9 +629,10 @@ class ClaudeRoleAdapter:
 
         result: ResultMessage | None = None
         try:
-            async for message in query(prompt=prompt, options=options):
-                if isinstance(message, ResultMessage):
-                    result = message
+            async with asyncio.timeout(self.timeout_seconds):
+                async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, ResultMessage):
+                        result = message
         except Exception as exc:  # pragma: no cover - exercised via fallback tests
             raise ClaudeRoleError(str(exc) or exc.__class__.__name__) from exc
 
@@ -673,9 +676,10 @@ class ClaudeRoleAdapter:
 
         result: ResultMessage | None = None
         try:
-            async for message in query(prompt=prompt, options=options):
-                if isinstance(message, ResultMessage):
-                    result = message
+            async with asyncio.timeout(self.timeout_seconds):
+                async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, ResultMessage):
+                        result = message
         except Exception as exc:  # pragma: no cover - exercised via adapter error tests
             raise ClaudeRoleError(str(exc) or exc.__class__.__name__) from exc
 
@@ -751,7 +755,7 @@ class ClaudeRoleAdapter:
                 text=True,
                 encoding="utf-8",
                 env=self._subprocess_env(),
-                timeout=300,
+                timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc
@@ -798,7 +802,7 @@ class ClaudeRoleAdapter:
                 text=True,
                 encoding="utf-8",
                 env=self._subprocess_env(),
-                timeout=300,
+                timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc
