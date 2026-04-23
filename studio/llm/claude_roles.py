@@ -161,6 +161,39 @@ class ModeratorMinutesPayload(BaseModel):
     pending_user_decisions: list[str]
 
 
+class DeliveryPlannerTaskItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    description: str
+    owner_agent: str
+    depends_on: list[str]
+    acceptance_criteria: list[str]
+    source_evidence: list[str]
+
+
+class DeliveryPlannerGateItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str
+    context: str
+    options: list[str]
+    source_evidence: list[str]
+
+
+class DeliveryPlannerGate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[DeliveryPlannerGateItem]
+
+
+class DeliveryPlannerPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tasks: list[DeliveryPlannerTaskItem]
+    decision_gate: DeliveryPlannerGate
+
+
 _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "agent_opinion": AgentOpinionPayload,
     "art": ArtPayload,
@@ -169,6 +202,7 @@ _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "moderator_discussion": ModeratorDiscussionPayload,
     "moderator_prepare": ModeratorPreparePayload,
     "moderator_summary": ModeratorSummaryPayload,
+    "delivery_planner": DeliveryPlannerPayload,
     "moderator_minutes": ModeratorMinutesPayload,
     "qa": QaPayload,
     "quality": QualityPayload,
@@ -208,6 +242,16 @@ _ROLE_PROMPTS: dict[str, str] = {
         "Analyze the agenda and user intent from your professional perspective.\n"
         "Return only JSON with summary, proposals (concrete suggestions), "
         "risks (potential issues), and open_questions (items needing clarification).\n"
+    ),
+    "delivery_planner": (
+        "You are the delivery planner.\n"
+        "Given meeting minutes, requirement context, and optional kickoff gate resolutions, "
+        "produce a delivery plan with tasks and a decision gate.\n"
+        "Return only JSON with:\n"
+        "- tasks: list of {title, description, owner_agent (one of: design, dev, qa, art, reviewer, quality), "
+        "depends_on (list of other task titles), acceptance_criteria, source_evidence}\n"
+        "- decision_gate: {items: [{question, context, options, source_evidence}]} "
+        "for unresolved conflicts requiring user direction. Empty items if no conflicts.\n"
     ),
 }
 
@@ -306,6 +350,57 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
         "required": ["title", "summary", "decisions", "action_items", "pending_user_decisions"],
         "additionalProperties": False,
     },
+    "delivery_planner": {
+        "type": "object",
+        "properties": {
+            "tasks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "description": {"type": "string"},
+                        "owner_agent": {"type": "string"},
+                        "depends_on": {"type": "array", "items": {"type": "string"}},
+                        "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+                        "source_evidence": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": [
+                        "title",
+                        "description",
+                        "owner_agent",
+                        "depends_on",
+                        "acceptance_criteria",
+                        "source_evidence",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+            "decision_gate": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "question": {"type": "string"},
+                                "context": {"type": "string"},
+                                "options": {"type": "array", "items": {"type": "string"}},
+                                "source_evidence": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["question", "context", "options", "source_evidence"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+                "required": ["items"],
+                "additionalProperties": False,
+            },
+        },
+        "required": ["tasks", "decision_gate"],
+        "additionalProperties": False,
+    },
     "reviewer": {
         "type": "object",
         "properties": {
@@ -367,6 +462,7 @@ def parse_role_payload(
     | ModeratorSummaryPayload
     | ModeratorDiscussionPayload
     | ModeratorMinutesPayload
+    | DeliveryPlannerPayload
 ):
     model = _ROLE_PAYLOAD_MODELS.get(role_name)
     if model is None:
@@ -390,6 +486,7 @@ def parse_role_payload(
             ModeratorSummaryPayload,
             ModeratorDiscussionPayload,
             ModeratorMinutesPayload,
+            DeliveryPlannerPayload,
         ),
     ):
         return parsed
@@ -478,6 +575,7 @@ class ClaudeRoleAdapter:
         | ModeratorSummaryPayload
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
+        | DeliveryPlannerPayload
     ):
         _require_active_role(role_name)
         prompt = self._prompt(role_name, context)
@@ -559,6 +657,7 @@ class ClaudeRoleAdapter:
         | ModeratorSummaryPayload
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
+        | DeliveryPlannerPayload
     ):
         options = ClaudeAgentOptions(
             cwd=self._claude_project_root(),
@@ -669,6 +768,7 @@ class ClaudeRoleAdapter:
         | ModeratorSummaryPayload
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
+        | DeliveryPlannerPayload
     ):
         _require_active_role(role_name)
         script_path = Path(__file__).resolve()
