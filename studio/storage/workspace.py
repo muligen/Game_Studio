@@ -8,6 +8,13 @@ from studio.schemas.action_log import ActionLog
 from studio.schemas.balance_table import BalanceTable
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
+from studio.schemas.delivery import (
+    AgentSessionLease,
+    DeliveryPlan,
+    DeliveryTask,
+    KickoffDecisionGate,
+    TaskExecutionResult,
+)
 from studio.schemas.meeting import MeetingMinutes
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.session import ProjectAgentSession
@@ -48,6 +55,11 @@ class StudioWorkspace:
         self.logs = LogRepository(root / "logs", ActionLog)
         self.meetings = JsonRepository(root / "meetings", MeetingMinutes)
         self.sessions = JsonRepository(root / "project_agent_sessions", ProjectAgentSession)
+        self.delivery_plans = JsonRepository(root / "delivery_plans", DeliveryPlan)
+        self.delivery_tasks = JsonRepository(root / "delivery_tasks", DeliveryTask)
+        self.decision_gates = JsonRepository(root / "kickoff_decision_gates", KickoffDecisionGate)
+        self.execution_results = JsonRepository(root / "task_execution_results", TaskExecutionResult)
+        self.session_leases = JsonRepository(root / "agent_session_leases", AgentSessionLease)
 
     def ensure_layout(self) -> None:
         for repo_root in (
@@ -58,5 +70,10 @@ class StudioWorkspace:
             self.logs.root,
             self.meetings.root,
             self.sessions.root,
+            self.delivery_plans.root,
+            self.delivery_tasks.root,
+            self.decision_gates.root,
+            self.execution_results.root,
+            self.session_leases.root,
         ):
             repo_root.mkdir(parents=True, exist_ok=True)
