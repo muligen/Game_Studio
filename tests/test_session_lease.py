@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -90,3 +93,35 @@ class TestFind:
         assert lease is not None
         assert lease.id == "proj_1_coder"
         assert lease.status == "held"
+
+
+class TestExpiredLease:
+    def test_expired_lease_auto_releases_on_is_available(self, manager: SessionLeaseManager) -> None:
+        from studio.schemas.delivery import AgentSessionLease
+        expired_lease = AgentSessionLease(
+            project_id="proj_1",
+            agent="coder",
+            task_id="task_1",
+            session_id="sess_abc",
+            expires_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+        )
+        manager._repo.save(expired_lease)
+        assert manager.is_available("proj_1", "coder") is True
+        # Verify it was actually released
+        lease = manager.find("proj_1", "coder")
+        assert lease is not None
+        assert lease.status == "released"
+
+    def test_expired_lease_auto_releases_on_acquire(self, manager: SessionLeaseManager) -> None:
+        from studio.schemas.delivery import AgentSessionLease
+        expired_lease = AgentSessionLease(
+            project_id="proj_1",
+            agent="coder",
+            task_id="task_old",
+            session_id="sess_old",
+            expires_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+        )
+        manager._repo.save(expired_lease)
+        # Should succeed — expired lease is auto-released
+        new_lease = manager.acquire("proj_1", "coder", "task_new", "sess_new")
+        assert new_lease.task_id == "task_new"

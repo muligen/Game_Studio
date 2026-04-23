@@ -267,3 +267,46 @@ class TestStartTask:
         task = start_resp.json()
         assert task["status"] == "in_progress"
         assert task["id"] == task_id
+
+
+class TestCompleteTask:
+    @staticmethod
+    def test_200_completes_task(client: TestClient, workspace: Path) -> None:
+        _seed_meeting(workspace, "meet_001")
+        gen_resp = client.post(
+            f"/api/meetings/meet_001/delivery-plan",
+            params={"workspace": str(workspace)},
+            json={
+                "project_id": "proj_001",
+                "planner_output": {
+                    "tasks": [
+                        {
+                            "title": "Task A",
+                            "description": "a",
+                            "owner_agent": "dev",
+                            "depends_on": [],
+                        },
+                    ],
+                    "decision_gate": {"items": []},
+                },
+            },
+        )
+        task_id = gen_resp.json()["tasks"][0]["id"]
+        _seed_session(workspace, project_id="proj_001", agent="dev")
+
+        client.post(
+            f"/api/delivery-tasks/{task_id}/start",
+            params={"workspace": str(workspace)},
+            json={"session_id": "sess_001"},
+        )
+
+        resp = client.post(
+            f"/api/delivery-tasks/{task_id}/complete",
+            params={"workspace": str(workspace)},
+            json={"summary": "Task completed", "changed_files": ["main.py"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["task"]["status"] == "done"
+        assert data["execution_result"]["summary"] == "Task completed"
+        assert data["execution_result"]["changed_files"] == ["main.py"]

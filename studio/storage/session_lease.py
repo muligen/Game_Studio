@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from studio.schemas.delivery import AgentSessionLease
@@ -13,7 +14,10 @@ class SessionLeaseManager:
     def acquire(self, project_id: str, agent: str, task_id: str, session_id: str) -> AgentSessionLease:
         existing = self.find(project_id, agent)
         if existing is not None and existing.status == "held":
-            raise ValueError(f"session lease already held by task {existing.task_id}")
+            if self._is_expired(existing):
+                self._repo.save(existing.model_copy(update={"status": "released"}))
+            else:
+                raise ValueError(f"session lease already held by task {existing.task_id}")
         lease = AgentSessionLease(
             project_id=project_id,
             agent=agent,
@@ -40,4 +44,19 @@ class SessionLeaseManager:
 
     def is_available(self, project_id: str, agent: str) -> bool:
         lease = self.find(project_id, agent)
-        return lease is None or lease.status != "held"
+        if lease is None:
+            return True
+        if lease.status != "held":
+            return True
+        if self._is_expired(lease):
+            self._repo.save(lease.model_copy(update={"status": "released"}))
+            return True
+        return False
+
+    @staticmethod
+    def _is_expired(lease: AgentSessionLease) -> bool:
+        try:
+            expires = datetime.fromisoformat(lease.expires_at)
+            return datetime.now(UTC) > expires
+        except (ValueError, TypeError):
+            return False

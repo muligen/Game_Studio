@@ -531,3 +531,191 @@ class TestListBoard:
         assert board["plans"] == []
         assert board["tasks"] == []
         assert board["decision_gates"] == []
+
+
+# ===========================================================================
+# resolve_gate — preview task promotion
+# ===========================================================================
+
+
+class TestResolveGatePreviewPromotion:
+    @staticmethod
+    def test_preview_tasks_promoted_to_ready(svc: DeliveryPlanService, tmp_path: Path) -> None:
+        """Preview tasks should be promoted to ready after gate resolution."""
+        _completed_meeting(tmp_path)
+        gate_items = [
+            {"id": "q1", "question": "Framework?", "context": "c", "options": ["React", "Vue"]},
+        ]
+        gen = svc.generate_plan(
+            "meet_001",
+            _planner_output(gate_items=gate_items),
+            "proj_001",
+        )
+        gate_id = gen["decision_gate"].id
+        task_ids = [t.id for t in gen["tasks"]]
+
+        # Manually set tasks to preview status
+        from studio.storage.workspace import StudioWorkspace
+        ws = StudioWorkspace(tmp_path)
+        for tid in task_ids:
+            t = ws.delivery_tasks.get(tid)
+            ws.delivery_tasks.save(t.model_copy(update={"status": "preview"}))
+
+        svc.resolve_gate(gate_id, {"q1": "React"})
+
+        # Verify tasks are now ready with the correct version stamp
+        for tid in task_ids:
+            t = ws.delivery_tasks.get(tid)
+            assert t.status == "ready", f"task {tid} should be ready, got {t.status}"
+            assert t.decision_resolution_version == 1
+
+
+# ===========================================================================
+# start_task — decision_resolution_version check
+# ===========================================================================
+
+
+class TestStartTaskVersionCheck:
+    @staticmethod
+    def test_rejects_stale_resolution_version(svc: DeliveryPlanService, tmp_path: Path) -> None:
+        """Tasks with stale decision_resolution_version should not start."""
+        _completed_meeting(tmp_path)
+        gate_items = [
+            {"id": "q1", "question": "Framework?", "context": "c", "options": ["React", "Vue"]},
+        ]
+        gen = svc.generate_plan(
+            "meet_001",
+            _planner_output(gate_items=gate_items),
+            "proj_001",
+        )
+        gate_id = gen["decision_gate"].id
+        task = gen["tasks"][0]
+
+        # Resolve gate (stamps version=1 on plan)
+        svc.resolve_gate(gate_id, {"q1": "React"})
+
+        # Manually set task to version=0 (stale)
+        from studio.storage.workspace import StudioWorkspace
+        ws = StudioWorkspace(tmp_path)
+        t = ws.delivery_tasks.get(task.id)
+        ws.delivery_tasks.save(t.model_copy(update={"decision_resolution_version": 0}))
+
+        _create_session(tmp_path, project_id="proj_001", agent="design")
+        with pytest.raises(ValueError, match="decision_resolution_version"):
+            svc.start_task(task.id, "sess_run_001")
+
+
+# ===========================================================================
+# complete_task
+# ===========================================================================
+
+
+class TestCompleteTask:
+    @staticmethod
+    def test_completes_task_and_persists_result(
+        svc: DeliveryPlanService, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        gen = svc.generate_plan("meet_001", _planner_output(), "proj_001")
+        design_task = gen["tasks"][0]
+        _create_session(tmp_path, project_id="proj_001", agent="design")
+        svc.start_task(design_task.id, "sess_run_001")
+
+        result = svc.complete_task(
+            design_task.id,
+            summary="Architecture designed",
+            changed_files=["docs/arch.md"],
+            tests_or_checks=["lint docs/"],
+        )
+        assert result["task"].status == "done"
+        assert result["task"].execution_result_id is not None
+        assert result["execution_result"].summary == "Architecture designed"
+        assert result["execution_result"].changed_files == ["docs/arch.md"]
+
+    @staticmethod
+    def test_releases_lease_on_complete(
+        svc: DeliveryPlanService, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        gen = svc.generate_plan("meet_001", _planner_output(), "proj_001")
+        design_task = gen["tasks"][0]
+        _create_session(tmp_path, project_id="proj_001", agent="design")
+        svc.start_task(design_task.id, "sess_run_001")
+
+        svc.complete_task(design_task.id, summary="Done")
+
+        # Lease should be released, so another task can start
+        from studio.storage.session_lease import SessionLeaseManager
+        lease_mgr = SessionLeaseManager(tmp_path)
+        assert lease_mgr.is_available("proj_001", "design") is True
+
+    @staticmethod
+    def test_marks_plan_completed_when_all_done(
+        svc: DeliveryPlanService, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        gen = svc.generate_plan("meet_001", _planner_output(tasks=[
+            {"title": "Task A", "description": "a", "owner_agent": "dev", "depends_on": [], "acceptance_criteria": []},
+        ]), "proj_001")
+        task = gen["tasks"][0]
+        _create_session(tmp_path, project_id="proj_001", agent="dev")
+        svc.start_task(task.id, "sess_run_001")
+
+        result = svc.complete_task(task.id, summary="Done")
+        assert result["task"].status == "done"
+
+        from studio.storage.workspace import StudioWorkspace
+        ws = StudioWorkspace(tmp_path)
+        plan = ws.delivery_plans.get(gen["plan"].id)
+        assert plan.status == "completed"
+
+    @staticmethod
+    def test_rejects_not_in_progress(
+        svc: DeliveryPlanService, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        gen = svc.generate_plan("meet_001", _planner_output(), "proj_001")
+        task = gen["tasks"][0]
+        with pytest.raises(ValueError, match="not in_progress"):
+            svc.complete_task(task.id, summary="Nope")
+
+
+# ===========================================================================
+# get_dependency_outputs
+# ===========================================================================
+
+
+class TestGetDependencyOutputs:
+    @staticmethod
+    def test_returns_upstream_execution_results(
+        svc: DeliveryPlanService, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        gen = svc.generate_plan("meet_001", _planner_output(), "proj_001")
+        design_task = gen["tasks"][0]
+        dev_task = gen["tasks"][1]
+
+        # Start and complete the design task
+        _create_session(tmp_path, project_id="proj_001", agent="design")
+        svc.start_task(design_task.id, "sess_run_001")
+        svc.complete_task(
+            design_task.id,
+            summary="Architecture done",
+            output_artifact_ids=["artifact_arch"],
+            changed_files=["docs/arch.md"],
+        )
+
+        # Get dependency outputs for the dev task
+        outputs = svc.get_dependency_outputs(dev_task.id)
+        assert len(outputs) == 1
+        assert outputs[0]["task_id"] == design_task.id
+        assert outputs[0]["summary"] == "Architecture done"
+        assert outputs[0]["output_artifact_ids"] == ["artifact_arch"]
+
+    @staticmethod
+    def test_returns_empty_for_no_deps(svc: DeliveryPlanService, tmp_path: Path) -> None:
+        _completed_meeting(tmp_path)
+        gen = svc.generate_plan("meet_001", _planner_output(), "proj_001")
+        design_task = gen["tasks"][0]  # no deps
+        outputs = svc.get_dependency_outputs(design_task.id)
+        assert outputs == []

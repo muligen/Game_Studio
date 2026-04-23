@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -8,6 +9,7 @@ from studio.schemas.delivery import (
     DeliveryTask,
     GateItem,
     KickoffDecisionGate,
+    TaskExecutionResult,
 )
 from studio.storage.session_lease import SessionLeaseManager
 from studio.storage.workspace import StudioWorkspace
@@ -225,6 +227,18 @@ class DeliveryPlanService:
         )
         self._ws.delivery_plans.save(plan)
 
+        # Promote preview tasks to ready and stamp decision_resolution_version
+        for task_id in plan.task_ids:
+            task = self._ws.delivery_tasks.get(task_id)
+            if task.status == "preview":
+                updated_task = task.model_copy(
+                    update={
+                        "status": "ready",
+                        "decision_resolution_version": gate.resolution_version,
+                    }
+                )
+                self._ws.delivery_tasks.save(updated_task)
+
         return {"gate": gate, "plan": plan}
 
     def start_task(self, task_id: str, session_id: str) -> DeliveryTask:
@@ -273,6 +287,17 @@ class DeliveryPlanService:
                 f"no session found for {composite_key}"
             ) from exc
 
+        # Validate decision_resolution_version matches the plan
+        if (
+            plan.decision_resolution_version is not None
+            and task.decision_resolution_version is not None
+            and task.decision_resolution_version != plan.decision_resolution_version
+        ):
+            raise ValueError(
+                f"task {task_id} decision_resolution_version ({task.decision_resolution_version}) "
+                f"does not match plan ({plan.decision_resolution_version})"
+            )
+
         # Validate lease is available
         if not self._lease_mgr.is_available(task.project_id, task.owner_agent):
             raise ValueError(
@@ -292,6 +317,124 @@ class DeliveryPlanService:
         self._ws.delivery_tasks.save(task)
 
         return task
+
+    def complete_task(
+        self,
+        task_id: str,
+        summary: str,
+        *,
+        output_artifact_ids: list[str] | None = None,
+        changed_files: list[str] | None = None,
+        tests_or_checks: list[str] | None = None,
+        follow_up_notes: list[str] | None = None,
+    ) -> dict:
+        """Mark a task as done, persist execution result, and release the session lease.
+
+        Parameters
+        ----------
+        task_id : str
+            ID of the task to complete.
+        summary : str
+            Summary of what was accomplished.
+        output_artifact_ids : list[str] | None
+            IDs of artifacts produced.
+        changed_files : list[str] | None
+            Files modified during execution.
+        tests_or_checks : list[str] | None
+            Commands or checks run.
+        follow_up_notes : list[str] | None
+            Any follow-up notes.
+
+        Returns
+        -------
+        dict
+            ``{"task": DeliveryTask, "execution_result": TaskExecutionResult}``
+        """
+        task = self._ws.delivery_tasks.get(task_id)
+        if task.status != "in_progress":
+            raise ValueError(f"task {task_id} is not in_progress (status={task.status})")
+
+        plan = self._ws.delivery_plans.get(task.plan_id)
+
+        # Persist execution result
+        result_id = f"result_{task_id}"
+        # Look up session_id from lease
+        lease = self._lease_mgr.find(task.project_id, task.owner_agent)
+        session_id = lease.session_id if lease else ""
+        exec_result = TaskExecutionResult(
+            id=result_id,
+            task_id=task_id,
+            plan_id=task.plan_id,
+            project_id=task.project_id,
+            agent=task.owner_agent,
+            session_id=session_id,
+            summary=summary,
+            output_artifact_ids=output_artifact_ids or [],
+            changed_files=changed_files or [],
+            tests_or_checks=tests_or_checks or [],
+            follow_up_notes=follow_up_notes or [],
+        )
+        self._ws.execution_results.save(exec_result)
+
+        # Update task to done
+        now = datetime.now(UTC).isoformat()
+        task = task.model_copy(
+            update={
+                "status": "done",
+                "execution_result_id": result_id,
+                "updated_at": now,
+            }
+        )
+        self._ws.delivery_tasks.save(task)
+
+        # Release the session lease
+        try:
+            self._lease_mgr.release(task.project_id, task.owner_agent)
+        except FileNotFoundError:
+            pass  # Lease may have already been released or expired
+
+        # Check if all plan tasks are done
+        all_done = all(
+            self._ws.delivery_tasks.get(tid).status == "done"
+            for tid in plan.task_ids
+        )
+        if all_done:
+            plan = plan.model_copy(update={"status": "completed", "updated_at": now})
+            self._ws.delivery_plans.save(plan)
+
+        return {"task": task, "execution_result": exec_result}
+
+    def get_dependency_outputs(self, task_id: str) -> list[dict]:
+        """Get execution results for all completed dependencies of a task.
+
+        Parameters
+        ----------
+        task_id : str
+            ID of the task whose dependency outputs to fetch.
+
+        Returns
+        -------
+        list[dict]
+            List of execution result dicts from completed dependencies.
+        """
+        task = self._ws.delivery_tasks.get(task_id)
+        results = []
+        for dep_id in task.depends_on_task_ids:
+            dep_task = self._ws.delivery_tasks.get(dep_id)
+            if dep_task.execution_result_id:
+                try:
+                    exec_result = self._ws.execution_results.get(dep_task.execution_result_id)
+                    results.append({
+                        "task_id": dep_id,
+                        "summary": exec_result.summary,
+                        "output_artifact_ids": exec_result.output_artifact_ids,
+                        "changed_files": exec_result.changed_files,
+                        "tests_or_checks": exec_result.tests_or_checks,
+                        "follow_up_notes": exec_result.follow_up_notes,
+                    })
+                except FileNotFoundError:
+                    pass
+        return results
 
     def list_board(self, requirement_id: str | None = None) -> dict:
         """List all plans, tasks, and decision gates, optionally filtered by requirement.

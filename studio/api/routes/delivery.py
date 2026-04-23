@@ -30,6 +30,16 @@ class StartTaskRequest(BaseModel):
     session_id: str
 
 
+class CompleteTaskRequest(BaseModel):
+    """Request body for completing a delivery task."""
+
+    summary: str
+    output_artifact_ids: list[str] = []
+    changed_files: list[str] = []
+    tests_or_checks: list[str] = []
+    follow_up_notes: list[str] = []
+
+
 def _get_service(workspace: str) -> DeliveryPlanService:
     """Create a DeliveryPlanService for the given workspace path."""
     return DeliveryPlanService(Path(workspace) / ".studio-data")
@@ -61,9 +71,9 @@ async def generate_delivery_plan(
         action="created",
     )
     return {
-        "plan": result["plan"],
-        "tasks": result["tasks"],
-        "decision_gate": result["decision_gate"],
+        "plan": result["plan"].model_dump(),
+        "tasks": [t.model_dump() for t in result["tasks"]],
+        "decision_gate": result["decision_gate"].model_dump() if result["decision_gate"] else None,
     }
 
 
@@ -74,7 +84,12 @@ async def list_delivery_board(
 ) -> dict:
     """List all delivery board items (plans, tasks, decision gates)."""
     service = _get_service(workspace)
-    return service.list_board(requirement_id=requirement_id)
+    result = service.list_board(requirement_id=requirement_id)
+    return {
+        "plans": [p.model_dump() for p in result["plans"]],
+        "tasks": [t.model_dump() for t in result["tasks"]],
+        "decision_gates": [g.model_dump() for g in result["decision_gates"]],
+    }
 
 
 @router.post("/kickoff-decision-gates/{gate_id}/resolve")
@@ -101,7 +116,7 @@ async def resolve_decision_gate(
         entity_id=result["gate"].id,
         action="updated",
     )
-    return {"gate": result["gate"], "plan": result["plan"]}
+    return {"gate": result["gate"].model_dump(), "plan": result["plan"].model_dump()}
 
 
 @router.post("/delivery-tasks/{task_id}/start")
@@ -129,3 +144,37 @@ async def start_delivery_task(
         action="updated",
     )
     return task.model_dump()
+
+
+@router.post("/delivery-tasks/{task_id}/complete")
+async def complete_delivery_task(
+    task_id: str,
+    workspace: str,
+    request: CompleteTaskRequest,
+) -> dict:
+    """Complete a delivery task, persisting execution results and releasing the lease."""
+    service = _get_service(workspace)
+    try:
+        result = service.complete_task(
+            task_id=task_id,
+            summary=request.summary,
+            output_artifact_ids=request.output_artifact_ids,
+            changed_files=request.changed_files,
+            tests_or_checks=request.tests_or_checks,
+            follow_up_notes=request.follow_up_notes,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="delivery_task",
+        entity_id=task_id,
+        action="updated",
+    )
+    return {
+        "task": result["task"].model_dump(),
+        "execution_result": result["execution_result"].model_dump(),
+    }

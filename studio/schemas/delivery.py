@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -117,7 +117,7 @@ class AgentSessionLease(BaseModel):
     session_id: StrippedNonEmptyStr
     status: Literal["held", "released"] = "held"
     expires_at: str = Field(
-        default_factory=lambda: datetime.now(UTC).isoformat(),
+        default_factory=lambda: (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
     )
     created_at: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),
