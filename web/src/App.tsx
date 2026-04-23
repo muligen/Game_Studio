@@ -16,7 +16,7 @@ function App() {
         <div className="bg-white border-b">
           <div className="container mx-auto px-4 py-4">
             <nav className="flex gap-6">
-              <Link to="/requirements" className="hover:underline">Requirements</Link>
+              <Link to="/requirements" className="hover:underline">Workbench</Link>
               <Link to="/bugs" className="hover:underline">Bugs</Link>
               <Link to="/delivery" className="hover:underline">Delivery</Link>
               <Link to="/logs" className="hover:underline">Logs</Link>
