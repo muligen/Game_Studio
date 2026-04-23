@@ -81,6 +81,47 @@ def test_send_message_appends_to_session(client, workspace):
     assert session["messages"][1]["role"] == "assistant"
 
 
+def test_send_message_runs_agent_in_threadpool(client, workspace, monkeypatch):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+    calls: list[object] = []
+
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        calls.append(func)
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "studio.api.routes.clarifications.run_in_threadpool",
+        fake_run_in_threadpool,
+    )
+
+    with patch("studio.api.routes.clarifications.ClaudeRoleAdapter") as MockAdapter:
+        mock_instance = MagicMock()
+        mock_instance.generate.return_value = type("Payload", (), {
+            "reply": "Which platform should the snake game target?",
+            "meeting_context": {
+                "summary": "Snake game",
+                "goals": [],
+                "constraints": [],
+                "open_questions": ["Target platform?"],
+                "acceptance_criteria": [],
+                "risks": [],
+                "references": [],
+                "validated_attendees": ["design"],
+            },
+        })()
+        MockAdapter.return_value = mock_instance
+
+        response = client.post(
+            f"/api/clarifications/requirements/req_001/messages?workspace={workspace}",
+            json={"message": "I want a snake game.", "session_id": session_id},
+    )
+
+    assert response.status_code == 200
+    assert len(calls) == 1
+    mock_instance.generate.assert_called_once()
+
+
 def test_send_message_rejects_empty_message(client, workspace):
     start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     session_id = start.json()["session"]["id"]

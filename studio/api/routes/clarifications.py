@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from studio.agents.profile_loader import AgentProfileLoader
 from studio.llm import ClaudeRoleAdapter
@@ -97,16 +98,22 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
 
     user_msg = ClarificationMessage(role="user", content=request.message.strip())
     session.messages.append(user_msg)
+    session = session.model_copy(update={"updated_at": datetime.now(UTC).isoformat()})
+    store.clarifications.save(session)
 
     try:
         profile = AgentProfileLoader().load("requirement_clarifier")
         adapter = ClaudeRoleAdapter(profile=profile, timeout_seconds=_CLARIFICATION_TIMEOUT_SECONDS)
         history = [{"role": m.role, "content": m.content} for m in session.messages]
-        payload = adapter.generate("requirement_clarifier", {
-            "requirement_id": req_id,
-            "conversation": history,
-            "current_context": session.meeting_context.model_dump() if session.meeting_context else {},
-        })
+        payload = await run_in_threadpool(
+            adapter.generate,
+            "requirement_clarifier",
+            {
+                "requirement_id": req_id,
+                "conversation": history,
+                "current_context": session.meeting_context.model_dump() if session.meeting_context else {},
+            },
+        )
     except Exception as exc:
         session = session.model_copy(update={"status": "failed", "updated_at": datetime.now(UTC).isoformat()})
         store.clarifications.save(session)
