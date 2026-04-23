@@ -103,14 +103,12 @@ export function RequirementsBoard() {
         </div>
       </div>
 
-      {showCreate && (
-        <CreateRequirementDialog
-          workspace={workspace}
-          baselineStatus={workbench.baselineStatus}
-          open={showCreate}
-          onOpenChange={(open) => { if (!open) setShowCreate(false) }}
-        />
-      )}
+      <CreateRequirementDialog
+        workspace={workspace}
+        baselineStatus={workbench.baselineStatus}
+        open={showCreate}
+        onOpenChange={(open) => { if (!open) setShowCreate(false) }}
+      />
 
       {clarifyReq && (
         <RequirementClarificationDialog
