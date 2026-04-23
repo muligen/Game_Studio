@@ -1,37 +1,37 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
-import { KanbanBoard } from '@/components/board/KanbanBoard'
+import { ProductWorkbenchHeader } from '@/components/board/ProductWorkbenchHeader'
+import { ProductLifecycleBoard } from '@/components/board/ProductLifecycleBoard'
 import { CreateRequirementDialog } from '@/components/common/CreateRequirementDialog'
 import { RequirementClarificationDialog } from '@/components/common/RequirementClarificationDialog'
 import { PoolStatusBar } from '@/components/common/PoolStatusBar'
 import { requirementsApi } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
 import { useWebSocket } from '@/hooks/useWebSocket'
+import { deriveProductWorkbenchState } from '@/lib/product-workbench'
 
 export function RequirementsBoard() {
   const { workspace } = useWorkspace()
   const queryClient = useQueryClient()
   const { connected, subscribe } = useWebSocket()
   const [clarifyReq, setClarifyReq] = useState<{ id: string; title: string } | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
 
   const { data: requirements, isLoading, error } = useQuery({
     queryKey: ['requirements', workspace],
     queryFn: () => requirementsApi.list(workspace),
   })
 
-  // Subscribe to workspace updates when WebSocket connects
   useEffect(() => {
     if (connected) {
       subscribe(workspace)
     }
   }, [connected, workspace, subscribe])
 
-  // Listen for WebSocket messages and refresh requirements on entity changes
   useEffect(() => {
     const handleMessage = (e: Event) => {
       const message = (e as CustomEvent).detail
       if (message.type === 'entity_changed' && message.entity_type === 'requirement') {
-        // Invalidate and refetch requirements
         queryClient.invalidateQueries({ queryKey: ['requirements'] })
       }
     }
@@ -44,15 +44,14 @@ export function RequirementsBoard() {
 
   const handleCardClick = (id: string) => {
     console.log('Clicked requirement:', id)
-    alert(`Requirement detail view for "${id}" is coming soon!\n\nThis will navigate to the requirement detail page in the next iteration.`)
-    // TODO: Navigate to requirement detail page
   }
 
+  const workbench = deriveProductWorkbenchState(requirements || [])
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600">Loading requirements...</p>
+        <p className="text-gray-600">Loading product workbench...</p>
       </div>
     )
   }
@@ -67,18 +66,35 @@ export function RequirementsBoard() {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900">Requirements Board</h1>
-          <CreateRequirementDialog workspace={workspace} />
-        </div>
+      <div className="container mx-auto px-4 py-8 space-y-6">
+        <h1 className="text-3xl font-bold text-gray-900">Current Product Workbench</h1>
+
+        <ProductWorkbenchHeader
+          baselineStatus={workbench.baselineStatus}
+          onCreateRequirement={() => setShowCreate(true)}
+          onContinueClarifying={() => {
+            if (workbench.mvpRequirement) {
+              setClarifyReq({
+                id: workbench.mvpRequirement.id,
+                title: workbench.mvpRequirement.title,
+              })
+            }
+          }}
+          mvpRequirementId={workbench.mvpRequirement?.id}
+        />
 
         {requirements && requirements.length > 0 ? (
-          <KanbanBoard requirements={requirements} onCardClick={handleCardClick} workspace={workspace} onClarify={(id, title) => setClarifyReq({ id, title })} />
+          <ProductLifecycleBoard
+            requirements={requirements}
+            onCardClick={handleCardClick}
+            workspace={workspace}
+            onClarify={(id, title) => setClarifyReq({ id, title })}
+            requirementKinds={workbench.requirementKinds}
+          />
         ) : (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
-            <p className="text-gray-600 mb-4">No requirements found</p>
-            <CreateRequirementDialog workspace={workspace} />
+            <p className="text-gray-500 mb-2">No requirements yet</p>
+            <p className="text-gray-400 text-sm">Create your first requirement to define the product MVP.</p>
           </div>
         )}
 
@@ -87,11 +103,21 @@ export function RequirementsBoard() {
         </div>
       </div>
 
+      {showCreate && (
+        <CreateRequirementDialog
+          workspace={workspace}
+          baselineStatus={workbench.baselineStatus}
+          open={showCreate}
+          onOpenChange={(open) => { if (!open) setShowCreate(false) }}
+        />
+      )}
+
       {clarifyReq && (
         <RequirementClarificationDialog
           workspace={workspace}
           requirementId={clarifyReq.id}
           requirementTitle={clarifyReq.title}
+          requirementKind={workbench.requirementKinds.get(clarifyReq.id) || 'product_mvp'}
           open={!!clarifyReq}
           onOpenChange={(open) => { if (!open) setClarifyReq(null) }}
         />
