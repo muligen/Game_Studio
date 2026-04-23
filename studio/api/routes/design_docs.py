@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
 
+from studio.api.workspace_paths import resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.domain.approvals import approve_design_doc, send_back_design_doc
 from studio.schemas.balance_table import BalanceTable
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/design-docs", tags=["design-docs"])
 
 def _get_workspace(workspace: str) -> StudioWorkspace:
     """Get workspace instance, ensuring it exists."""
-    workspace_path = Path(workspace) / ".studio-data"
+    workspace_path = resolve_workspace_root(workspace)
     return StudioWorkspace(workspace_path)
 
 

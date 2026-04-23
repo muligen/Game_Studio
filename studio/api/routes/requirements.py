@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from studio.api.workspace_paths import resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.schemas.artifact import StrippedNonEmptyStr
 from studio.schemas.requirement import RequirementCard, RequirementPriority, RequirementStatus
@@ -28,7 +29,7 @@ class TransitionRequirementRequest(BaseModel):
 
 def _get_workspace(workspace: str) -> StudioWorkspace:
     """Get workspace instance, ensuring it exists."""
-    workspace_path = Path(workspace) / ".studio-data"
+    workspace_path = resolve_workspace_root(workspace)
     return StudioWorkspace(workspace_path)
 
 

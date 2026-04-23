@@ -146,6 +146,68 @@ export interface paths {
      */
     post: operations["run_qa_workflow_api_workflows_run_qa_post"];
   };
+  "/api/pool/status": {
+    /**
+     * Get Pool Status
+     * @description Return current agent thread pool status.
+     */
+    get: operations["get_pool_status_api_pool_status_get"];
+  };
+  "/api/meetings": {
+    /** List Meetings */
+    get: operations["list_meetings_api_meetings_get"];
+  };
+  "/api/meetings/{meeting_id}": {
+    /** Get Meeting */
+    get: operations["get_meeting_api_meetings__meeting_id__get"];
+  };
+  "/api/meetings/{meeting_id}/delivery-plan": {
+    /**
+     * Generate Delivery Plan
+     * @description Generate a delivery plan from a completed meeting.
+     */
+    post: operations["generate_delivery_plan_api_meetings__meeting_id__delivery_plan_post"];
+  };
+  "/api/delivery-board": {
+    /**
+     * List Delivery Board
+     * @description List all delivery board items (plans, tasks, decision gates).
+     */
+    get: operations["list_delivery_board_api_delivery_board_get"];
+  };
+  "/api/kickoff-decision-gates/{gate_id}/resolve": {
+    /**
+     * Resolve Decision Gate
+     * @description Resolve a kickoff decision gate.
+     */
+    post: operations["resolve_decision_gate_api_kickoff_decision_gates__gate_id__resolve_post"];
+  };
+  "/api/delivery-tasks/{task_id}/start": {
+    /**
+     * Start Delivery Task
+     * @description Start a delivery task.
+     */
+    post: operations["start_delivery_task_api_delivery_tasks__task_id__start_post"];
+  };
+  "/api/delivery-tasks/{task_id}/complete": {
+    /**
+     * Complete Delivery Task
+     * @description Complete a delivery task, persisting execution results and releasing the lease.
+     */
+    post: operations["complete_delivery_task_api_delivery_tasks__task_id__complete_post"];
+  };
+  "/api/clarifications/requirements/{req_id}/session": {
+    /** Start Or Get Session */
+    post: operations["start_or_get_session_api_clarifications_requirements__req_id__session_post"];
+  };
+  "/api/clarifications/requirements/{req_id}/messages": {
+    /** Send Message */
+    post: operations["send_message_api_clarifications_requirements__req_id__messages_post"];
+  };
+  "/api/clarifications/requirements/{req_id}/kickoff": {
+    /** Start Kickoff */
+    post: operations["start_kickoff_api_clarifications_requirements__req_id__kickoff_post"];
+  };
 }
 
 export type webhooks = Record<string, never>;
@@ -175,6 +237,19 @@ export interface components {
       metadata?: {
         [key: string]: components["schemas"]["JsonValue"];
       };
+    };
+    /** AgentOpinion */
+    AgentOpinion: {
+      /** Agent Role */
+      agent_role: string;
+      /** Summary */
+      summary: string;
+      /** Proposals */
+      proposals?: string[];
+      /** Risks */
+      risks?: string[];
+      /** Open Questions */
+      open_questions?: string[];
     };
     /** BalanceTable */
     BalanceTable: {
@@ -266,6 +341,34 @@ export interface components {
       notes?: string[];
     };
     /**
+     * CompleteTaskRequest
+     * @description Request body for completing a delivery task.
+     */
+    CompleteTaskRequest: {
+      /** Summary */
+      summary: string;
+      /**
+       * Output Artifact Ids
+       * @default []
+       */
+      output_artifact_ids?: string[];
+      /**
+       * Changed Files
+       * @default []
+       */
+      changed_files?: string[];
+      /**
+       * Tests Or Checks
+       * @default []
+       */
+      tests_or_checks?: string[];
+      /**
+       * Follow Up Notes
+       * @default []
+       */
+      follow_up_notes?: string[];
+    };
+    /**
      * CreateBugRequest
      * @description Request model for creating a bug.
      */
@@ -324,12 +427,60 @@ export interface components {
       /** Sent Back Reason */
       sent_back_reason?: string | null;
     };
+    /**
+     * GeneratePlanRequest
+     * @description Request body for generating a delivery plan.
+     */
+    GeneratePlanRequest: {
+      /** Project Id */
+      project_id: string;
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
       detail?: components["schemas"]["ValidationError"][];
     };
     JsonValue: unknown;
+    /** KickoffRequest */
+    KickoffRequest: {
+      /** Session Id */
+      session_id: string;
+    };
+    /** MeetingMinutes */
+    MeetingMinutes: {
+      /** Id */
+      id: string;
+      /** Requirement Id */
+      requirement_id: string;
+      /** Title */
+      title: string;
+      /** Agenda */
+      agenda?: string[];
+      /** Attendees */
+      attendees?: string[];
+      /** Opinions */
+      opinions?: components["schemas"]["AgentOpinion"][];
+      /** Consensus Points */
+      consensus_points?: string[];
+      /** Conflict Points */
+      conflict_points?: string[];
+      /** Supplementary */
+      supplementary?: {
+        [key: string]: string;
+      };
+      /** Decisions */
+      decisions?: string[];
+      /** Action Items */
+      action_items?: string[];
+      /** Pending User Decisions */
+      pending_user_decisions?: string[];
+      /**
+       * Status
+       * @default draft
+       * @enum {string}
+       */
+      status?: "draft" | "completed";
+    };
     /** RequirementCard */
     RequirementCard: {
       /** Id */
@@ -368,6 +519,28 @@ export interface components {
       /** Notes */
       notes?: string[];
     };
+    /**
+     * ResolveGateRequest
+     * @description Request body for resolving a decision gate.
+     */
+    ResolveGateRequest: {
+      /** Resolutions */
+      resolutions: {
+        [key: string]: string;
+      };
+    };
+    /** SendMessageRequest */
+    SendMessageRequest: {
+      /** Message */
+      message: string;
+      /** Session Id */
+      session_id: string;
+    };
+    /**
+     * StartTaskRequest
+     * @description Request body for starting a delivery task.
+     */
+    StartTaskRequest: Record<string, never>;
     /**
      * TransitionBugRequest
      * @description Request model for transitioning a bug status.
@@ -1027,6 +1200,322 @@ export interface operations {
           "application/json": {
             [key: string]: unknown;
           };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Pool Status
+   * @description Return current agent thread pool status.
+   */
+  get_pool_status_api_pool_status_get: {
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  /** List Meetings */
+  list_meetings_api_meetings_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MeetingMinutes"][];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Get Meeting */
+  get_meeting_api_meetings__meeting_id__get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        meeting_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MeetingMinutes"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Generate Delivery Plan
+   * @description Generate a delivery plan from a completed meeting.
+   */
+  generate_delivery_plan_api_meetings__meeting_id__delivery_plan_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        meeting_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GeneratePlanRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * List Delivery Board
+   * @description List all delivery board items (plans, tasks, decision gates).
+   */
+  list_delivery_board_api_delivery_board_get: {
+    parameters: {
+      query: {
+        workspace: string;
+        requirement_id?: string | null;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Resolve Decision Gate
+   * @description Resolve a kickoff decision gate.
+   */
+  resolve_decision_gate_api_kickoff_decision_gates__gate_id__resolve_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        gate_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ResolveGateRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Start Delivery Task
+   * @description Start a delivery task.
+   */
+  start_delivery_task_api_delivery_tasks__task_id__start_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        task_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["StartTaskRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Complete Delivery Task
+   * @description Complete a delivery task, persisting execution results and releasing the lease.
+   */
+  complete_delivery_task_api_delivery_tasks__task_id__complete_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        task_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CompleteTaskRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Start Or Get Session */
+  start_or_get_session_api_clarifications_requirements__req_id__session_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        req_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Send Message */
+  send_message_api_clarifications_requirements__req_id__messages_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        req_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SendMessageRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Start Kickoff */
+  start_kickoff_api_clarifications_requirements__req_id__kickoff_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        req_id: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["KickoffRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": unknown;
         };
       };
       /** @description Validation Error */

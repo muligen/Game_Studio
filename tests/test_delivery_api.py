@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from studio.api.main import create_app
+from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.schemas.meeting import MeetingMinutes
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.session import ProjectAgentSession
@@ -98,7 +99,11 @@ def planner(monkeypatch: pytest.MonkeyPatch) -> FakePlanner:
     planner = FakePlanner()
 
     def _get_service(workspace: str) -> DeliveryPlanService:
-        return DeliveryPlanService(Path(workspace) / ".studio-data", planner=planner)
+        return DeliveryPlanService(
+            resolve_workspace_root(workspace),
+            planner=planner,
+            project_root=resolve_project_root(workspace),
+        )
 
     monkeypatch.setattr("studio.api.routes.delivery._get_service", _get_service)
     return planner
@@ -148,6 +153,23 @@ class TestGenerateDeliveryPlan:
         )
 
         assert resp.status_code == 422
+
+    @staticmethod
+    def test_200_generates_plan_when_workspace_is_studio_data_dir(
+        client: TestClient, workspace: Path, planner: FakePlanner,
+    ) -> None:
+        _seed_meeting(workspace, "meet_002")
+
+        resp = client.post(
+            "/api/meetings/meet_002/delivery-plan",
+            params={"workspace": str(workspace / ".studio-data")},
+            json={"project_id": "proj_001"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["plan"]["meeting_id"] == "meet_002"
+        assert len(data["tasks"]) == 2
 
 
 class TestListDeliveryBoard:
