@@ -263,6 +263,66 @@ export const poolApi = {
     apiRequest('/pool/status', 'get') as Promise<PoolStatus>,
 } as const
 
+// Delivery types
+export interface DeliveryPlan {
+  id: string
+  meeting_id: string
+  requirement_id: string
+  project_id: string
+  status: 'awaiting_user_decision' | 'active' | 'completed' | 'cancelled'
+  task_ids: string[]
+  decision_gate_id: string | null
+  decision_resolution_version: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DeliveryTask {
+  id: string
+  plan_id: string
+  meeting_id: string
+  requirement_id: string
+  project_id: string
+  title: string
+  description: string
+  owner_agent: string
+  status: 'preview' | 'blocked' | 'ready' | 'in_progress' | 'review' | 'done' | 'cancelled'
+  depends_on_task_ids: string[]
+  execution_result_id: string | null
+  output_artifact_ids: string[]
+  acceptance_criteria: string[]
+  meeting_snapshot: {
+    meeting_title: string
+    relevant_decisions: string[]
+    relevant_consensus: string[]
+    task_acceptance_notes: string[]
+  } | null
+  decision_resolution_version: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GateItem {
+  id: string
+  question: string
+  context: string
+  options: string[]
+  resolution: string | null
+}
+
+export interface KickoffDecisionGate {
+  id: string
+  plan_id: string
+  meeting_id: string
+  requirement_id: string
+  project_id: string
+  status: 'open' | 'resolved' | 'cancelled'
+  resolution_version: number
+  items: GateItem[]
+  created_at: string
+  updated_at: string
+}
+
 // Clarification Types
 export interface ClarificationMessage {
   role: 'user' | 'assistant'
@@ -299,6 +359,12 @@ export interface ClarificationSession {
   updated_at: string
 }
 
+export interface DeliveryBoard {
+  plans: DeliveryPlan[]
+  tasks: DeliveryTask[]
+  decision_gates: KickoffDecisionGate[]
+}
+
 // Clarifications API
 export const clarificationsApi = {
   start: (workspace: string, requirementId: string): Promise<{ session: ClarificationSession }> =>
@@ -328,4 +394,40 @@ export const clarificationsApi = {
       body: JSON.stringify({ session_id: sessionId }),
       headers: { 'Content-Type': 'application/json' },
     }) as Promise<{ project_id: string; requirement_id: string; meeting_id: string; status: string }>,
+}
+
+export const deliveryApi = {
+  generatePlan: (
+    workspace: string,
+    meetingId: string,
+    projectId: string,
+  ): Promise<{ plan: DeliveryPlan; tasks: DeliveryTask[]; decision_gate: KickoffDecisionGate | null }> =>
+    apiRequest(`/meetings/${meetingId}/delivery-plan`, 'post', {
+      params: { workspace },
+      body: { project_id: projectId },
+    }) as Promise<{ plan: DeliveryPlan; tasks: DeliveryTask[]; decision_gate: KickoffDecisionGate | null }>,
+
+  listBoard: (workspace: string, requirementId?: string): Promise<DeliveryBoard> =>
+    apiRequest('/delivery-board', 'get', {
+      params: { workspace, ...(requirementId ? { requirement_id: requirementId } : {}) },
+    }) as Promise<DeliveryBoard>,
+
+  resolveGate: (
+    workspace: string,
+    gateId: string,
+    resolutions: Record<string, string>,
+  ): Promise<{ gate: KickoffDecisionGate; plan: DeliveryPlan }> =>
+    apiRequest(`/kickoff-decision-gates/${gateId}/resolve`, 'post', {
+      params: { workspace },
+      body: { resolutions },
+    }) as Promise<{ gate: KickoffDecisionGate; plan: DeliveryPlan }>,
+
+  startTask: (
+    workspace: string,
+    taskId: string,
+  ): Promise<DeliveryTask> =>
+    apiRequest(`/delivery-tasks/${taskId}/start`, 'post', {
+      params: { workspace },
+      body: {},
+    }) as Promise<DeliveryTask>,
 } as const
