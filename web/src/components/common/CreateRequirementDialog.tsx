@@ -11,18 +11,50 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { requirementsApi } from '@/lib/api'
+import type { BaselineStatus } from '@/lib/product-workbench'
 
 interface CreateRequirementDialogProps {
   workspace: string
+  baselineStatus: BaselineStatus
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 const PRIORITIES = ['low', 'medium', 'high'] as const
 
-export function CreateRequirementDialog({ workspace }: CreateRequirementDialogProps) {
-  const [open, setOpen] = useState(false)
+const MODE_CONFIG: Record<BaselineStatus, {
+  buttonLabel: string
+  dialogTitle: string
+  placeholder: string
+}> = {
+  not_started: {
+    buttonLabel: 'Create MVP Requirement',
+    dialogTitle: 'Create MVP Requirement',
+    placeholder: 'Describe the product you want to build.',
+  },
+  defining_mvp: {
+    buttonLabel: 'Create MVP Requirement',
+    dialogTitle: 'Create MVP Requirement',
+    placeholder: 'Describe the product you want to build.',
+  },
+  active: {
+    buttonLabel: 'Add Change Request',
+    dialogTitle: 'Add Change Request',
+    placeholder: 'Describe what you want to add or change.',
+  },
+}
+
+export function CreateRequirementDialog({ workspace, baselineStatus, open: externalOpen, onOpenChange: externalOnOpenChange }: CreateRequirementDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = externalOpen !== undefined ? externalOpen : internalOpen
+  const setOpen = (val: boolean) => {
+    setInternalOpen(val)
+    externalOnOpenChange?.(val)
+  }
   const [title, setTitle] = useState('')
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
   const queryClient = useQueryClient()
+  const config = MODE_CONFIG[baselineStatus]
 
   const createMutation = useMutation({
     mutationFn: () => requirementsApi.create(workspace, title, priority),
@@ -42,12 +74,14 @@ export function CreateRequirementDialog({ workspace }: CreateRequirementDialogPr
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button>Create Requirement</Button>
-      </DialogTrigger>
+      {externalOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button>{config.buttonLabel}</Button>
+        </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Create Requirement</DialogTitle>
+          <DialogTitle>{config.dialogTitle}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -55,7 +89,7 @@ export function CreateRequirementDialog({ workspace }: CreateRequirementDialogPr
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter requirement title"
+              placeholder={config.placeholder}
               required
             />
           </div>
