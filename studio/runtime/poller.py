@@ -60,7 +60,7 @@ class WorkflowPoller:
         design_eligible = []
         delivery_eligible = []
         for req in workspace.requirements.list_all():
-            if req.status in ("draft", "designing"):
+            if req.status == "designing":
                 design_eligible.append(req)
             elif req.status == "approved":
                 delivery_eligible.append(req)

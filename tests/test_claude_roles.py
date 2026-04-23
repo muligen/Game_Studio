@@ -191,6 +191,7 @@ def test_supported_role_registry_includes_moderator_discussion() -> None:
         "moderator_summary",
         "qa",
         "quality",
+        "requirement_clarifier",
         "reviewer",
         "worker",
     }
@@ -206,9 +207,16 @@ def test_supported_role_registry_includes_moderator_discussion() -> None:
         "moderator_summary",
         "qa",
         "quality",
+        "requirement_clarifier",
         "reviewer",
         "worker",
     }
+
+
+def test_supported_role_registry_includes_requirement_clarifier() -> None:
+    assert "requirement_clarifier" in claude_roles_module._ACTIVE_ROLE_NAMES
+    assert "requirement_clarifier" in claude_roles_module._ROLE_PAYLOAD_MODELS
+    assert "requirement_clarifier" in claude_roles_module._ROLE_OUTPUT_FORMATS
 
 
 def test_prompt_uses_profile_system_prompt_for_qa(tmp_path) -> None:
@@ -502,6 +510,40 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
     assert calls["kwargs"]["cwd"] == claude_root
     assert str(tmp_path) in calls["kwargs"]["env"]["PYTHONPATH"]
     assert calls["kwargs"]["input"] == '{"feature": "photo mode"}'
+
+
+def test_subprocess_fallback_uses_configured_timeout(monkeypatch, tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+        timeout_seconds=12,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["timeout"] = kwargs.get("timeout")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout='{"decision":"continue","reason":"configured timeout","risks":[]}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    adapter._generate_payload_via_subprocess(
+        "reviewer",
+        {"feature": "photo mode"},
+        adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
+    )
+
+    assert captured["timeout"] == 12
 
 
 def test_role_script_runs_from_claude_project_root_without_pythonpath(tmp_path) -> None:

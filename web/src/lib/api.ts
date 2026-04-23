@@ -323,10 +323,77 @@ export interface KickoffDecisionGate {
   updated_at: string
 }
 
+// Clarification Types
+export interface ClarificationMessage {
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
+
+export interface MeetingContextDraft {
+  summary: string
+  goals: string[]
+  constraints: string[]
+  open_questions: string[]
+  acceptance_criteria: string[]
+  risks: string[]
+  references: string[]
+  validated_attendees: string[]
+}
+
+export interface ReadinessCheck {
+  ready: boolean
+  missing_fields: string[]
+  notes: string[]
+}
+
+export interface ClarificationSession {
+  id: string
+  requirement_id: string
+  status: string
+  messages: ClarificationMessage[]
+  meeting_context: MeetingContextDraft | null
+  readiness: ReadinessCheck | null
+  project_id: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface DeliveryBoard {
   plans: DeliveryPlan[]
   tasks: DeliveryTask[]
   decision_gates: KickoffDecisionGate[]
+}
+
+// Clarifications API
+export const clarificationsApi = {
+  start: (workspace: string, requirementId: string): Promise<{ session: ClarificationSession }> =>
+    apiRequest(`/clarifications/requirements/${requirementId}/session`, 'post', {
+      params: { workspace },
+    }) as Promise<{ session: ClarificationSession }>,
+
+  sendMessage: (
+    workspace: string,
+    requirementId: string,
+    sessionId: string,
+    message: string,
+  ): Promise<{ session: ClarificationSession; assistant_message: string }> =>
+    apiRequest(`/clarifications/requirements/${requirementId}/messages`, 'post', {
+      params: { workspace },
+      body: JSON.stringify({ message, session_id: sessionId }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as Promise<{ session: ClarificationSession; assistant_message: string }>,
+
+  kickoff: (
+    workspace: string,
+    requirementId: string,
+    sessionId: string,
+  ): Promise<{ project_id: string; requirement_id: string; meeting_id: string; status: string }> =>
+    apiRequest(`/clarifications/requirements/${requirementId}/kickoff`, 'post', {
+      params: { workspace },
+      body: JSON.stringify({ session_id: sessionId }),
+      headers: { 'Content-Type': 'application/json' },
+    }) as Promise<{ project_id: string; requirement_id: string; meeting_id: string; status: string }>,
 }
 
 export const deliveryApi = {

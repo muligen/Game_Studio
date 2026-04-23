@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { KanbanBoard } from '@/components/board/KanbanBoard'
 import { CreateRequirementDialog } from '@/components/common/CreateRequirementDialog'
+import { RequirementClarificationDialog } from '@/components/common/RequirementClarificationDialog'
 import { PoolStatusBar } from '@/components/common/PoolStatusBar'
 import { requirementsApi } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
@@ -11,6 +12,7 @@ export function RequirementsBoard() {
   const { workspace } = useWorkspace()
   const queryClient = useQueryClient()
   const { connected, subscribe } = useWebSocket()
+  const [clarifyReq, setClarifyReq] = useState<{ id: string; title: string } | null>(null)
 
   const { data: requirements, isLoading, error } = useQuery({
     queryKey: ['requirements', workspace],
@@ -72,7 +74,7 @@ export function RequirementsBoard() {
         </div>
 
         {requirements && requirements.length > 0 ? (
-          <KanbanBoard requirements={requirements} onCardClick={handleCardClick} workspace={workspace} />
+          <KanbanBoard requirements={requirements} onCardClick={handleCardClick} workspace={workspace} onClarify={(id, title) => setClarifyReq({ id, title })} />
         ) : (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
             <p className="text-gray-600 mb-4">No requirements found</p>
@@ -84,6 +86,16 @@ export function RequirementsBoard() {
           <PoolStatusBar />
         </div>
       </div>
+
+      {clarifyReq && (
+        <RequirementClarificationDialog
+          workspace={workspace}
+          requirementId={clarifyReq.id}
+          requirementTitle={clarifyReq.title}
+          open={!!clarifyReq}
+          onOpenChange={(open) => { if (!open) setClarifyReq(null) }}
+        />
+      )}
     </div>
   )
 }

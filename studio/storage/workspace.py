@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from studio.schemas.action_log import ActionLog
+from studio.schemas.clarification import RequirementClarificationSession
 from studio.schemas.balance_table import BalanceTable
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
@@ -60,6 +61,7 @@ class StudioWorkspace:
         self.decision_gates = JsonRepository(root / "kickoff_decision_gates", KickoffDecisionGate)
         self.execution_results = JsonRepository(root / "task_execution_results", TaskExecutionResult)
         self.session_leases = JsonRepository(root / "agent_session_leases", AgentSessionLease)
+        self.clarifications = JsonRepository(root / "requirement_clarifications", RequirementClarificationSession)
 
     def ensure_layout(self) -> None:
         for repo_root in (
@@ -70,6 +72,12 @@ class StudioWorkspace:
             self.logs.root,
             self.meetings.root,
             self.sessions.root,
+            self.delivery_plans.root,
+            self.delivery_tasks.root,
+            self.decision_gates.root,
+            self.execution_results.root,
+            self.session_leases.root,
+            self.clarifications.root,
             self.delivery_plans.root,
             self.delivery_tasks.root,
             self.decision_gates.root,

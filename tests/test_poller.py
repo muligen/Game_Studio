@@ -26,10 +26,10 @@ def poller(tmp_path: Path) -> WorkflowPoller:
     )
 
 
-def test_tick_picks_up_draft_requirement(
+def test_tick_skips_draft_requirement_until_clarification_kickoff(
     tmp_path: Path, workspace: StudioWorkspace, poller: WorkflowPoller
 ):
-    """Poller should find draft requirements and execute them."""
+    """Poller should not auto-start design for draft requirements."""
     req = RequirementCard(id="req_1", title="Test Game")
     workspace.requirements.save(req)
 
@@ -45,8 +45,7 @@ def test_tick_picks_up_draft_requirement(
 
         poller._tick()
 
-    mock_executor.run.assert_called_once()
-    assert mock_executor.run.call_args[1]["workspace_root"] == str(tmp_path / ".studio-data")
+    mock_executor.run.assert_not_called()
 
 
 def test_tick_skips_non_draft_requirements(

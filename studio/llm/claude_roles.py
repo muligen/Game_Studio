@@ -193,6 +193,13 @@ class DeliveryPlannerPayload(BaseModel):
     tasks: list[DeliveryPlannerTaskItem]
     decision_gate: DeliveryPlannerGate
 
+class RequirementClarifierPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reply: str
+    meeting_context: dict[str, object]
+    readiness: dict[str, object]
+
 
 _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "agent_opinion": AgentOpinionPayload,
@@ -206,6 +213,7 @@ _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
     "moderator_minutes": ModeratorMinutesPayload,
     "qa": QaPayload,
     "quality": QualityPayload,
+    "requirement_clarifier": RequirementClarifierPayload,
     "reviewer": ReviewerPayload,
     "worker": WorkerPayload,
 }
@@ -252,6 +260,15 @@ _ROLE_PROMPTS: dict[str, str] = {
         "depends_on (list of other task titles), acceptance_criteria, source_evidence}\n"
         "- decision_gate: {items: [{question, context, options, source_evidence}]} "
         "for unresolved conflicts requiring user direction. Empty items if no conflicts.\n"
+    ),
+    "requirement_clarifier": (
+        "You are a requirement clarification agent for game development.\n"
+        "Analyze the user's description and conversation history.\n"
+        "Return only JSON with:\n"
+        "- reply: one concise follow-up question or confirmation\n"
+        "- meeting_context: object with summary, goals, constraints, open_questions, "
+        "acceptance_criteria, risks, references, validated_attendees (subset of: design, art, dev, qa)\n"
+        "- readiness: object with ready (bool), missing_fields (list), notes (list)\n"
     ),
 }
 
@@ -421,6 +438,37 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
         "required": ["summary", "passed", "suggested_bug"],
         "additionalProperties": False,
     },
+    "requirement_clarifier": {
+        "type": "object",
+        "properties": {
+            "reply": {"type": "string"},
+            "meeting_context": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "goals": {"type": "array", "items": {"type": "string"}},
+                    "constraints": {"type": "array", "items": {"type": "string"}},
+                    "open_questions": {"type": "array", "items": {"type": "string"}},
+                    "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
+                    "risks": {"type": "array", "items": {"type": "string"}},
+                    "references": {"type": "array", "items": {"type": "string"}},
+                    "validated_attendees": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["summary"],
+            },
+            "readiness": {
+                "type": "object",
+                "properties": {
+                    "ready": {"type": "boolean"},
+                    "missing_fields": {"type": "array", "items": {"type": "string"}},
+                    "notes": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["ready", "missing_fields"],
+            },
+        },
+        "required": ["reply", "meeting_context", "readiness"],
+        "additionalProperties": False,
+    },
     "quality": {
         "type": "object",
         "properties": {
@@ -463,6 +511,7 @@ def parse_role_payload(
     | ModeratorDiscussionPayload
     | ModeratorMinutesPayload
     | DeliveryPlannerPayload
+    | RequirementClarifierPayload
 ):
     model = _ROLE_PAYLOAD_MODELS.get(role_name)
     if model is None:
@@ -487,6 +536,7 @@ def parse_role_payload(
             ModeratorDiscussionPayload,
             ModeratorMinutesPayload,
             DeliveryPlannerPayload,
+            RequirementClarifierPayload,
         ),
     ):
         return parsed
@@ -537,11 +587,13 @@ class ClaudeRoleAdapter:
         profile: ClaudeAdapterProfile | None = None,
         session_id: str | None = None,
         resume_session: bool = False,
+        timeout_seconds: int = 300,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
         self.profile = profile
         self.session_id = session_id
         self.resume_session = resume_session
+        self.timeout_seconds = timeout_seconds
         self._env_path = self.project_root / ".env"
         self._last_debug_record: dict[str, object] | None = None
 
@@ -576,6 +628,7 @@ class ClaudeRoleAdapter:
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
         | DeliveryPlannerPayload
+        | RequirementClarifierPayload
     ):
         _require_active_role(role_name)
         prompt = self._prompt(role_name, context)
@@ -658,6 +711,7 @@ class ClaudeRoleAdapter:
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
         | DeliveryPlannerPayload
+        | RequirementClarifierPayload
     ):
         options = ClaudeAgentOptions(
             cwd=self._claude_project_root(),
@@ -673,9 +727,10 @@ class ClaudeRoleAdapter:
 
         result: ResultMessage | None = None
         try:
-            async for message in query(prompt=prompt, options=options):
-                if isinstance(message, ResultMessage):
-                    result = message
+            async with asyncio.timeout(self.timeout_seconds):
+                async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, ResultMessage):
+                        result = message
         except Exception as exc:  # pragma: no cover - exercised via fallback tests
             raise ClaudeRoleError(str(exc) or exc.__class__.__name__) from exc
 
@@ -719,9 +774,10 @@ class ClaudeRoleAdapter:
 
         result: ResultMessage | None = None
         try:
-            async for message in query(prompt=prompt, options=options):
-                if isinstance(message, ResultMessage):
-                    result = message
+            async with asyncio.timeout(self.timeout_seconds):
+                async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, ResultMessage):
+                        result = message
         except Exception as exc:  # pragma: no cover - exercised via adapter error tests
             raise ClaudeRoleError(str(exc) or exc.__class__.__name__) from exc
 
@@ -769,6 +825,7 @@ class ClaudeRoleAdapter:
         | ModeratorDiscussionPayload
         | ModeratorMinutesPayload
         | DeliveryPlannerPayload
+        | RequirementClarifierPayload
     ):
         _require_active_role(role_name)
         script_path = Path(__file__).resolve()
@@ -797,7 +854,7 @@ class ClaudeRoleAdapter:
                 text=True,
                 encoding="utf-8",
                 env=self._subprocess_env(),
-                timeout=300,
+                timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc
@@ -844,7 +901,7 @@ class ClaudeRoleAdapter:
                 text=True,
                 encoding="utf-8",
                 env=self._subprocess_env(),
-                timeout=300,
+                timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc

@@ -12,6 +12,7 @@ interface KanbanBoardProps {
   requirements: Requirement[]
   onCardClick: (id: string) => void
   workspace: string
+  onClarify?: (id: string, title: string) => void
 }
 
 const COLUMNS = [
@@ -27,7 +28,7 @@ const COLUMNS = [
   { key: 'done', title: 'Done' },
 ]
 
-export function KanbanBoard({ requirements, onCardClick, workspace }: KanbanBoardProps) {
+export function KanbanBoard({ requirements, onCardClick, workspace, onClarify }: KanbanBoardProps) {
   const groupedRequirements = COLUMNS.map((column) => ({
     ...column,
     requirements: requirements.filter((req) => req.status === column.key),
@@ -42,6 +43,7 @@ export function KanbanBoard({ requirements, onCardClick, workspace }: KanbanBoar
           requirements={column.requirements}
           onCardClick={onCardClick}
           workspace={workspace}
+          onClarify={onClarify}
         />
       ))}
     </div>
