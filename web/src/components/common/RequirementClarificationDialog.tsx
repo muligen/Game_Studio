@@ -83,7 +83,7 @@ export function RequirementClarificationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[80vh]">
+      <DialogContent className="flex h-[80vh] max-w-4xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             Clarify: {requirementTitle}
@@ -95,12 +95,12 @@ export function RequirementClarificationDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-4 min-h-[400px]">
+        <div className="flex min-h-0 flex-1 gap-4">
           {/* Chat */}
-          <div className="flex-1 flex flex-col">
-            <div className="flex-1 overflow-y-auto space-y-3 mb-3 pr-2">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="mb-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
               {session?.messages.map((msg, i) => (
-                <div key={i} className={`p-2 rounded text-sm ${msg.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
+                <div key={i} className={`whitespace-pre-wrap break-words rounded p-2 text-sm ${msg.role === 'user' ? 'bg-blue-50 ml-8' : 'bg-gray-50 mr-8'}`}>
                   <span className="text-xs text-muted-foreground block mb-1">
                     {msg.role === 'user' ? 'You' : 'Agent'}
                   </span>
@@ -133,7 +133,7 @@ export function RequirementClarificationDialog({
           </div>
 
           {/* Context preview */}
-          <div className="w-72 border-l pl-4 space-y-3 overflow-y-auto">
+          <div className="min-h-0 w-72 shrink-0 space-y-3 overflow-y-auto border-l pl-4">
             <h4 className="font-medium text-sm">Context Preview</h4>
 
             {REQUIRED_FIELDS.map(({ key, label }) => (
