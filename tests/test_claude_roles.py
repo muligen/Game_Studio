@@ -7,6 +7,7 @@ import sys
 from argparse import Namespace
 
 import pytest
+from claude_agent_sdk.types import AssistantMessage, TextBlock
 
 from studio.agents import AgentProfile
 from studio.llm import (
@@ -322,6 +323,54 @@ async def test_generate_uses_profile_claude_project_root_for_sdk(monkeypatch, tm
     assert captured["cwd"] == claude_root
     assert str(captured["prompt"]).startswith("Reviewer profile system prompt")
     assert '"feature": "photo mode"' in str(captured["prompt"])
+
+
+@pytest.mark.anyio
+async def test_generate_parses_assistant_text_when_result_message_is_missing(
+    monkeypatch, tmp_path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    async def fake_query(*, prompt: str, options: object):
+        yield AssistantMessage(
+            content=[
+                TextBlock(
+                    text=(
+                        "```json\n"
+                        '{"decision":"continue","reason":"ok","risks":[]}\n'
+                        "```"
+                    )
+                )
+            ],
+            model="glm-4.7",
+            session_id="session-1",
+        )
+
+    monkeypatch.setattr(claude_roles_module, "query", fake_query)
+
+    payload = await adapter._generate_payload(
+        "reviewer",
+        {"feature": "photo mode"},
+        claude_roles_module.ClaudeRoleConfig(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="test-key",
+            base_url=None,
+        ),
+        adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
+    )
+
+    assert payload == ReviewerPayload(decision="continue", reason="ok", risks=[])
 
 
 def test_load_config_reads_claude_settings_from_dotenv(tmp_path) -> None:

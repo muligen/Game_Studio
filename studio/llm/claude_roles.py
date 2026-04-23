@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from claude_agent_sdk import ClaudeAgentOptions, query
-from claude_agent_sdk.types import ResultMessage
+from claude_agent_sdk.types import AssistantMessage, ResultMessage
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -691,6 +691,15 @@ class ClaudeRoleAdapter:
             return False
         return True
 
+    @staticmethod
+    def _assistant_text(message: AssistantMessage) -> str:
+        fragments: list[str] = []
+        for block in message.content:
+            text = getattr(block, "text", None)
+            if isinstance(text, str) and text:
+                fragments.append(text)
+        return "\n".join(fragments).strip()
+
     async def _generate_payload(
         self,
         role_name: str,
@@ -726,16 +735,33 @@ class ClaudeRoleAdapter:
         )
 
         result: ResultMessage | None = None
+        assistant_replies: list[str] = []
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 async for message in query(prompt=prompt, options=options):
                     if isinstance(message, ResultMessage):
                         result = message
+                    elif isinstance(message, AssistantMessage):
+                        reply = self._assistant_text(message)
+                        if reply:
+                            assistant_replies.append(reply)
         except Exception as exc:  # pragma: no cover - exercised via fallback tests
             raise ClaudeRoleError(str(exc) or exc.__class__.__name__) from exc
 
         if result is None:
-            raise ClaudeRoleError("missing_claude_result")
+            if not assistant_replies:
+                raise ClaudeRoleError("missing_claude_result")
+            reply = "\n".join(assistant_replies).strip()
+            try:
+                payload = self._parse_result_text(reply)
+            except (json.JSONDecodeError, ClaudeRoleError) as exc:
+                raise ClaudeRoleError("invalid_claude_output") from exc
+            self._last_debug_record = {
+                "prompt": prompt,
+                "context": context,
+                "reply": reply,
+            }
+            return parse_role_payload(role_name, payload)
         if result.is_error:
             message = "; ".join(result.errors or []) or result.result or "claude_run_failed"
             raise ClaudeRoleError(message)
