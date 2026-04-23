@@ -33,10 +33,50 @@ def test_start_creates_session(client, workspace):
     assert data["session"]["status"] == "collecting"
 
 
+def test_start_accepts_workspace_pointing_at_studio_data_dir(client, workspace):
+    response = client.post(
+        f"/api/clarifications/requirements/req_001/session?workspace={Path(workspace) / '.studio-data'}"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session"]["requirement_id"] == "req_001"
+
+
 def test_start_returns_existing_session(client, workspace):
     r1 = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     r2 = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     assert r1.json()["session"]["id"] == r2.json()["session"]["id"]
+
+
+def test_start_returns_completed_session_instead_of_overwriting_history(client, workspace):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+
+    ws = StudioWorkspace(Path(workspace) / ".studio-data")
+    session = ws.clarifications.get(session_id)
+    session = session.model_copy(
+        update={
+            "status": "completed",
+            "messages": [
+                session.messages[0] if session.messages else None,
+            ],
+        }
+    )
+    session.messages = [message for message in session.messages if message is not None]
+    if not session.messages:
+        from studio.schemas.clarification import ClarificationMessage
+
+        session.messages = [ClarificationMessage(role="assistant", content="history kept")]
+    ws.clarifications.save(session)
+
+    response = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+
+    assert response.status_code == 200
+    data = response.json()["session"]
+    assert data["id"] == session_id
+    assert data["status"] == "completed"
+    assert len(data["messages"]) == 1
 
 
 def test_start_fails_for_missing_requirement(client, workspace):
@@ -198,7 +238,16 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
         mock_graph = MagicMock()
         mock_graph.invoke.return_value = {
             "node_name": "moderator_minutes",
-            "minutes": {"id": "meeting_001", "requirement_id": "req_001"},
+            "minutes": {
+                "id": "meeting_001",
+                "requirement_id": "req_001",
+                "title": "Kickoff: Combat system",
+                "summary": "The team aligned on a compact combat MVP.",
+                "attendees": ["design", "dev"],
+                "consensus": ["Build one turn-based battle loop first."],
+                "conflicts": ["Progression depth is postponed."],
+                "pending_user_decisions": [],
+            },
         }
         MockGraph.return_value = mock_graph
 
@@ -212,3 +261,13 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
     assert data["project_id"].startswith("proj_")
     assert data["requirement_id"] == "req_001"
     assert data["status"] == "kickoff_complete"
+    assert data["meeting_id"] == "meeting_001"
+    assert data["meeting"] == {
+        "id": "meeting_001",
+        "title": "Kickoff: Combat system",
+        "summary": "The team aligned on a compact combat MVP.",
+        "attendees": ["design", "dev"],
+        "consensus_points": ["Build one turn-based battle loop first."],
+        "conflict_points": ["Progression depth is postponed."],
+        "pending_user_decisions": [],
+    }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+import re
 from typing import Protocol
 from uuid import uuid4
 
@@ -152,12 +153,12 @@ class DeliveryPlanService:
             gate_id = f"gate_{uuid4().hex}"
             gate_items = [
                 GateItem(
-                    id=str(item["id"]),
+                    id=self._gate_item_id(item, index),
                     question=str(item["question"]),
                     context=str(item.get("context", "")),
                     options=[str(option) for option in item["options"]],
                 )
-                for item in gate_items_data
+                for index, item in enumerate(gate_items_data, start=1)
             ]
             saved_gate = KickoffDecisionGate(
                 id=gate_id,
@@ -350,6 +351,18 @@ class DeliveryPlanService:
             gates = [gate for gate in gates if gate.plan_id in plan_ids]
 
         return {"plans": plans, "tasks": tasks, "decision_gates": gates}
+
+    @staticmethod
+    def _gate_item_id(item: dict[str, object], index: int) -> str:
+        raw_id = item.get("id")
+        if isinstance(raw_id, str) and raw_id.strip():
+            return raw_id.strip()
+
+        question = str(item.get("question", "")).strip().lower()
+        slug = re.sub(r"[^a-z0-9]+", "_", question).strip("_")
+        if slug:
+            return slug[:64]
+        return f"gate_item_{index}"
 
     def _has_cycle(self, graph: dict[str, list[str]]) -> bool:
         visiting: set[str] = set()

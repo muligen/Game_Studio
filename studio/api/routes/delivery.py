@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
+from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.llm import ClaudeRoleError
 from studio.storage.delivery_plan_service import DeliveryPlanService
@@ -48,7 +49,10 @@ class CompleteTaskRequest(BaseModel):
 
 def _get_service(workspace: str) -> DeliveryPlanService:
     """Create a DeliveryPlanService for the given workspace path."""
-    return DeliveryPlanService(Path(workspace) / ".studio-data")
+    return DeliveryPlanService(
+        resolve_workspace_root(workspace),
+        project_root=resolve_project_root(workspace),
+    )
 
 
 @router.post("/meetings/{meeting_id}/delivery-plan")

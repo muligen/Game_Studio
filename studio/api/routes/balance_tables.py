@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ValidationError
 
+from studio.api.workspace_paths import resolve_workspace_root
 from studio.schemas.balance_table import BalanceTable, BalanceTableRow
 from studio.storage.workspace import StudioWorkspace
 
@@ -20,7 +21,7 @@ class BalanceTableUpdate(BaseModel):
 
 def _get_workspace(workspace: str) -> StudioWorkspace:
     """Get workspace instance."""
-    workspace_path = Path(workspace) / ".studio-data"
+    workspace_path = resolve_workspace_root(workspace)
     return StudioWorkspace(workspace_path)
 
 

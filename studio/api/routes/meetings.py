@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from studio.api.workspace_paths import resolve_workspace_root
 from studio.schemas.meeting import MeetingMinutes
 from studio.storage.workspace import StudioWorkspace
 
@@ -11,7 +12,7 @@ router = APIRouter(prefix="/meetings", tags=["meetings"])
 
 
 def _get_workspace(workspace: str) -> StudioWorkspace:
-    workspace_path = Path(workspace) / ".studio-data"
+    workspace_path = resolve_workspace_root(workspace)
     return StudioWorkspace(workspace_path)
 
 

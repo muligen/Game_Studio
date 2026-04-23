@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.agents.profile_loader import AgentProfileLoader
 from studio.llm import ClaudeRoleAdapter
 from studio.runtime.graph import build_meeting_graph
@@ -37,7 +38,7 @@ class KickoffRequest(BaseModel):
 
 
 def _get_workspace(workspace: str) -> StudioWorkspace:
-    return StudioWorkspace(Path(workspace) / ".studio-data")
+    return StudioWorkspace(resolve_workspace_root(workspace))
 
 
 def _validate_readiness(context: MeetingContextDraft) -> ReadinessCheck:
@@ -54,11 +55,15 @@ def _validate_readiness(context: MeetingContextDraft) -> ReadinessCheck:
     return ReadinessCheck(ready=len(missing) == 0, missing_fields=missing, notes=notes)
 
 
-def _find_active_session(store: StudioWorkspace, requirement_id: str):
-    for s in store.clarifications.list_all():
-        if s.requirement_id == requirement_id and s.status in ("collecting", "ready", "failed"):
-            return s
-    return None
+def _find_existing_session(store: StudioWorkspace, requirement_id: str):
+    matches = [
+        session
+        for session in store.clarifications.list_all()
+        if session.requirement_id == requirement_id
+    ]
+    if not matches:
+        return None
+    return max(matches, key=lambda session: session.updated_at)
 
 
 @router.post("/requirements/{req_id}/session")
@@ -70,7 +75,7 @@ async def start_or_get_session(workspace: str, req_id: str):
     except (FileNotFoundError, ValueError):
         raise HTTPException(status_code=404, detail="Requirement not found")
 
-    existing = _find_active_session(store, req_id)
+    existing = _find_existing_session(store, req_id)
     if existing:
         return {"session": existing.model_dump()}
 
@@ -169,12 +174,12 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
     session = session.model_copy(update={"status": "kickoff_started", "updated_at": datetime.now(UTC).isoformat()})
     store.clarifications.save(session)
 
-    ws_root = Path(workspace) / ".studio-data"
+    ws_root = resolve_workspace_root(workspace)
     project_id = f"proj_{uuid.uuid4().hex[:8]}"
     registry = SessionRegistry(ws_root)
     registry.create_all(project_id, req_id, _MANAGED_AGENTS)
 
-    project_root = str(Path(workspace).parent.parent) if ws_root.name == ".studio-data" else str(workspace)
+    project_root = str(resolve_project_root(workspace))
     graph = build_meeting_graph()
     result = graph.invoke({
         "workspace_root": str(ws_root),
@@ -185,7 +190,8 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
         "meeting_context": session.meeting_context.model_dump(),
     })
 
-    meeting_id = result.get("minutes", {}).get("id", "")
+    minutes = result.get("minutes", {})
+    meeting_id = minutes.get("id", "")
     session = session.model_copy(update={
         "status": "completed",
         "project_id": project_id,
@@ -198,4 +204,15 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
         "requirement_id": req_id,
         "meeting_id": meeting_id,
         "status": "kickoff_complete",
+        "meeting": {
+            "id": meeting_id,
+            "title": str(minutes.get("title", "")),
+            "summary": str(minutes.get("summary", "")),
+            "attendees": [str(item) for item in minutes.get("attendees", [])],
+            "consensus_points": [str(item) for item in minutes.get("consensus", [])],
+            "conflict_points": [str(item) for item in minutes.get("conflicts", [])],
+            "pending_user_decisions": [
+                str(item) for item in minutes.get("pending_user_decisions", [])
+            ],
+        },
     }

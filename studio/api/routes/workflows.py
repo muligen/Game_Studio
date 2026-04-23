@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
+from studio.api.workspace_paths import resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.domain.requirement_flow import transition_requirement
 from studio.schemas.design_doc import DesignDoc
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 def _get_workspace(workspace: str) -> StudioWorkspace:
     """Get workspace instance."""
-    workspace_path = Path(workspace) / ".studio-data"
+    workspace_path = resolve_workspace_root(workspace)
     return StudioWorkspace(workspace_path)
 
 
@@ -36,7 +37,7 @@ async def run_design_workflow(
 
     executor = DesignWorkflowExecutor()
     try:
-        result = executor.run(store, requirement, workspace_root=str(Path(workspace) / ".studio-data"))
+        result = executor.run(store, requirement, workspace_root=str(resolve_workspace_root(workspace)))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

@@ -239,6 +239,29 @@ class TestGeneratePlan:
         assert [task.status for task in result["tasks"]] == ["preview", "preview"]
 
     @staticmethod
+    def test_generates_gate_item_ids_when_planner_omits_them(
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose art direction"])
+        _requirement(tmp_path)
+        planner.payload = _planner_payload(
+            gate_items=[
+                {
+                    "question": "Which art style should the MVP use?",
+                    "context": "Meeting conflict",
+                    "options": ["retro", "minimal"],
+                },
+            ],
+        )
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["decision_gate"] is not None
+        assert len(result["decision_gate"].items) == 1
+        assert result["decision_gate"].items[0].id
+        assert result["decision_gate"].items[0].question == "Which art style should the MVP use?"
+
+    @staticmethod
     def test_returns_existing_plan_without_reinvoking_planner(
         svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
     ) -> None:
