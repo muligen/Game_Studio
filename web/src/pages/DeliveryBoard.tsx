@@ -47,7 +47,7 @@ export function DeliveryBoard() {
   }, [queryClient])
 
   const startMutation = useMutation({
-    mutationFn: (taskId: string) => deliveryApi.startTask(workspace, taskId, 'session-placeholder'),
+    mutationFn: (taskId: string) => deliveryApi.startTask(workspace, taskId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['delivery-board'] })
     },

@@ -334,11 +334,10 @@ export const deliveryApi = {
     workspace: string,
     meetingId: string,
     projectId: string,
-    plannerOutput: Record<string, unknown>,
   ): Promise<{ plan: DeliveryPlan; tasks: DeliveryTask[]; decision_gate: KickoffDecisionGate | null }> =>
     apiRequest(`/meetings/${meetingId}/delivery-plan`, 'post', {
       params: { workspace },
-      body: { project_id: projectId, planner_output: plannerOutput },
+      body: { project_id: projectId },
     }) as Promise<{ plan: DeliveryPlan; tasks: DeliveryTask[]; decision_gate: KickoffDecisionGate | null }>,
 
   listBoard: (workspace: string, requirementId?: string): Promise<DeliveryBoard> =>
@@ -359,10 +358,9 @@ export const deliveryApi = {
   startTask: (
     workspace: string,
     taskId: string,
-    sessionId: string,
   ): Promise<DeliveryTask> =>
     apiRequest(`/delivery-tasks/${taskId}/start`, 'post', {
       params: { workspace },
-      body: { session_id: sessionId },
+      body: {},
     }) as Promise<DeliveryTask>,
 } as const

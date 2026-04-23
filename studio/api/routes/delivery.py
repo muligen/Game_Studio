@@ -3,9 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from studio.api.websocket import broadcast_entity_changed
+from studio.llm import ClaudeRoleError
 from studio.storage.delivery_plan_service import DeliveryPlanService
 
 router = APIRouter(tags=["delivery"])
@@ -14,12 +15,15 @@ router = APIRouter(tags=["delivery"])
 class GeneratePlanRequest(BaseModel):
     """Request body for generating a delivery plan."""
 
+    model_config = ConfigDict(extra="forbid")
+
     project_id: str
-    planner_output: dict
 
 
 class ResolveGateRequest(BaseModel):
     """Request body for resolving a decision gate."""
+
+    model_config = ConfigDict(extra="forbid")
 
     resolutions: dict[str, str]
 
@@ -27,11 +31,13 @@ class ResolveGateRequest(BaseModel):
 class StartTaskRequest(BaseModel):
     """Request body for starting a delivery task."""
 
-    session_id: str
+    model_config = ConfigDict(extra="forbid")
 
 
 class CompleteTaskRequest(BaseModel):
     """Request body for completing a delivery task."""
+
+    model_config = ConfigDict(extra="forbid")
 
     summary: str
     output_artifact_ids: list[str] = []
@@ -56,13 +62,14 @@ async def generate_delivery_plan(
     try:
         result = service.generate_plan(
             meeting_id=meeting_id,
-            planner_output=request.planner_output,
             project_id=request.project_id,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Meeting not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except ClaudeRoleError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
     await broadcast_entity_changed(
         workspace=workspace,
@@ -128,10 +135,8 @@ async def start_delivery_task(
     """Start a delivery task."""
     service = _get_service(workspace)
     try:
-        task = service.start_task(
-            task_id=task_id,
-            session_id=request.session_id,
-        )
+        _ = request
+        task = service.start_task(task_id=task_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found")
     except ValueError as e:

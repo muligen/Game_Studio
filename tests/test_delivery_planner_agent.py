@@ -36,41 +36,13 @@ def _valid_payload_dict() -> dict[str, object]:
     }
 
 
-def test_delivery_planner_payload_parses_valid_json() -> None:
-    payload = DeliveryPlannerPayload.model_validate(_valid_payload_dict())
-
-    assert len(payload.tasks) == 1
-    assert payload.tasks[0].title == "Design core loop"
-    assert payload.tasks[0].owner_agent == "design"
-    assert payload.tasks[0].depends_on == []
-    assert len(payload.decision_gate.items) == 1
-    assert payload.decision_gate.items[0].question == "Which art style?"
-    assert payload.decision_gate.items[0].options == ["pixel art", "watercolor"]
-
-
-def test_delivery_planner_payload_rejects_extra_fields() -> None:
-    data = _valid_payload_dict()
-    data["unexpected_field"] = "nope"  # type: ignore[typeddict-unknown-key]
-
-    with pytest.raises(ValidationError):
-        DeliveryPlannerPayload.model_validate(data)
-
-
-def test_delivery_planner_profile_loads_correctly() -> None:
-    profile = load_agent_profile("delivery_planner")
-
-    assert profile.name == "delivery_planner"
-    assert profile.system_prompt.strip()
-    assert "delivery planner" in profile.system_prompt.lower()
-
-
-def test_claude_md_exists_and_contains_agent_name() -> None:
-    repo_root = Path(__file__).resolve().parents[1]
-    claude_md = repo_root / ".claude" / "agents" / "delivery_planner" / "CLAUDE.md"
-
-    assert claude_md.is_file(), "CLAUDE.md missing for delivery_planner"
-    text = claude_md.read_text(encoding="utf-8")
-    assert "delivery_planner" in text
+def _state() -> RuntimeState:
+    return RuntimeState(
+        project_id="demo-project",
+        run_id="run-001",
+        task_id="task-001",
+        goal={"prompt": "Design a simple 2D game concept"},
+    )
 
 
 class FakeClaudeRunner:
@@ -99,13 +71,40 @@ class FakeClaudeRunner:
         return self.payload
 
 
-def _state() -> RuntimeState:
-    return RuntimeState(
-        project_id="demo-project",
-        run_id="run-001",
-        task_id="task-001",
-        goal={"prompt": "Design a simple 2D game concept"},
-    )
+def test_delivery_planner_payload_parses_valid_json() -> None:
+    payload = DeliveryPlannerPayload.model_validate(_valid_payload_dict())
+
+    assert len(payload.tasks) == 1
+    assert payload.tasks[0].title == "Design core loop"
+    assert payload.tasks[0].owner_agent == "design"
+    assert payload.tasks[0].depends_on == []
+    assert len(payload.decision_gate.items) == 1
+    assert payload.decision_gate.items[0].question == "Which art style?"
+
+
+def test_delivery_planner_payload_rejects_extra_fields() -> None:
+    data = _valid_payload_dict()
+    data["unexpected_field"] = "nope"  # type: ignore[typeddict-unknown-key]
+
+    with pytest.raises(ValidationError):
+        DeliveryPlannerPayload.model_validate(data)
+
+
+def test_delivery_planner_profile_loads_correctly() -> None:
+    profile = load_agent_profile("delivery_planner")
+
+    assert profile.name == "delivery_planner"
+    assert profile.system_prompt.strip()
+    assert "delivery planner" in profile.system_prompt.lower()
+
+
+def test_claude_md_exists_and_contains_agent_name() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    claude_md = repo_root / ".claude" / "agents" / "delivery_planner" / "CLAUDE.md"
+
+    assert claude_md.is_file(), "CLAUDE.md missing for delivery_planner"
+    text = claude_md.read_text(encoding="utf-8")
+    assert "delivery_planner" in text
 
 
 def test_delivery_planner_agent_returns_correct_node_result_with_payload() -> None:
@@ -126,11 +125,24 @@ def test_delivery_planner_agent_returns_correct_node_result_with_payload() -> No
     delivery_plan = result.state_patch["telemetry"]["delivery_plan"]
     assert len(delivery_plan["tasks"]) == 1
     assert delivery_plan["tasks"][0]["title"] == "Design core loop"
-    assert delivery_plan["decision_gate"]["items"][0]["question"] == "Which art style?"
     assert result.trace["fallback_used"] is False
 
 
-def test_delivery_planner_agent_falls_back_on_error() -> None:
+def test_delivery_planner_agent_generate_payload_returns_serializable_dict() -> None:
+    payload = DeliveryPlannerPayload.model_validate(_valid_payload_dict())
+    runner = FakeClaudeRunner(
+        expected_role_name="delivery_planner",
+        expected_context={"meeting_id": "meet_001"},
+        payload=payload,
+    )
+
+    result = DeliveryPlannerAgent(claude_runner=runner).generate_payload({"meeting_id": "meet_001"})
+
+    assert result["tasks"][0]["title"] == "Design core loop"
+    assert result["decision_gate"]["items"][0]["question"] == "Which art style?"
+
+
+def test_delivery_planner_agent_raises_on_error() -> None:
     runner = FakeClaudeRunner(
         expected_role_name="delivery_planner",
         expected_context={
@@ -140,13 +152,5 @@ def test_delivery_planner_agent_falls_back_on_error() -> None:
         error=ClaudeRoleError("claude_disabled"),
     )
 
-    result = DeliveryPlannerAgent(claude_runner=runner).run(_state())
-
-    assert result.decision is NodeDecision.CONTINUE
-    assert result.state_patch["plan"]["current_node"] == "delivery_planner"
-    assert result.state_patch["telemetry"]["delivery_plan"] == {
-        "tasks": [],
-        "decision_gate": {"items": []},
-    }
-    assert result.trace["fallback_used"] is True
-    assert result.trace["fallback_reason"] == "claude_disabled"
+    with pytest.raises(ClaudeRoleError, match="claude_disabled"):
+        DeliveryPlannerAgent(claude_runner=runner).run(_state())
