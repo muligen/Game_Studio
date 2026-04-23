@@ -14,3 +14,14 @@ def test_cors_enabled_for_dev():
     # Make an actual GET request with Origin header to trigger CORS
     response = client.get("/api/health", headers={"Origin": "http://localhost:5173"})
     assert "access-control-allow-origin" in response.headers
+
+
+def test_create_app_does_not_register_duplicate_route_signatures():
+    app = create_app()
+    route_signatures = [
+        (route.path, tuple(sorted(route.methods or set())))
+        for route in app.routes
+        if getattr(route, "path", None) and getattr(route, "methods", None)
+    ]
+
+    assert len(route_signatures) == len(set(route_signatures))

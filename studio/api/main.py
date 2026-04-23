@@ -77,7 +77,6 @@ def create_app() -> FastAPI:
     app.include_router(meetings.router, prefix="/api")
     app.include_router(delivery.router, prefix="/api")
     app.include_router(clarifications.router, prefix="/api")
-    app.include_router(delivery.router, prefix="/api")
 
     # WebSocket endpoint for real-time updates
     @app.websocket("/ws")
