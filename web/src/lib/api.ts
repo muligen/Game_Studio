@@ -359,6 +359,24 @@ export interface ClarificationSession {
   updated_at: string
 }
 
+export interface KickoffMeetingSnapshot {
+  id: string
+  title: string
+  summary: string
+  attendees: string[]
+  consensus_points: string[]
+  conflict_points: string[]
+  pending_user_decisions: string[]
+}
+
+export interface KickoffResponse {
+  project_id: string
+  requirement_id: string
+  meeting_id: string
+  status: string
+  meeting: KickoffMeetingSnapshot
+}
+
 export interface DeliveryBoard {
   plans: DeliveryPlan[]
   tasks: DeliveryTask[]
@@ -388,12 +406,12 @@ export const clarificationsApi = {
     workspace: string,
     requirementId: string,
     sessionId: string,
-  ): Promise<{ project_id: string; requirement_id: string; meeting_id: string; status: string }> =>
+  ): Promise<KickoffResponse> =>
     apiRequest(`/clarifications/requirements/${requirementId}/kickoff`, 'post', {
       params: { workspace },
       body: JSON.stringify({ session_id: sessionId }),
       headers: { 'Content-Type': 'application/json' },
-    }) as Promise<{ project_id: string; requirement_id: string; meeting_id: string; status: string }>,
+    }) as Promise<KickoffResponse>,
 }
 
 export const deliveryApi = {

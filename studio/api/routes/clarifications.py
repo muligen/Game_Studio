@@ -185,7 +185,8 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
         "meeting_context": session.meeting_context.model_dump(),
     })
 
-    meeting_id = result.get("minutes", {}).get("id", "")
+    minutes = result.get("minutes", {})
+    meeting_id = minutes.get("id", "")
     session = session.model_copy(update={
         "status": "completed",
         "project_id": project_id,
@@ -198,4 +199,15 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
         "requirement_id": req_id,
         "meeting_id": meeting_id,
         "status": "kickoff_complete",
+        "meeting": {
+            "id": meeting_id,
+            "title": str(minutes.get("title", "")),
+            "summary": str(minutes.get("summary", "")),
+            "attendees": [str(item) for item in minutes.get("attendees", [])],
+            "consensus_points": [str(item) for item in minutes.get("consensus", [])],
+            "conflict_points": [str(item) for item in minutes.get("conflicts", [])],
+            "pending_user_decisions": [
+                str(item) for item in minutes.get("pending_user_decisions", [])
+            ],
+        },
     }

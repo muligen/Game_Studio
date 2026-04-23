@@ -198,7 +198,16 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
         mock_graph = MagicMock()
         mock_graph.invoke.return_value = {
             "node_name": "moderator_minutes",
-            "minutes": {"id": "meeting_001", "requirement_id": "req_001"},
+            "minutes": {
+                "id": "meeting_001",
+                "requirement_id": "req_001",
+                "title": "Kickoff: Combat system",
+                "summary": "The team aligned on a compact combat MVP.",
+                "attendees": ["design", "dev"],
+                "consensus": ["Build one turn-based battle loop first."],
+                "conflicts": ["Progression depth is postponed."],
+                "pending_user_decisions": [],
+            },
         }
         MockGraph.return_value = mock_graph
 
@@ -212,3 +221,13 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
     assert data["project_id"].startswith("proj_")
     assert data["requirement_id"] == "req_001"
     assert data["status"] == "kickoff_complete"
+    assert data["meeting_id"] == "meeting_001"
+    assert data["meeting"] == {
+        "id": "meeting_001",
+        "title": "Kickoff: Combat system",
+        "summary": "The team aligned on a compact combat MVP.",
+        "attendees": ["design", "dev"],
+        "consensus_points": ["Build one turn-based battle loop first."],
+        "conflict_points": ["Progression depth is postponed."],
+        "pending_user_decisions": [],
+    }
