@@ -623,3 +623,169 @@ def test_meeting_graph_compatibility_mode_warns_when_meeting_context_missing(
 
     warning = result["minutes"]["supplementary"].get("compatibility_warning", "")
     assert "meeting_context" in warning
+
+
+def test_meeting_graph_persists_transcript_events_from_moderator_and_agents(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_root = _make_workspace(tmp_path)
+
+    class FakeModeratorAgent:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
+            self._entry: dict[str, object] | None = None
+
+        def prepare(
+            self,
+            state,
+            *,
+            meeting_context: dict[str, object] | None = None,
+        ) -> NodeResult:
+            self._entry = {
+                "prompt": "prepare prompt",
+                "context": {"prompt": state.goal["prompt"]},
+                "reply": {"agenda": ["Discuss scope"], "attendees": ["design"], "focus_questions": []},
+            }
+            return _meeting_node_result(
+                {
+                    "moderator_prepare": {
+                        "agenda": ["Discuss scope"],
+                        "attendees": ["design"],
+                        "focus_questions": [],
+                    }
+                }
+            )
+
+        def summarize(
+            self,
+            state,
+            *,
+            opinions: dict[str, dict[str, object]],
+            meeting_context: dict[str, object] | None = None,
+        ) -> NodeResult:
+            self._entry = {
+                "prompt": "summary prompt",
+                "context": {"opinions": opinions},
+                "reply": {
+                    "consensus_points": ["Consensus reached"],
+                    "conflict_points": [],
+                    "conflict_resolution_needed": False,
+                },
+            }
+            return _meeting_node_result(
+                {
+                    "moderator_summary": {
+                        "consensus_points": ["Consensus reached"],
+                        "conflict_points": [],
+                        "conflict_resolution_needed": False,
+                    }
+                }
+            )
+
+        def minutes(self, state, *, all_context: dict[str, object]) -> NodeResult:
+            self._entry = {
+                "prompt": "minutes prompt",
+                "context": all_context,
+                "reply": {
+                    "title": "Meeting Notes",
+                    "summary": "Summary",
+                    "decisions": [],
+                    "action_items": [],
+                    "pending_user_decisions": [],
+                },
+            }
+            return _meeting_node_result(
+                {
+                    "moderator_minutes": {
+                        "title": "Meeting Notes",
+                        "summary": "Summary",
+                        "decisions": [],
+                        "action_items": [],
+                        "pending_user_decisions": [],
+                    }
+                }
+            )
+
+        def consume_llm_log_entry(self) -> dict[str, object] | None:
+            entry = self._entry
+            self._entry = None
+            return entry
+
+    class FakeParticipantAgent:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
+            self._entry: dict[str, object] | None = None
+
+        def run(self, state) -> NodeResult:
+            role = str(state.goal["role"])
+            self._entry = {
+                "prompt": f"{role} prompt",
+                "context": {"role": role, "agenda": state.goal["agenda"]},
+                "reply": {
+                    "summary": f"{role} summary",
+                    "proposals": [f"{role} proposal"],
+                    "risks": [],
+                    "open_questions": [],
+                },
+            }
+            return _meeting_node_result(
+                {
+                    f"{role}_report": {
+                        "summary": f"{role} summary",
+                        "proposals": [f"{role} proposal"],
+                        "risks": [],
+                        "open_questions": [],
+                    }
+                }
+            )
+
+        def consume_llm_log_entry(self) -> dict[str, object] | None:
+            entry = self._entry
+            self._entry = None
+            return entry
+
+    monkeypatch.setattr("studio.agents.moderator.ModeratorAgent", FakeModeratorAgent)
+    _install_fake_participants(monkeypatch, FakeParticipantAgent)
+
+    graph = build_meeting_graph()
+    graph.invoke(
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(_REPO_ROOT),
+            "requirement_id": "req_001",
+            "user_intent": "Design a puzzle game",
+            "meeting_context": {"validated_attendees": ["design"]},
+        }
+    )
+
+    transcript = StudioWorkspace(workspace_root).meeting_transcripts.get("meeting_001")
+
+    assert [event.sequence for event in transcript.events] == [1, 2, 3, 4]
+    assert [event.agent_role for event in transcript.events] == [
+        "moderator",
+        "design",
+        "moderator",
+        "moderator",
+    ]
+    assert [event.node_name for event in transcript.events] == [
+        "moderator_prepare",
+        "agent_opinion",
+        "moderator_summarize",
+        "moderator_minutes",
+    ]
+    assert transcript.events[0].prompt == "prepare prompt"
+    assert transcript.events[1].reply == {
+        "summary": "design summary",
+        "proposals": ["design proposal"],
+        "risks": [],
+        "open_questions": [],
+    }

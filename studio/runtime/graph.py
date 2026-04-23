@@ -98,11 +98,47 @@ def _session_tag_for_run(run_id: str) -> str:
 def _consume_agent_llm_log(agent: object) -> dict[str, object] | None:
     consume = getattr(agent, "consume_llm_log_entry", None)
     if not callable(consume):
-        return None
+        consume = getattr(agent, "consume_debug_record", None)
+        if not callable(consume):
+            return None
     entry = consume()
     if not isinstance(entry, dict):
         return None
     return entry
+
+
+def _meeting_id_for_requirement(requirement_id: str) -> str:
+    return f"meeting_{requirement_id.split('_')[-1]}"
+
+
+def _meeting_transcript_event(
+    *,
+    node_name: str,
+    agent_role: str,
+    agent: object,
+) -> dict[str, object] | None:
+    entry = _consume_agent_llm_log(agent)
+    if entry is None:
+        return None
+    reply = entry.get("reply")
+    message = "Structured transcript event"
+    if isinstance(reply, str) and reply.strip():
+        message = reply.strip()
+    elif isinstance(reply, dict):
+        for key in ("summary", "title", "reason", "reply"):
+            value = reply.get(key)
+            if isinstance(value, str) and value.strip():
+                message = value.strip()
+                break
+    return {
+        "agent_role": agent_role,
+        "node_name": node_name,
+        "kind": "llm",
+        "message": message,
+        "prompt": entry.get("prompt"),
+        "context": entry.get("context"),
+        "reply": reply,
+    }
 
 
 def build_demo_runtime(root: Path, force_review_retry: bool = False):
@@ -448,6 +484,7 @@ class _MeetingState(TypedDict, total=False):
     node_name: str
     minutes: dict[str, object]
     meeting_context: dict[str, object]
+    transcript_events: Annotated[list[dict[str, object]], operator.add]
 
 
 def build_meeting_graph():
@@ -525,6 +562,11 @@ def build_meeting_graph():
         )
         result = moderator.prepare(runtime_state, meeting_context=meeting_context)
         prep = result.state_patch.get("telemetry", {}).get("moderator_prepare", {})
+        transcript_event = _meeting_transcript_event(
+            node_name="moderator_prepare",
+            agent_role="moderator",
+            agent=moderator,
+        )
 
         raw_attendees = prep.get("attendees", list(_DEFAULT_ATTENDEES))
         filtered = _filter_attendees(raw_attendees, meeting_context)
@@ -535,6 +577,7 @@ def build_meeting_graph():
             "agenda": prep.get("agenda", [intent]),
             "attendees": filtered,
             "meeting_context": meeting_context,
+            **({"transcript_events": [transcript_event]} if transcript_event is not None else {}),
         }
 
     def agent_opinion_node(state: _MeetingState) -> dict:
@@ -568,6 +611,11 @@ def build_meeting_graph():
             goal=goal,
         )
         result = agent.run(runtime_state)
+        transcript_event = _meeting_transcript_event(
+            node_name="agent_opinion",
+            agent_role=target_role,
+            agent=agent,
+        )
 
         telemetry = result.state_patch.get("telemetry", {})
         report_key = next(
@@ -593,7 +641,10 @@ def build_meeting_graph():
             ],
         }
 
-        return {"opinions": {target_role: opinion}}
+        return {
+            "opinions": {target_role: opinion},
+            **({"transcript_events": [transcript_event]} if transcript_event is not None else {}),
+        }
 
     def moderator_summarize_node(state: _MeetingState) -> dict:
         project_root = _require_state_str(state, "project_root")
@@ -615,12 +666,18 @@ def build_meeting_graph():
         )
         result = moderator.summarize(runtime_state, opinions=opinions, meeting_context=meeting_context)
         summary = result.state_patch.get("telemetry", {}).get("moderator_summary", {})
+        transcript_event = _meeting_transcript_event(
+            node_name="moderator_summarize",
+            agent_role="moderator",
+            agent=moderator,
+        )
 
         return {
             "node_name": "moderator_summarize",
             "consensus_points": summary.get("consensus_points", []),
             "conflict_points": summary.get("conflict_points", []),
             "conflict_resolution_needed": summary.get("conflict_resolution_needed", False),
+            **({"transcript_events": [transcript_event]} if transcript_event is not None else {}),
         }
 
     def moderator_discussion_node(state: _MeetingState) -> dict:
@@ -649,11 +706,17 @@ def build_meeting_graph():
             meeting_context=meeting_context,
         )
         discussion = result.state_patch.get("telemetry", {}).get("moderator_discussion", {})
+        transcript_event = _meeting_transcript_event(
+            node_name="moderator_discussion",
+            agent_role="moderator",
+            agent=moderator,
+        )
 
         return {
             "node_name": "moderator_discussion",
             "supplementary": discussion.get("supplementary", {}),
             "unresolved_conflicts": discussion.get("unresolved_conflicts", []),
+            **({"transcript_events": [transcript_event]} if transcript_event is not None else {}),
         }
 
     def moderator_minutes_node(state: _MeetingState) -> dict:
@@ -692,6 +755,16 @@ def build_meeting_graph():
             all_context["unresolved_conflicts"] = unresolved
         result = moderator.minutes(runtime_state, all_context=all_context)
         minutes_data = result.state_patch.get("telemetry", {}).get("moderator_minutes", {})
+        transcript_events = [
+            event for event in state.get("transcript_events", []) if isinstance(event, dict)
+        ]
+        final_transcript_event = _meeting_transcript_event(
+            node_name="moderator_minutes",
+            agent_role="moderator",
+            agent=moderator,
+        )
+        if final_transcript_event is not None:
+            transcript_events.append(final_transcript_event)
 
         supplementary_base: dict[str, str] = (
             {k: str(v) for k, v in supplementary_raw.items()}
@@ -704,9 +777,8 @@ def build_meeting_graph():
                 "meeting_context was not provided; attendee list was not validated."
             )
 
-        req_suffix = requirement_id.split("_")[-1]
         minutes = MeetingMinutes(
-            id=f"meeting_{req_suffix}",
+            id=_meeting_id_for_requirement(requirement_id),
             requirement_id=requirement_id,
             title=str(minutes_data.get("title", "Meeting Notes")),
             agenda=[str(a) for a in state.get("agenda", [])],
@@ -735,10 +807,17 @@ def build_meeting_graph():
 
         if hasattr(workspace, "meetings"):
             workspace.meetings.save(minutes)
+        if transcript_events:
+            workspace.save_meeting_transcript(
+                meeting_id=_meeting_id_for_requirement(requirement_id),
+                requirement_id=requirement_id,
+                events=transcript_events,
+            )
 
         return {
             "node_name": "moderator_minutes",
             "minutes": minutes.model_dump(),
+            **({"transcript_events": transcript_events} if transcript_events else {}),
         }
 
     def route_to_agents(state: _MeetingState) -> list[Send]:
