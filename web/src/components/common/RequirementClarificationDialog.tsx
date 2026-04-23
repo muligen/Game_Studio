@@ -10,21 +10,46 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useMutation } from '@tanstack/react-query'
 import { clarificationsApi, type ClarificationSession, type MeetingContextDraft } from '@/lib/api'
+import type { RequirementKind } from '@/lib/product-workbench'
 
 interface Props {
   workspace: string
   requirementId: string
   requirementTitle: string
+  requirementKind: RequirementKind
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-const REQUIRED_FIELDS: { key: keyof MeetingContextDraft; label: string }[] = [
-  { key: 'summary', label: 'Summary' },
-  { key: 'goals', label: 'Goals' },
-  { key: 'acceptance_criteria', label: 'Criteria' },
-  { key: 'risks', label: 'Risks' },
-]
+const MODE_CONFIG: Record<RequirementKind, {
+  dialogTitle: string
+  goalText: string
+  previewTitle: string
+  fields: { key: keyof MeetingContextDraft; label: string }[]
+}> = {
+  product_mvp: {
+    dialogTitle: 'Clarify MVP',
+    goalText: 'Goal: define enough MVP context to start a kickoff meeting.',
+    previewTitle: 'MVP Brief Preview',
+    fields: [
+      { key: 'summary', label: 'MVP Summary' },
+      { key: 'goals', label: 'MVP Must-haves' },
+      { key: 'acceptance_criteria', label: 'Success Criteria' },
+      { key: 'risks', label: 'Risks / Unknowns' },
+    ],
+  },
+  change_request: {
+    dialogTitle: 'Clarify Change',
+    goalText: 'Goal: clarify how this request changes the current product.',
+    previewTitle: 'Change Request Preview',
+    fields: [
+      { key: 'summary', label: 'Change Summary' },
+      { key: 'goals', label: 'User Value' },
+      { key: 'acceptance_criteria', label: 'Acceptance Criteria' },
+      { key: 'risks', label: 'Dependencies / Conflicts' },
+    ],
+  },
+}
 
 function isFieldComplete(ctx: MeetingContextDraft | null, key: keyof MeetingContextDraft): boolean {
   if (!ctx) return false
@@ -37,12 +62,14 @@ export function RequirementClarificationDialog({
   workspace,
   requirementId,
   requirementTitle,
+  requirementKind,
   open,
   onOpenChange,
 }: Props) {
   const [message, setMessage] = useState('')
   const [session, setSession] = useState<ClarificationSession | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const config = MODE_CONFIG[requirementKind]
 
   const startMutation = useMutation({
     mutationFn: () => clarificationsApi.start(workspace, requirementId),
@@ -86,7 +113,7 @@ export function RequirementClarificationDialog({
       <DialogContent className="max-w-4xl max-h-[80vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            Clarify: {requirementTitle}
+            {config.dialogTitle}: {requirementTitle}
             {session && (
               <Badge variant={session.status === 'ready' ? 'default' : 'secondary'}>
                 {session.status}
@@ -94,6 +121,8 @@ export function RequirementClarificationDialog({
             )}
           </DialogTitle>
         </DialogHeader>
+
+        <p className="text-sm text-muted-foreground -mt-2 mb-2">{config.goalText}</p>
 
         <div className="flex gap-4 min-h-[400px]">
           {/* Chat */}
@@ -117,7 +146,11 @@ export function RequirementClarificationDialog({
               <Input
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Describe the feature..."
+                placeholder={
+                  requirementKind === 'product_mvp'
+                    ? 'Describe the MVP feature...'
+                    : 'Describe the change...'
+                }
                 disabled={sendMutation.isPending}
                 className="flex-1"
               />
@@ -127,9 +160,9 @@ export function RequirementClarificationDialog({
 
           {/* Context preview */}
           <div className="w-72 border-l pl-4 space-y-3 overflow-y-auto">
-            <h4 className="font-medium text-sm">Context Preview</h4>
+            <h4 className="font-medium text-sm">{config.previewTitle}</h4>
 
-            {REQUIRED_FIELDS.map(({ key, label }) => (
+            {config.fields.map(({ key, label }) => (
               <div key={key}>
                 <div className="flex items-center gap-1 text-sm">
                   <span className={isFieldComplete(ctx, key) ? 'text-green-600' : 'text-amber-500'}>
@@ -149,7 +182,7 @@ export function RequirementClarificationDialog({
 
             {ctx?.validated_attendees && ctx.validated_attendees.length > 0 && (
               <div>
-                <span className="font-medium text-sm">Attendees</span>
+                <span className="font-medium text-sm">Suggested Attendees</span>
                 <div className="flex gap-1 mt-1 flex-wrap">
                   {ctx.validated_attendees.map((a) => (
                     <Badge key={a} variant="outline" className="text-xs">{a}</Badge>
