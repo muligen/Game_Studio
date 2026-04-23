@@ -6,6 +6,7 @@ type Methods = 'get' | 'post' | 'put' | 'patch' | 'delete'
 // Type aliases for convenience
 export type RequirementCard = components['schemas']['RequirementCard']
 export type TransitionRequirementRequest = components['schemas']['TransitionRequirementRequest']
+export type MeetingMinutes = components['schemas']['MeetingMinutes']
 export type { BugCard }
 export type { DesignDoc }
 export type DesignDocMutationResult = {
@@ -383,6 +384,28 @@ export interface DeliveryBoard {
   decision_gates: KickoffDecisionGate[]
 }
 
+export interface MeetingTranscriptEntry {
+  id?: string
+  role?: string
+  speaker?: string
+  agent_role?: string
+  label?: string
+  content?: string
+  summary?: string
+  prompt?: string | null
+  reply?: string | null
+  raw_prompt?: string | null
+  raw_reply?: string | null
+  created_at?: string | null
+  metadata?: Record<string, unknown> | null
+}
+
+export interface MeetingDetails extends MeetingMinutes {
+  transcript?: MeetingTranscriptEntry[]
+  transcript_entries?: MeetingTranscriptEntry[]
+  raw_transcript?: MeetingTranscriptEntry[]
+}
+
 // Clarifications API
 export const clarificationsApi = {
   start: (workspace: string, requirementId: string): Promise<{ session: ClarificationSession }> =>
@@ -413,6 +436,13 @@ export const clarificationsApi = {
       headers: { 'Content-Type': 'application/json' },
     }) as Promise<KickoffResponse>,
 }
+
+export const meetingsApi = {
+  get: (workspace: string, meetingId: string): Promise<MeetingDetails> =>
+    apiRequest(`/meetings/${meetingId}`, 'get', {
+      params: { workspace },
+    }) as Promise<MeetingDetails>,
+} as const
 
 export const deliveryApi = {
   generatePlan: (
