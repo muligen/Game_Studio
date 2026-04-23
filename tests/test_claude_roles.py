@@ -182,6 +182,7 @@ def test_supported_role_registry_includes_moderator_discussion() -> None:
     assert claude_roles_module._ACTIVE_ROLE_NAMES == {
         "agent_opinion",
         "art",
+        "delivery_planner",
         "dev",
         "design",
         "moderator_discussion",
@@ -196,6 +197,7 @@ def test_supported_role_registry_includes_moderator_discussion() -> None:
     assert set(claude_roles_module._ROLE_PAYLOAD_MODELS) == {
         "agent_opinion",
         "art",
+        "delivery_planner",
         "dev",
         "design",
         "moderator_discussion",
