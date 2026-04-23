@@ -41,7 +41,7 @@ export function RequirementCard({
   const statusValue = status || 'draft'
   const priorityValue = priority || 'medium'
   const kindConfig = KIND_CONFIG[kind]
-  const nextAction = getNextAction(kind, statusValue, !!design_doc_id)
+  const nextAction = getNextAction(kind, statusValue)
 
   return (
     <Card

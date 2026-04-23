@@ -44,7 +44,6 @@ export const LIFECYCLE_COLUMNS: LifecycleColumn[] = [
 export function getNextAction(
   kind: RequirementKind,
   status: string,
-  _hasDesignDoc: boolean,
 ): string {
   if (status === 'draft') return kind === 'product_mvp' ? 'Clarify MVP' : 'Clarify Change'
   if (status === 'designing') return kind === 'product_mvp' ? 'Clarify MVP' : 'Clarify Change'
@@ -73,10 +72,8 @@ export function deriveProductWorkbenchState(
     }
   }
 
-  // NOTE: Backend RequirementCard doesn't have created_at field.
-  // Using id as a proxy for creation order. This may not be reliable
-  // if IDs are not sequentially generated. Consider adding created_at
-  // to the backend schema in the future.
+  // TODO: Backend IDs are req_<uuid4().hex[:8]> — random, not time-ordered.
+  // Sorting by ID is arbitrary here. Needs backend `created_at` field for correctness.
   const sorted = [...requirements].sort((a, b) => {
     return a.id.localeCompare(b.id)
   })

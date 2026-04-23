@@ -42,8 +42,8 @@ export function RequirementsBoard() {
     }
   }, [queryClient])
 
-  const handleCardClick = (id: string) => {
-    console.log('Clicked requirement:', id)
+  const handleCardClick = (_id: string) => {
+    // TODO: navigate to requirement detail page
   }
 
   const workbench = deriveProductWorkbenchState(requirements || [])
