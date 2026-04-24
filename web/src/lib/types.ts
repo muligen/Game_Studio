@@ -161,6 +161,10 @@ export interface paths {
     /** Get Meeting */
     get: operations["get_meeting_api_meetings__meeting_id__get"];
   };
+  "/api/meetings/{meeting_id}/transcript": {
+    /** Get Meeting Transcript */
+    get: operations["get_meeting_transcript_api_meetings__meeting_id__transcript_get"];
+  };
   "/api/meetings/{meeting_id}/delivery-plan": {
     /**
      * Generate Delivery Plan
@@ -480,6 +484,42 @@ export interface components {
        * @enum {string}
        */
       status?: "draft" | "completed";
+    };
+    /** MeetingTranscript */
+    MeetingTranscript: {
+      /** Id */
+      id: string;
+      /** Meeting Id */
+      meeting_id: string;
+      /** Requirement Id */
+      requirement_id: string;
+      /** Events */
+      events?: components["schemas"]["MeetingTranscriptEvent"][];
+    };
+    /** MeetingTranscriptEvent */
+    MeetingTranscriptEvent: {
+      /** Sequence */
+      sequence: number;
+      /** Agent Role */
+      agent_role: string;
+      /** Node Name */
+      node_name: string;
+      /**
+       * Kind
+       * @default llm
+       * @constant
+       */
+      kind?: "llm";
+      /** Message */
+      message: string;
+      /** Prompt */
+      prompt?: string | null;
+      /** Context */
+      context?: {
+        [key: string]: unknown;
+      };
+      /** Reply */
+      reply?: unknown;
     };
     /** RequirementCard */
     RequirementCard: {
@@ -1263,6 +1303,31 @@ export interface operations {
       200: {
         content: {
           "application/json": components["schemas"]["MeetingMinutes"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Get Meeting Transcript */
+  get_meeting_transcript_api_meetings__meeting_id__transcript_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        meeting_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MeetingTranscript"];
         };
       };
       /** @description Validation Error */

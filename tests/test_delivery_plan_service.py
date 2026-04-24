@@ -179,6 +179,42 @@ class TestGeneratePlan:
             svc.generate_plan("meet_001", "proj_001")
 
     @staticmethod
+    def test_normalizes_known_owner_agent_aliases(
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        _requirement(tmp_path)
+        planner.payload = _planner_payload(
+            tasks=[
+                {
+                    "title": "Design battle flow",
+                    "description": "Write the flow spec",
+                    "owner_agent": "design_agent",
+                    "depends_on": [],
+                    "acceptance_criteria": ["Spec reviewed"],
+                },
+                {
+                    "title": "Implement battle flow",
+                    "description": "Build the core loop",
+                    "owner_agent": "dev_agent",
+                    "depends_on": ["Design battle flow"],
+                    "acceptance_criteria": ["Tests pass"],
+                },
+                {
+                    "title": "Validate battle flow",
+                    "description": "Test the core loop",
+                    "owner_agent": "qa_agent",
+                    "depends_on": ["Implement battle flow"],
+                    "acceptance_criteria": ["Coverage reviewed"],
+                },
+            ],
+        )
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert [task.owner_agent for task in result["tasks"]] == ["design", "dev", "qa"]
+
+    @staticmethod
     def test_rejects_cyclic_dependencies(
         svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
     ) -> None:

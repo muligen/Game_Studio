@@ -6,6 +6,7 @@ type Methods = 'get' | 'post' | 'put' | 'patch' | 'delete'
 // Type aliases for convenience
 export type RequirementCard = components['schemas']['RequirementCard']
 export type TransitionRequirementRequest = components['schemas']['TransitionRequirementRequest']
+export type MeetingMinutes = components['schemas']['MeetingMinutes']
 export type { BugCard }
 export type { DesignDoc }
 export type DesignDocMutationResult = {
@@ -383,6 +384,43 @@ export interface DeliveryBoard {
   decision_gates: KickoffDecisionGate[]
 }
 
+export interface MeetingTranscriptEntry {
+  id?: string
+  sequence?: number
+  role?: string
+  speaker?: string
+  agent_role?: string
+  label?: string
+  content?: string
+  summary?: string
+  message?: string
+  node_name?: string
+  kind?: string
+  prompt?: string | null
+  reply?: string | null
+  raw_prompt?: string | null
+  raw_reply?: string | null
+  context?: Record<string, unknown> | null
+  created_at?: string | null
+  metadata?: Record<string, unknown> | null
+}
+
+export interface MeetingDetails extends MeetingMinutes {
+  transcript?: MeetingTranscriptEntry[]
+  transcript_entries?: MeetingTranscriptEntry[]
+  raw_transcript?: MeetingTranscriptEntry[]
+}
+
+export interface MeetingTranscript {
+  id: string
+  meeting_id: string
+  requirement_id: string
+  project_id?: string | null
+  events: MeetingTranscriptEntry[]
+  created_at?: string | null
+  updated_at?: string | null
+}
+
 // Clarifications API
 export const clarificationsApi = {
   start: (workspace: string, requirementId: string): Promise<{ session: ClarificationSession }> =>
@@ -413,6 +451,18 @@ export const clarificationsApi = {
       headers: { 'Content-Type': 'application/json' },
     }) as Promise<KickoffResponse>,
 }
+
+export const meetingsApi = {
+  get: (workspace: string, meetingId: string): Promise<MeetingDetails> =>
+    apiRequest(`/meetings/${meetingId}`, 'get', {
+      params: { workspace },
+    }) as Promise<MeetingDetails>,
+
+  getTranscript: (workspace: string, meetingId: string): Promise<MeetingTranscript> =>
+    apiRequest(`/meetings/${meetingId}/transcript`, 'get', {
+      params: { workspace },
+    }) as Promise<MeetingTranscript>,
+} as const
 
 export const deliveryApi = {
   generatePlan: (

@@ -17,6 +17,7 @@ from studio.schemas.delivery import (
     TaskExecutionResult,
 )
 from studio.schemas.meeting import MeetingMinutes
+from studio.schemas.meeting_transcript import MeetingTranscript, MeetingTranscriptEvent
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.session import ProjectAgentSession
 from studio.storage.base import JsonRepository
@@ -55,6 +56,7 @@ class StudioWorkspace:
         self.bugs = JsonRepository(root / "bugs", BugCard)
         self.logs = LogRepository(root / "logs", ActionLog)
         self.meetings = JsonRepository(root / "meetings", MeetingMinutes)
+        self.meeting_transcripts = JsonRepository(root / "meeting_transcripts", MeetingTranscript)
         self.sessions = JsonRepository(root / "project_agent_sessions", ProjectAgentSession)
         self.delivery_plans = JsonRepository(root / "delivery_plans", DeliveryPlan)
         self.delivery_tasks = JsonRepository(root / "delivery_tasks", DeliveryTask)
@@ -71,6 +73,7 @@ class StudioWorkspace:
             self.bugs.root,
             self.logs.root,
             self.meetings.root,
+            self.meeting_transcripts.root,
             self.sessions.root,
             self.delivery_plans.root,
             self.delivery_tasks.root,
@@ -85,3 +88,98 @@ class StudioWorkspace:
             self.session_leases.root,
         ):
             repo_root.mkdir(parents=True, exist_ok=True)
+
+    def append_meeting_transcript_event(
+        self,
+        *,
+        meeting_id: str,
+        requirement_id: str,
+        agent_role: str,
+        node_name: str,
+        prompt: object,
+        context: object,
+        reply: object,
+    ) -> MeetingTranscript:
+        try:
+            transcript = self.meeting_transcripts.get(meeting_id)
+        except FileNotFoundError:
+            transcript = MeetingTranscript(
+                id=meeting_id,
+                meeting_id=meeting_id,
+                requirement_id=requirement_id,
+            )
+
+        event = MeetingTranscriptEvent(
+            sequence=len(transcript.events) + 1,
+            agent_role=agent_role,
+            node_name=node_name,
+            kind="llm",
+            message=_summarize_transcript_reply(reply),
+            prompt=str(prompt) if isinstance(prompt, str) else None,
+            context=_transcript_dict(context),
+            reply=_transcript_value(reply),
+        )
+        updated = transcript.model_copy(update={"events": [*transcript.events, event]})
+        self.meeting_transcripts.save(updated)
+        return updated
+
+    def save_meeting_transcript(
+        self,
+        *,
+        meeting_id: str,
+        requirement_id: str,
+        events: list[dict[str, object]],
+    ) -> MeetingTranscript:
+        transcript = MeetingTranscript(
+            id=meeting_id,
+            meeting_id=meeting_id,
+            requirement_id=requirement_id,
+            events=[
+                MeetingTranscriptEvent(
+                    sequence=index,
+                    agent_role=str(event["agent_role"]),
+                    node_name=str(event["node_name"]),
+                    kind="llm",
+                    message=str(event["message"]),
+                    prompt=str(event["prompt"]) if isinstance(event.get("prompt"), str) else None,
+                    context=_transcript_dict(event.get("context")),
+                    reply=_transcript_value(event.get("reply")),
+                )
+                for index, event in enumerate(events, start=1)
+            ],
+        )
+        self.meeting_transcripts.save(transcript)
+        return transcript
+
+
+def _transcript_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _transcript_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_transcript_value(item) for item in value]
+    if hasattr(value, "model_dump") and callable(value.model_dump):
+        return _transcript_value(value.model_dump())
+    if hasattr(value, "__dict__"):
+        return _transcript_value(vars(value))
+    return str(value)
+
+
+def _transcript_dict(value: object) -> dict[str, object]:
+    normalized = _transcript_value(value)
+    if isinstance(normalized, dict):
+        return normalized
+    return {}
+
+
+def _summarize_transcript_reply(reply: object) -> str:
+    normalized = _transcript_value(reply)
+    if isinstance(normalized, str) and normalized.strip():
+        return normalized.strip()
+    if isinstance(normalized, dict):
+        for key in ("summary", "title", "reason", "reply"):
+            value = normalized.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return "Structured transcript event"

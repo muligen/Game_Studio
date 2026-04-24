@@ -18,6 +18,14 @@ from studio.storage.session_lease import SessionLeaseManager
 from studio.storage.workspace import StudioWorkspace
 
 VALID_OWNER_AGENTS = frozenset({"design", "dev", "qa", "art", "reviewer", "quality"})
+OWNER_AGENT_ALIASES = {
+    "design_agent": "design",
+    "dev_agent": "dev",
+    "qa_agent": "qa",
+    "art_agent": "art",
+    "reviewer_agent": "reviewer",
+    "quality_agent": "quality",
+}
 
 
 class DeliveryPlannerProtocol(Protocol):
@@ -92,7 +100,8 @@ class DeliveryPlanService:
             raise ValueError("delivery planner returned no tasks")
 
         for raw in raw_tasks:
-            owner = raw.get("owner_agent", "")
+            owner = self._normalize_owner_agent(raw.get("owner_agent", ""))
+            raw["owner_agent"] = owner
             if owner not in VALID_OWNER_AGENTS:
                 raise ValueError(
                     f"unknown owner_agent '{owner}'; must be one of {sorted(VALID_OWNER_AGENTS)}"
@@ -363,6 +372,11 @@ class DeliveryPlanService:
         if slug:
             return slug[:64]
         return f"gate_item_{index}"
+
+    @staticmethod
+    def _normalize_owner_agent(owner: object) -> str:
+        normalized = str(owner).strip().lower()
+        return OWNER_AGENT_ALIASES.get(normalized, normalized)
 
     def _has_cycle(self, graph: dict[str, list[str]]) -> bool:
         visiting: set[str] = set()
