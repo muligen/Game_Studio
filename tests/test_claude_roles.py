@@ -396,6 +396,30 @@ def test_load_config_reads_claude_settings_from_dotenv(tmp_path) -> None:
     assert config.base_url is None
 
 
+def test_load_config_resolves_enclosing_repo_root_for_nested_workspaces(tmp_path) -> None:
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "GAME_STUDIO_CLAUDE_ENABLED=true",
+                "GAME_STUDIO_CLAUDE_MODE=text",
+                "ANTHROPIC_API_KEY=test-key",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "studio" / "agents" / "profiles").mkdir(parents=True)
+    nested_workspace = tmp_path / ".e2e-workspaces" / "run-1" / "workspace"
+    nested_workspace.mkdir(parents=True)
+
+    adapter = ClaudeRoleAdapter(project_root=nested_workspace)
+
+    config = adapter.load_config()
+
+    assert config.enabled is True
+    assert config.mode == "text"
+    assert config.api_key == "test-key"
+
+
 def test_generate_falls_back_to_subprocess_for_blocking_getcwd(monkeypatch, tmp_path) -> None:
     (tmp_path / ".env").write_text(
         "\n".join(
