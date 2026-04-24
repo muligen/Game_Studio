@@ -21,7 +21,8 @@ try {
   execSync(command, {
     stdio: 'inherit',
     cwd: projectRoot,
-    shell: true
+    shell: true,
+    timeout: 5000,
   });
 
   console.log('Types generated successfully');

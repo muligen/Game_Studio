@@ -230,7 +230,8 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
     ws.clarifications.save(session)
 
     with patch("studio.api.routes.clarifications.SessionRegistry") as MockRegistry, \
-         patch("studio.api.routes.clarifications.build_meeting_graph") as MockGraph:
+         patch("studio.api.routes.clarifications.build_meeting_graph") as MockGraph, \
+         patch("studio.api.routes.clarifications.DeliveryPlanService") as MockDeliveryPlanService:
         mock_reg = MagicMock()
         mock_reg.create_all.return_value = []
         MockRegistry.return_value = mock_reg
@@ -250,6 +251,7 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
             },
         }
         MockGraph.return_value = mock_graph
+        MockDeliveryPlanService.return_value = MagicMock()
 
         response = client.post(
             f"/api/clarifications/requirements/req_001/kickoff?workspace={workspace}",
@@ -270,4 +272,63 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
         "consensus_points": ["Build one turn-based battle loop first."],
         "conflict_points": ["Progression depth is postponed."],
         "pending_user_decisions": [],
+    }
+
+
+def test_kickoff_generates_delivery_plan_server_side(client, workspace):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+
+    ws = StudioWorkspace(Path(workspace) / ".studio-data")
+    session = ws.clarifications.get(session_id)
+    from studio.schemas.clarification import MeetingContextDraft, ReadinessCheck
+    session = session.model_copy(update={
+        "meeting_context": MeetingContextDraft(
+            summary="Snake MVP",
+            goals=["Build the first playable snake prototype"],
+            acceptance_criteria=["Classic snake loop works"],
+            risks=["Scope growth"],
+            validated_attendees=["design", "dev", "qa"],
+        ),
+        "readiness": ReadinessCheck(ready=True, missing_fields=[]),
+        "status": "ready",
+    })
+    ws.clarifications.save(session)
+
+    with patch("studio.api.routes.clarifications.SessionRegistry") as MockRegistry, \
+         patch("studio.api.routes.clarifications.build_meeting_graph") as MockGraph, \
+         patch("studio.api.routes.clarifications.DeliveryPlanService") as MockDeliveryPlanService:
+        mock_reg = MagicMock()
+        mock_reg.create_all.return_value = []
+        MockRegistry.return_value = mock_reg
+
+        mock_graph = MagicMock()
+        mock_graph.invoke.return_value = {
+            "node_name": "moderator_minutes",
+            "minutes": {
+                "id": "meeting_002",
+                "requirement_id": "req_001",
+                "title": "Kickoff: Snake MVP",
+                "summary": "The team aligned on a snake MVP.",
+                "attendees": ["design", "dev", "qa"],
+                "consensus": [],
+                "conflicts": [],
+                "pending_user_decisions": [],
+            },
+        }
+        MockGraph.return_value = mock_graph
+
+        delivery_service = MagicMock()
+        MockDeliveryPlanService.return_value = delivery_service
+
+        response = client.post(
+            f"/api/clarifications/requirements/req_001/kickoff?workspace={workspace}",
+            json={"session_id": session_id},
+        )
+
+    assert response.status_code == 200
+    delivery_service.generate_plan.assert_called_once()
+    assert delivery_service.generate_plan.call_args.kwargs == {
+        "meeting_id": "meeting_002",
+        "project_id": response.json()["project_id"],
     }

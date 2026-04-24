@@ -12,12 +12,14 @@ from studio.api.workspace_paths import resolve_project_root, resolve_workspace_r
 from studio.agents.profile_loader import AgentProfileLoader
 from studio.llm import ClaudeRoleAdapter
 from studio.runtime.graph import build_meeting_graph
+from studio.llm import ClaudeRoleError
 from studio.schemas.clarification import (
     ClarificationMessage,
     MeetingContextDraft,
     ReadinessCheck,
     RequirementClarificationSession,
 )
+from studio.storage.delivery_plan_service import DeliveryPlanService
 from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
@@ -192,6 +194,23 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
 
     minutes = result.get("minutes", {})
     meeting_id = minutes.get("id", "")
+
+    if meeting_id:
+        try:
+            delivery_service = DeliveryPlanService(
+                ws_root,
+                project_root=resolve_project_root(workspace),
+            )
+            delivery_service.generate_plan(
+                meeting_id=meeting_id,
+                project_id=project_id,
+            )
+        except (ValueError, FileNotFoundError, ClaudeRoleError) as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Delivery planning failed after kickoff: {exc}",
+            )
+
     session = session.model_copy(update={
         "status": "completed",
         "project_id": project_id,
