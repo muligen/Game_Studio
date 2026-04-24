@@ -545,7 +545,15 @@ def parse_role_payload(
 
 def _repo_root_from(path: Path | None) -> Path:
     if path is not None:
-        return path
+        resolved = path.resolve()
+        for candidate in (resolved, *resolved.parents):
+            if (candidate / ".env").is_file():
+                return candidate
+            if (candidate / "studio" / "agents" / "profiles").is_dir():
+                return candidate
+            if (candidate / ".git").exists():
+                return candidate
+        return resolved
     return Path(__file__).resolve().parents[2]
 
 
