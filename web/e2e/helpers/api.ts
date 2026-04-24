@@ -22,6 +22,9 @@ export interface MeetingTranscriptResponse {
 export interface DeliveryBoardItem {
   id: string
   status: string
+  meeting_id: string
+  requirement_id: string
+  project_id: string
 }
 
 export interface DeliveryBoardResponse {
@@ -48,8 +51,11 @@ export async function fetchTranscript(meetingId: string): Promise<MeetingTranscr
   )
 }
 
-export async function fetchDeliveryBoard(): Promise<DeliveryBoardResponse> {
-  return fetchJson<DeliveryBoardResponse>(
-    `/api/delivery-board?workspace=${encodeURIComponent(workspace)}`,
-  )
+export async function fetchDeliveryBoard(requirementId?: string): Promise<DeliveryBoardResponse> {
+  const params = new URLSearchParams({ workspace })
+  if (requirementId) {
+    params.set('requirement_id', requirementId)
+  }
+
+  return fetchJson<DeliveryBoardResponse>(`/api/delivery-board?${params.toString()}`)
 }
