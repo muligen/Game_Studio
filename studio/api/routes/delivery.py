@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
+from starlette.concurrency import run_in_threadpool
 
 from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.llm import ClaudeRoleError
 from studio.storage.delivery_plan_service import DeliveryPlanService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["delivery"])
 
@@ -62,18 +66,29 @@ async def generate_delivery_plan(
     request: GeneratePlanRequest,
 ) -> dict:
     """Generate a delivery plan from a completed meeting."""
-    service = _get_service(workspace)
     try:
-        result = service.generate_plan(
+        service = _get_service(workspace)
+    except Exception as exc:
+        logger.exception("Failed to create DeliveryPlanService for workspace=%s", workspace)
+        raise HTTPException(status_code=500, detail=f"Service initialization failed: {exc}")
+    try:
+        result = await run_in_threadpool(
+            service.generate_plan,
             meeting_id=meeting_id,
             project_id=request.project_id,
         )
     except FileNotFoundError:
+        logger.error("Meeting not found: meeting_id=%s workspace=%s", meeting_id, workspace)
         raise HTTPException(status_code=404, detail="Meeting not found")
     except ValueError as e:
+        logger.error("Delivery plan validation error for meeting=%s: %s", meeting_id, e)
         raise HTTPException(status_code=400, detail=str(e))
     except ClaudeRoleError as e:
+        logger.error("Claude LLM error during delivery plan generation: %s", e)
         raise HTTPException(status_code=502, detail=str(e))
+    except Exception as exc:
+        logger.exception("Unexpected error generating delivery plan for meeting=%s", meeting_id)
+        raise HTTPException(status_code=500, detail=f"Delivery plan generation failed: {exc}")
 
     await broadcast_entity_changed(
         workspace=workspace,

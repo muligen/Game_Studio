@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 import re
@@ -25,7 +26,13 @@ OWNER_AGENT_ALIASES = {
     "art_agent": "art",
     "reviewer_agent": "reviewer",
     "quality_agent": "quality",
+    "moderator": "quality",
+    "moderator_agent": "quality",
+    "product_manager": "design",
+    "pm": "design",
+    "manager": "design",
 }
+_FALLBACK_OWNER_AGENT = "dev"
 
 
 class DeliveryPlannerProtocol(Protocol):
@@ -101,11 +108,13 @@ class DeliveryPlanService:
 
         for raw in raw_tasks:
             owner = self._normalize_owner_agent(raw.get("owner_agent", ""))
-            raw["owner_agent"] = owner
             if owner not in VALID_OWNER_AGENTS:
-                raise ValueError(
-                    f"unknown owner_agent '{owner}'; must be one of {sorted(VALID_OWNER_AGENTS)}"
+                original = raw.get("owner_agent", "")
+                logging.getLogger(__name__).warning(
+                    "Unknown owner_agent '%s', falling back to '%s'", original, _FALLBACK_OWNER_AGENT,
                 )
+                owner = _FALLBACK_OWNER_AGENT
+            raw["owner_agent"] = owner
 
         task_id_map: dict[str, str] = {}
         for raw in raw_tasks:

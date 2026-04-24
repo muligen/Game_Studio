@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from studio.schemas.action_log import ActionLog
 from studio.schemas.clarification import RequirementClarificationSession
+from studio.schemas.kickoff_task import KickoffTask
 from studio.schemas.balance_table import BalanceTable
 from studio.schemas.bug import BugCard
 from studio.schemas.design_doc import DesignDoc
@@ -64,6 +65,7 @@ class StudioWorkspace:
         self.execution_results = JsonRepository(root / "task_execution_results", TaskExecutionResult)
         self.session_leases = JsonRepository(root / "agent_session_leases", AgentSessionLease)
         self.clarifications = JsonRepository(root / "requirement_clarifications", RequirementClarificationSession)
+        self.kickoff_tasks = JsonRepository(root / "kickoff_tasks", KickoffTask)
 
     def ensure_layout(self) -> None:
         for repo_root in (
@@ -81,11 +83,7 @@ class StudioWorkspace:
             self.execution_results.root,
             self.session_leases.root,
             self.clarifications.root,
-            self.delivery_plans.root,
-            self.delivery_tasks.root,
-            self.decision_gates.root,
-            self.execution_results.root,
-            self.session_leases.root,
+            self.kickoff_tasks.root,
         ):
             repo_root.mkdir(parents=True, exist_ok=True)
 

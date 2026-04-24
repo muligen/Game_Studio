@@ -212,6 +212,10 @@ export interface paths {
     /** Start Kickoff */
     post: operations["start_kickoff_api_clarifications_requirements__req_id__kickoff_post"];
   };
+  "/api/clarifications/kickoff-tasks/{task_id}": {
+    /** Get Kickoff Task */
+    get: operations["get_kickoff_task_api_clarifications_kickoff_tasks__task_id__get"];
+  };
 }
 
 export type webhooks = Record<string, never>;
@@ -1574,6 +1578,31 @@ export interface operations {
     requestBody: {
       content: {
         "application/json": components["schemas"]["KickoffRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Get Kickoff Task */
+  get_kickoff_task_api_clarifications_kickoff_tasks__task_id__get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        task_id: string;
       };
     };
     responses: {

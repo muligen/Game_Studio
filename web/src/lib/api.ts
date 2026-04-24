@@ -23,9 +23,10 @@ export async function apiRequest(
   options?: Omit<RequestInit, 'body'> & {
     params?: Record<string, string | number | boolean>
     body?: BodyInit | Record<string, unknown> | FormData
+    timeout?: number
   }
 ): Promise<unknown> {
-  const { params, body, ...fetchOptions } = options || {}
+  const { params, body, timeout, ...fetchOptions } = options || {}
 
   // Build query string from params
   const queryString = params
@@ -46,7 +47,6 @@ export async function apiRequest(
   if (body) {
     if (body instanceof FormData) {
       finalBody = body
-      // Don't set Content-Type for FormData - browser does it automatically with boundary
       delete headers['Content-Type']
     } else if (typeof body === 'string') {
       finalBody = body
@@ -56,19 +56,32 @@ export async function apiRequest(
     }
   }
 
-  const response = await fetch(`${API_BASE}${path}${queryString}`, {
-    method: method.toUpperCase(),
-    headers,
-    ...fetchOptions,
-    ...(finalBody && { body: finalBody }),
-  })
+  const controller = new AbortController()
+  const timeoutId = timeout ? setTimeout(() => controller.abort(), timeout) : undefined
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Unknown error' }))
-    throw new Error(error.detail || error.message || 'API request failed')
+  try {
+    const response = await fetch(`${API_BASE}${path}${queryString}`, {
+      method: method.toUpperCase(),
+      headers,
+      ...fetchOptions,
+      ...(finalBody && { body: finalBody }),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Unknown error' }))
+      throw new Error(error.detail || error.message || 'API request failed')
+    }
+
+    return response.json()
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('Request timed out')
+    }
+    throw err
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
   }
-
-  return response.json()
 }
 
 // Requirements API
@@ -371,6 +384,23 @@ export interface KickoffMeetingSnapshot {
 }
 
 export interface KickoffResponse {
+  task_id: string
+  project_id: string
+  status: string
+}
+
+export interface KickoffTaskStatus {
+  id: string
+  session_id: string
+  requirement_id: string
+  workspace: string
+  project_id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  error: string | null
+  meeting_result: KickoffMeetingResult | null
+}
+
+export interface KickoffMeetingResult {
   project_id: string
   requirement_id: string
   meeting_id: string
@@ -450,6 +480,14 @@ export const clarificationsApi = {
       body: JSON.stringify({ session_id: sessionId }),
       headers: { 'Content-Type': 'application/json' },
     }) as Promise<KickoffResponse>,
+
+  getKickoffTask: (
+    workspace: string,
+    taskId: string,
+  ): Promise<KickoffTaskStatus> =>
+    apiRequest(`/clarifications/kickoff-tasks/${taskId}`, 'get', {
+      params: { workspace },
+    }) as Promise<KickoffTaskStatus>,
 }
 
 export const meetingsApi = {
@@ -473,6 +511,7 @@ export const deliveryApi = {
     apiRequest(`/meetings/${meetingId}/delivery-plan`, 'post', {
       params: { workspace },
       body: { project_id: projectId },
+      timeout: 180_000,
     }) as Promise<{ plan: DeliveryPlan; tasks: DeliveryTask[]; decision_gate: KickoffDecisionGate | null }>,
 
   listBoard: (workspace: string, requirementId?: string): Promise<DeliveryBoard> =>

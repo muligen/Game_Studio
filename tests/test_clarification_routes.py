@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -208,7 +208,7 @@ def test_kickoff_rejects_unready_session(client, workspace):
     assert "not ready" in response.json()["detail"].lower()
 
 
-def test_kickoff_creates_project_and_runs_meeting(client, workspace):
+def test_kickoff_starts_background_task(client, workspace):
     start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     session_id = start.json()["session"]["id"]
 
@@ -229,15 +229,14 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
     })
     ws.clarifications.save(session)
 
-    with patch("studio.api.routes.clarifications.SessionRegistry") as MockRegistry, \
-         patch("studio.api.routes.clarifications.build_meeting_graph") as MockGraph, \
-         patch("studio.api.routes.clarifications.DeliveryPlanService") as MockDeliveryPlanService:
+    with patch("studio.storage.kickoff_service.SessionRegistry") as MockRegistry, \
+         patch("studio.storage.kickoff_service.build_meeting_graph") as MockGraph:
         mock_reg = MagicMock()
         mock_reg.create_all.return_value = []
         MockRegistry.return_value = mock_reg
 
         mock_graph = MagicMock()
-        mock_graph.invoke.return_value = {
+        mock_graph.ainvoke = AsyncMock(return_value={
             "node_name": "moderator_minutes",
             "minutes": {
                 "id": "meeting_001",
@@ -249,9 +248,8 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
                 "conflicts": ["Progression depth is postponed."],
                 "pending_user_decisions": [],
             },
-        }
+        })
         MockGraph.return_value = mock_graph
-        MockDeliveryPlanService.return_value = MagicMock()
 
         response = client.post(
             f"/api/clarifications/requirements/req_001/kickoff?workspace={workspace}",
@@ -260,22 +258,12 @@ def test_kickoff_creates_project_and_runs_meeting(client, workspace):
 
     assert response.status_code == 200
     data = response.json()
+    assert data["task_id"].startswith("kickoff_")
     assert data["project_id"].startswith("proj_")
-    assert data["requirement_id"] == "req_001"
-    assert data["status"] == "kickoff_complete"
-    assert data["meeting_id"] == "meeting_001"
-    assert data["meeting"] == {
-        "id": "meeting_001",
-        "title": "Kickoff: Combat system",
-        "summary": "The team aligned on a compact combat MVP.",
-        "attendees": ["design", "dev"],
-        "consensus_points": ["Build one turn-based battle loop first."],
-        "conflict_points": ["Progression depth is postponed."],
-        "pending_user_decisions": [],
-    }
+    assert data["status"] == "kickoff_started"
 
 
-def test_kickoff_generates_delivery_plan_server_side(client, workspace):
+def test_kickoff_task_poll_returns_status(client, workspace):
     start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     session_id = start.json()["session"]["id"]
 
@@ -295,15 +283,14 @@ def test_kickoff_generates_delivery_plan_server_side(client, workspace):
     })
     ws.clarifications.save(session)
 
-    with patch("studio.api.routes.clarifications.SessionRegistry") as MockRegistry, \
-         patch("studio.api.routes.clarifications.build_meeting_graph") as MockGraph, \
-         patch("studio.api.routes.clarifications.DeliveryPlanService") as MockDeliveryPlanService:
+    with patch("studio.storage.kickoff_service.SessionRegistry") as MockRegistry, \
+         patch("studio.storage.kickoff_service.build_meeting_graph") as MockGraph:
         mock_reg = MagicMock()
         mock_reg.create_all.return_value = []
         MockRegistry.return_value = mock_reg
 
         mock_graph = MagicMock()
-        mock_graph.invoke.return_value = {
+        mock_graph.ainvoke = AsyncMock(return_value={
             "node_name": "moderator_minutes",
             "minutes": {
                 "id": "meeting_002",
@@ -315,20 +302,22 @@ def test_kickoff_generates_delivery_plan_server_side(client, workspace):
                 "conflicts": [],
                 "pending_user_decisions": [],
             },
-        }
+        })
         MockGraph.return_value = mock_graph
 
-        delivery_service = MagicMock()
-        MockDeliveryPlanService.return_value = delivery_service
-
-        response = client.post(
+        kickoff_response = client.post(
             f"/api/clarifications/requirements/req_001/kickoff?workspace={workspace}",
             json={"session_id": session_id},
         )
 
-    assert response.status_code == 200
-    delivery_service.generate_plan.assert_called_once()
-    assert delivery_service.generate_plan.call_args.kwargs == {
-        "meeting_id": "meeting_002",
-        "project_id": response.json()["project_id"],
-    }
+    assert kickoff_response.status_code == 200
+    task_id = kickoff_response.json()["task_id"]
+
+    # Poll for task status
+    poll_response = client.get(
+        f"/api/clarifications/kickoff-tasks/{task_id}?workspace={workspace}",
+    )
+    assert poll_response.status_code == 200
+    task_data = poll_response.json()
+    assert task_data["status"] in ("pending", "running", "completed")
+    assert task_data["project_id"].startswith("proj_")

@@ -11,7 +11,6 @@ from starlette.concurrency import run_in_threadpool
 from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.agents.profile_loader import AgentProfileLoader
 from studio.llm import ClaudeRoleAdapter
-from studio.runtime.graph import build_meeting_graph
 from studio.llm import ClaudeRoleError
 from studio.schemas.clarification import (
     ClarificationMessage,
@@ -19,14 +18,13 @@ from studio.schemas.clarification import (
     ReadinessCheck,
     RequirementClarificationSession,
 )
-from studio.storage.delivery_plan_service import DeliveryPlanService
+from studio.storage.kickoff_service import KickoffService
 from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
 router = APIRouter(prefix="/clarifications", tags=["clarifications"])
 
 _SUPPORTED_ATTENDEES = {"design", "art", "dev", "qa"}
-_MANAGED_AGENTS = ["moderator", "design", "dev", "qa", "quality", "art", "reviewer"]
 _CLARIFICATION_TIMEOUT_SECONDS = 45
 
 
@@ -177,61 +175,27 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
     store.clarifications.save(session)
 
     ws_root = resolve_workspace_root(workspace)
-    project_id = f"proj_{uuid.uuid4().hex[:8]}"
-    registry = SessionRegistry(ws_root)
-    registry.create_all(project_id, req_id, _MANAGED_AGENTS)
-
-    project_root = str(resolve_project_root(workspace))
-    graph = build_meeting_graph()
-    result = graph.invoke({
-        "workspace_root": str(ws_root),
-        "project_root": project_root,
-        "requirement_id": req_id,
-        "user_intent": f"Kickoff: {session.meeting_context.summary}",
-        "project_id": project_id,
-        "meeting_context": session.meeting_context.model_dump(),
-    })
-
-    minutes = result.get("minutes", {})
-    meeting_id = minutes.get("id", "")
-
-    if meeting_id:
-        try:
-            delivery_service = DeliveryPlanService(
-                ws_root,
-                project_root=resolve_project_root(workspace),
-            )
-            delivery_service.generate_plan(
-                meeting_id=meeting_id,
-                project_id=project_id,
-            )
-        except (ValueError, FileNotFoundError, ClaudeRoleError) as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Delivery planning failed after kickoff: {exc}",
-            )
-
-    session = session.model_copy(update={
-        "status": "completed",
-        "project_id": project_id,
-        "updated_at": datetime.now(UTC).isoformat(),
-    })
-    store.clarifications.save(session)
+    service = KickoffService(ws_root, project_root=resolve_project_root(workspace))
+    task = service.start_kickoff(
+        workspace=workspace,
+        session_id=request.session_id,
+        requirement_id=req_id,
+        meeting_context=session.meeting_context.model_dump(),
+    )
 
     return {
-        "project_id": project_id,
-        "requirement_id": req_id,
-        "meeting_id": meeting_id,
-        "status": "kickoff_complete",
-        "meeting": {
-            "id": meeting_id,
-            "title": str(minutes.get("title", "")),
-            "summary": str(minutes.get("summary", "")),
-            "attendees": [str(item) for item in minutes.get("attendees", [])],
-            "consensus_points": [str(item) for item in minutes.get("consensus", [])],
-            "conflict_points": [str(item) for item in minutes.get("conflicts", [])],
-            "pending_user_decisions": [
-                str(item) for item in minutes.get("pending_user_decisions", [])
-            ],
-        },
+        "task_id": task.id,
+        "project_id": task.project_id,
+        "status": "kickoff_started",
     }
+
+
+@router.get("/kickoff-tasks/{task_id}")
+async def get_kickoff_task(task_id: str, workspace: str):
+    ws_root = resolve_workspace_root(workspace)
+    service = KickoffService(ws_root, project_root=resolve_project_root(workspace))
+    try:
+        task = service.get_task(task_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task.model_dump()

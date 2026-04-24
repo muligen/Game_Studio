@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -15,6 +15,7 @@ import {
   clarificationsApi,
   deliveryApi,
   type ClarificationSession,
+  type KickoffMeetingResult,
   type KickoffResponse,
   type MeetingContextDraft,
 } from '@/lib/api'
@@ -68,11 +69,12 @@ function isFieldComplete(ctx: MeetingContextDraft | null, key: keyof MeetingCont
 
 type KickoffUiState =
   | { phase: 'idle' }
-  | { phase: 'kickoff_running' }
+  | { phase: 'already_completed' }
+  | { phase: 'kickoff_running'; taskId: string; startTime: number }
   | { phase: 'kickoff_failed'; error: string }
-  | { phase: 'delivery_generating'; result: KickoffResponse }
-  | { phase: 'delivery_failed'; result: KickoffResponse; error: string }
-  | { phase: 'delivery_ready'; result: KickoffResponse }
+  | { phase: 'delivery_generating'; result: KickoffMeetingResult }
+  | { phase: 'delivery_failed'; result: KickoffMeetingResult; error: string }
+  | { phase: 'delivery_ready'; result: KickoffMeetingResult }
 
 export function RequirementClarificationDialog({
   workspace,
@@ -92,7 +94,12 @@ export function RequirementClarificationDialog({
 
   const startMutation = useMutation({
     mutationFn: () => clarificationsApi.start(workspace, requirementId),
-    onSuccess: (data) => setSession(data.session),
+    onSuccess: (data) => {
+      setSession(data.session)
+      if (data.session.status === 'completed' || data.session.status === 'kickoff_started') {
+        setKickoffUi({ phase: 'already_completed' })
+      }
+    },
   })
 
   const sendMutation = useMutation({
@@ -107,24 +114,12 @@ export function RequirementClarificationDialog({
   const kickoffMutation = useMutation({
     mutationFn: () =>
       clarificationsApi.kickoff(workspace, requirementId, session!.id),
-    onMutate: () => setKickoffUi({ phase: 'kickoff_running' }),
-    onSuccess: (result) => {
-      setKickoffUi({ phase: 'delivery_generating', result })
-      deliveryMutation.mutate(
-        { meetingId: result.meeting_id, projectId: result.project_id },
-        {
-          onSuccess: () => {
-            setKickoffUi({ phase: 'delivery_ready', result })
-          },
-          onError: (error) => {
-            setKickoffUi({
-              phase: 'delivery_failed',
-              result,
-              error: error instanceof Error ? error.message : 'Delivery generation failed.',
-            })
-          },
-        },
-      )
+    onSuccess: (response: KickoffResponse) => {
+      setKickoffUi({
+        phase: 'kickoff_running',
+        taskId: response.task_id,
+        startTime: Date.now(),
+      })
     },
     onError: (error) => {
       setKickoffUi({
@@ -139,6 +134,66 @@ export function RequirementClarificationDialog({
       deliveryApi.generatePlan(workspace, meetingId, projectId),
   })
 
+  // Poll kickoff task status
+  useEffect(() => {
+    if (kickoffUi.phase !== 'kickoff_running') return
+    const { taskId } = kickoffUi
+
+    const poll = async () => {
+      try {
+        const task = await clarificationsApi.getKickoffTask(workspace, taskId)
+
+        if (task.status === 'completed' && task.meeting_result) {
+          const result = task.meeting_result
+          console.log('[kickoff] Meeting completed, generating delivery plan:', result.meeting_id, result.project_id)
+          setKickoffUi({ phase: 'delivery_generating', result })
+          deliveryMutation.mutate(
+            { meetingId: result.meeting_id, projectId: result.project_id },
+            {
+              onSuccess: (data) => {
+                console.log('[kickoff] Delivery plan generated:', data)
+                setKickoffUi({ phase: 'delivery_ready', result })
+              },
+              onError: (error) => {
+                console.error('[kickoff] Delivery plan failed:', error)
+                setKickoffUi({
+                  phase: 'delivery_failed',
+                  result,
+                  error: error instanceof Error ? error.message : 'Delivery generation failed.',
+                })
+              },
+            },
+          )
+          return true
+        }
+
+        if (task.status === 'failed') {
+          setKickoffUi({
+            phase: 'kickoff_failed',
+            error: task.error || 'Kickoff meeting failed.',
+          })
+          return true
+        }
+
+        return false
+      } catch {
+        return false
+      }
+    }
+
+    let stopped = false
+    const runPoll = async () => {
+      while (!stopped) {
+        const done = await poll()
+        if (done) break
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+    }
+    runPoll()
+
+    return () => { stopped = true }
+  }, [kickoffUi.phase]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (open && !session) startMutation.mutate()
     if (!open) {
@@ -146,7 +201,7 @@ export function RequirementClarificationDialog({
       setMessage('')
       setTranscriptOpen(false)
     }
-  }, [open, session])
+  }, [open, session]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -158,25 +213,56 @@ export function RequirementClarificationDialog({
     sendMutation.mutate(message.trim())
   }
 
-  const canKickoff = session?.readiness?.ready && !kickoffMutation.isPending
+  const sessionCompleted = session?.status === 'completed' || session?.status === 'kickoff_started'
+  const canKickoff = session?.readiness?.ready && !kickoffMutation.isPending && !sessionCompleted
   const ctx = session?.meeting_context ?? null
   const uiLocked = kickoffUi.phase !== 'idle'
   const kickoffResult =
     'result' in kickoffUi ? kickoffUi.result : null
+  const kickoffMeeting = kickoffResult?.meeting ?? null
 
-  const openMeetingMinutes = () => {
+  const openMeetingMinutes = useCallback(() => {
     if (!kickoffResult) return
     const url = `/api/meetings/${kickoffResult.meeting_id}?workspace=${encodeURIComponent(workspace)}`
     window.open(url, '_blank', 'noopener,noreferrer')
-  }
+  }, [kickoffResult, workspace])
+
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (kickoffUi.phase !== 'kickoff_running' && kickoffUi.phase !== 'delivery_generating') {
+      setElapsed(0)
+      return
+    }
+    const start = kickoffUi.phase === 'kickoff_running' ? kickoffUi.startTime : Date.now()
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [kickoffUi.phase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const renderKickoffState = () => {
     if (kickoffUi.phase === 'idle') return null
 
-    const result = kickoffResult
-    const summary = result?.meeting.summary
-    const consensus = result?.meeting.consensus_points ?? []
-    const conflicts = result?.meeting.conflict_points ?? []
+    if (kickoffUi.phase === 'already_completed') {
+      return (
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="w-full max-w-2xl space-y-4 rounded-lg border bg-slate-50 p-6">
+            <Badge variant="outline">Kickoff Completed</Badge>
+            <h3 className="text-lg font-semibold text-slate-900">{requirementTitle}</h3>
+            <p className="text-sm text-slate-600">
+              The kickoff meeting for this requirement has already been completed.
+            </p>
+            <div className="flex gap-2">
+              <Button onClick={() => { onOpenChange(false); navigate('/delivery') }}>
+                Open Delivery Board
+              </Button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    const summary = kickoffMeeting?.summary
+    const consensus = kickoffMeeting?.consensus_points ?? []
+    const conflicts = kickoffMeeting?.conflict_points ?? []
 
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -192,22 +278,32 @@ export function RequirementClarificationDialog({
             <h3 className="text-lg font-semibold text-slate-900">{requirementTitle}</h3>
             <p className="text-sm text-slate-600">
               {kickoffUi.phase === 'kickoff_running' &&
-                'The system is running the kickoff meeting now.'}
+                `The system is running the kickoff meeting now. (${elapsed}s elapsed)`}
               {kickoffUi.phase === 'delivery_generating' &&
-                'Kickoff finished. The system is generating delivery tasks for the board.'}
+                `Kickoff finished. Generating delivery tasks... (${elapsed}s elapsed)`}
               {kickoffUi.phase === 'kickoff_failed' && kickoffUi.error}
               {kickoffUi.phase === 'delivery_failed' &&
                 'Kickoff completed, but delivery task generation failed.'}
               {kickoffUi.phase === 'delivery_ready' &&
                 'Kickoff completed and delivery tasks are ready on the board.'}
             </p>
+            {kickoffUi.phase === 'kickoff_running' && elapsed > 30 && (
+              <p className="text-xs text-amber-600">
+                Kickoff meetings typically take 1-3 minutes. Please wait...
+              </p>
+            )}
+            {kickoffUi.phase === 'delivery_generating' && elapsed > 15 && (
+              <p className="text-xs text-amber-600">
+                Delivery plan generation is running...
+              </p>
+            )}
           </div>
 
-          {result && (
+          {kickoffResult && (
             <div className="space-y-3 text-sm text-slate-700">
               <div className="grid gap-2 rounded-md border bg-white p-3 md:grid-cols-2">
-                <p><span className="font-medium">Project ID:</span> {result.project_id}</p>
-                <p><span className="font-medium">Meeting ID:</span> {result.meeting_id}</p>
+                <p><span className="font-medium">Project ID:</span> {kickoffResult.project_id}</p>
+                <p><span className="font-medium">Meeting ID:</span> {kickoffResult.meeting_id}</p>
               </div>
               {summary && (
                 <div className="rounded-md border bg-white p-3">
@@ -215,10 +311,12 @@ export function RequirementClarificationDialog({
                   <p>{summary}</p>
                 </div>
               )}
-              <div className="rounded-md border bg-white p-3">
-                <p className="mb-1 font-medium">Attendees</p>
-                <p>{result.meeting.attendees.join(', ') || 'No attendees recorded.'}</p>
-              </div>
+              {kickoffMeeting && (
+                <div className="rounded-md border bg-white p-3">
+                  <p className="mb-1 font-medium">Attendees</p>
+                  <p>{kickoffMeeting.attendees.join(', ') || 'No attendees recorded.'}</p>
+                </div>
+              )}
               {consensus.length > 0 && (
                 <div className="rounded-md border bg-white p-3">
                   <p className="mb-1 font-medium">Consensus</p>
@@ -247,7 +345,7 @@ export function RequirementClarificationDialog({
           )}
 
           <div className="flex flex-wrap gap-2">
-            {kickoffUi.phase === 'delivery_ready' && (
+            {(kickoffUi.phase === 'delivery_ready' || kickoffUi.phase === 'delivery_generating') && (
               <Button
                 onClick={() => {
                   onOpenChange(false)
@@ -257,29 +355,29 @@ export function RequirementClarificationDialog({
                 Open Delivery Board
               </Button>
             )}
-            {(kickoffUi.phase === 'delivery_failed' || kickoffUi.phase === 'delivery_ready') && result && (
+            {kickoffResult && kickoffUi.phase !== 'kickoff_failed' && (
               <Button variant="outline" onClick={() => setTranscriptOpen(true)}>
                 View Meeting Transcript
               </Button>
             )}
-            {(kickoffUi.phase === 'delivery_failed' || kickoffUi.phase === 'delivery_ready') && result && (
+            {kickoffResult && kickoffUi.phase !== 'kickoff_failed' && (
               <Button variant="outline" onClick={openMeetingMinutes}>
                 View Meeting Minutes
               </Button>
             )}
-            {kickoffUi.phase === 'delivery_failed' && result && (
+            {kickoffUi.phase === 'delivery_failed' && kickoffResult && (
               <Button
                 variant="outline"
                 onClick={() => {
-                  setKickoffUi({ phase: 'delivery_generating', result })
+                  setKickoffUi({ phase: 'delivery_generating', result: kickoffResult })
                   deliveryMutation.mutate(
-                    { meetingId: result.meeting_id, projectId: result.project_id },
+                    { meetingId: kickoffResult.meeting_id, projectId: kickoffResult.project_id },
                     {
-                      onSuccess: () => setKickoffUi({ phase: 'delivery_ready', result }),
+                      onSuccess: () => setKickoffUi({ phase: 'delivery_ready', result: kickoffResult }),
                       onError: (error) =>
                         setKickoffUi({
                           phase: 'delivery_failed',
-                          result,
+                          result: kickoffResult,
                           error:
                             error instanceof Error
                               ? error.message
@@ -399,7 +497,10 @@ export function RequirementClarificationDialog({
                 <Button className="w-full" disabled={!canKickoff || uiLocked} onClick={() => kickoffMutation.mutate()}>
                   {kickoffMutation.isPending ? 'Starting...' : 'Start Kickoff Meeting'}
                 </Button>
-                {session?.readiness && !session.readiness.ready && (
+                {sessionCompleted && (
+                  <p className="text-xs text-slate-500 mt-1">Kickoff already completed.</p>
+                )}
+                {session?.readiness && !session.readiness.ready && !sessionCompleted && (
                   <p className="text-xs text-amber-600 mt-1">
                     Missing: {session.readiness.missing_fields.join(', ')}
                   </p>
