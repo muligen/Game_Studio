@@ -17,7 +17,7 @@ class QualityAgent:
             self._claude_runner = claude_runner
             return
 
-        profile = AgentProfileLoader(repo_root=project_root).load("quality")
+        profile = AgentProfileLoader().load("quality")
         self._claude_runner = ClaudeRoleAdapter(project_root=project_root, profile=profile)
 
     def run(self, state: RuntimeState, **kwargs: object) -> NodeResult:

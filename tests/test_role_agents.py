@@ -9,6 +9,7 @@ from studio.agents import AgentProfile
 from studio.agents.art import ArtAgent
 from studio.agents.dev import DevAgent
 from studio.agents.design import DesignAgent
+from studio.agents.moderator import ModeratorAgent
 from studio.agents.qa import QaAgent
 from studio.agents.quality import QualityAgent
 from studio.agents.reviewer import ReviewerAgent
@@ -75,15 +76,9 @@ def _state() -> RuntimeState:
     ("module_name", "class_name", "agent_name"),
     [
         ("studio.agents.worker", "WorkerAgent", "worker"),
-        ("studio.agents.reviewer", "ReviewerAgent", "reviewer"),
-        ("studio.agents.design", "DesignAgent", "design"),
-        ("studio.agents.dev", "DevAgent", "dev"),
-        ("studio.agents.qa", "QaAgent", "qa"),
-        ("studio.agents.quality", "QualityAgent", "quality"),
-        ("studio.agents.art", "ArtAgent", "art"),
     ],
 )
-def test_managed_agents_load_profiles_by_default(
+def test_worker_agent_loads_profile_from_project_root(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     module_name: str,
@@ -113,6 +108,56 @@ def test_managed_agents_load_profiles_by_default(
 
 
 @pytest.mark.parametrize(
+    ("module_name", "class_name", "agent_name"),
+    [
+        ("studio.agents.reviewer", "ReviewerAgent", "reviewer"),
+        ("studio.agents.design", "DesignAgent", "design"),
+        ("studio.agents.dev", "DevAgent", "dev"),
+        ("studio.agents.qa", "QaAgent", "qa"),
+        ("studio.agents.quality", "QualityAgent", "quality"),
+        ("studio.agents.art", "ArtAgent", "art"),
+        ("studio.agents.moderator", "ModeratorAgent", "moderator"),
+    ],
+)
+def test_meeting_graph_agents_load_profiles_from_repository_root_and_preserve_workspace_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    module_name: str,
+    class_name: str,
+    agent_name: str,
+) -> None:
+    module = importlib.import_module(module_name)
+    agent_cls = getattr(module, class_name)
+    profile = _profile(agent_name, tmp_path)
+    loader_calls: list[tuple[Path | None, str]] = []
+    adapter_calls: list[tuple[Path | None, AgentProfile]] = []
+
+    class FakeLoader:
+        def __init__(self, repo_root: Path | None = None) -> None:
+            loader_calls.append((repo_root, "__init__"))
+
+        def load(self, requested_agent_name: str) -> AgentProfile:
+            init_repo_root, _ = loader_calls.pop()
+            loader_calls.append((init_repo_root, requested_agent_name))
+            return profile
+
+    class FakeAdapter:
+        def __init__(self, project_root: Path | None = None, profile: AgentProfile | None = None, **_: object) -> None:
+            assert profile is not None
+            adapter_calls.append((project_root, profile))
+            self.profile = profile
+
+    monkeypatch.setattr(module, "AgentProfileLoader", FakeLoader)
+    monkeypatch.setattr(module, "ClaudeRoleAdapter", FakeAdapter)
+
+    agent = agent_cls(project_root=tmp_path)
+
+    assert loader_calls == [(None, agent_name)]
+    assert adapter_calls == [(tmp_path, profile)]
+    assert agent._claude_runner.profile == profile
+
+
+@pytest.mark.parametrize(
     ("module_name", "class_name"),
     [
         ("studio.agents.worker", "WorkerAgent"),
@@ -122,6 +167,7 @@ def test_managed_agents_load_profiles_by_default(
         ("studio.agents.qa", "QaAgent"),
         ("studio.agents.quality", "QualityAgent"),
         ("studio.agents.art", "ArtAgent"),
+        ("studio.agents.moderator", "ModeratorAgent"),
     ],
 )
 def test_managed_agents_preserve_injected_claude_runner(
@@ -152,7 +198,7 @@ def test_reviewer_agent_bubbles_profile_loader_errors(
 
     class FakeLoader:
         def __init__(self, repo_root: Path | None = None) -> None:
-            assert repo_root == tmp_path
+            assert repo_root is None
 
         def load(self, agent_name: str) -> AgentProfile:
             raise AgentProfileValidationError(

@@ -19,7 +19,7 @@ class ModeratorAgent:
             self._claude_runner = claude_runner
             return
 
-        profile = AgentProfileLoader(repo_root=project_root).load("moderator")
+        profile = AgentProfileLoader().load("moderator")
         self._claude_runner = ClaudeRoleAdapter(
             project_root=project_root,
             profile=profile,

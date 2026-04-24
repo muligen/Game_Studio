@@ -19,7 +19,7 @@ class ArtAgent:
             self._claude_runner = claude_runner
             return
 
-        profile = AgentProfileLoader(repo_root=project_root).load("art")
+        profile = AgentProfileLoader().load("art")
         self._claude_runner = ClaudeRoleAdapter(
             project_root=project_root,
             profile=profile,
