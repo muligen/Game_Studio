@@ -10,6 +10,7 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 
 const COLUMNS = [
   { key: 'gate', title: 'Kickoff Decision Needed', status: 'gate' },
+  { key: 'preview', title: 'Preview', status: 'preview' },
   { key: 'blocked', title: 'Blocked', status: 'blocked' },
   { key: 'ready', title: 'Ready', status: 'ready' },
   { key: 'in_progress', title: 'In Progress', status: 'in_progress' },

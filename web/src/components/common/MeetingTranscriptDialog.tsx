@@ -6,7 +6,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { meetingsApi, type MeetingDetails, type MeetingTranscriptEntry } from '@/lib/api'
+import { meetingsApi, type MeetingTranscriptEntry } from '@/lib/api'
 
 interface MeetingTranscriptDialogProps {
   workspace: string
@@ -15,25 +15,19 @@ interface MeetingTranscriptDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-function getTranscriptEntries(meeting: MeetingDetails | undefined): MeetingTranscriptEntry[] {
-  if (!meeting) return []
-
-  const candidates = [meeting.transcript, meeting.transcript_entries, meeting.raw_transcript]
-  for (const candidate of candidates) {
-    if (candidate && candidate.length > 0) {
-      return candidate
-    }
-  }
-
-  return []
-}
-
 function getEntryTitle(entry: MeetingTranscriptEntry): string {
-  return entry.label || entry.speaker || entry.agent_role || entry.role || 'Transcript Entry'
+  return entry.label || entry.speaker || entry.agent_role || entry.role || entry.node_name || 'Transcript Entry'
 }
 
 function getEntryBody(entry: MeetingTranscriptEntry): string {
-  return entry.content || entry.summary || entry.reply || entry.raw_reply || 'No transcript text recorded.'
+  return (
+    entry.content ||
+    entry.summary ||
+    entry.message ||
+    entry.reply ||
+    entry.raw_reply ||
+    'No transcript text recorded.'
+  )
 }
 
 function getRoleTone(entry: MeetingTranscriptEntry): string {
@@ -60,14 +54,14 @@ export function MeetingTranscriptDialog({
   open,
   onOpenChange,
 }: MeetingTranscriptDialogProps) {
-  const meetingQuery = useQuery({
+  const transcriptQuery = useQuery({
     queryKey: ['meeting-transcript', workspace, meetingId],
-    queryFn: () => meetingsApi.get(workspace, meetingId!),
+    queryFn: () => meetingsApi.getTranscript(workspace, meetingId!),
     enabled: open && Boolean(meetingId),
   })
 
-  const transcriptEntries = getTranscriptEntries(meetingQuery.data)
-  const attendees = meetingQuery.data?.attendees ?? []
+  const transcript = transcriptQuery.data
+  const transcriptEntries = transcript?.events ?? []
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -76,34 +70,34 @@ export function MeetingTranscriptDialog({
           <DialogTitle>Meeting Transcript</DialogTitle>
         </DialogHeader>
 
-        {meetingQuery.isPending && (
+        {transcriptQuery.isPending && (
           <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
             Loading transcript...
           </div>
         )}
 
-        {meetingQuery.isError && (
+        {transcriptQuery.isError && (
           <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-            {meetingQuery.error instanceof Error
-              ? meetingQuery.error.message
+            {transcriptQuery.error instanceof Error
+              ? transcriptQuery.error.message
               : 'Failed to load meeting transcript.'}
           </div>
         )}
 
-        {meetingQuery.data && (
+        {transcript && (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="rounded-lg border bg-slate-50 p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-base font-semibold text-slate-900">{meetingQuery.data.title}</h3>
-                <Badge variant="outline">{meetingQuery.data.status ?? 'unknown'}</Badge>
-                <Badge variant="secondary">Meeting ID: {meetingQuery.data.id}</Badge>
+                <h3 className="text-base font-semibold text-slate-900">{transcript.meeting_id}</h3>
+                <Badge variant="outline">Transcript</Badge>
+                <Badge variant="secondary">Requirement: {transcript.requirement_id}</Badge>
+                {transcript.project_id && (
+                  <Badge variant="secondary">Project: {transcript.project_id}</Badge>
+                )}
               </div>
-              <p className="mt-2 text-sm text-slate-600">
-                Requirement: {meetingQuery.data.requirement_id}
-              </p>
-              {attendees.length > 0 && (
+              {transcript.updated_at && (
                 <p className="mt-2 text-sm text-slate-600">
-                  Attendees: {attendees.join(', ')}
+                  Updated: {formatTimestamp(transcript.updated_at)}
                 </p>
               )}
             </div>
@@ -125,10 +119,13 @@ export function MeetingTranscriptDialog({
                       >
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-slate-900">{title}</span>
-                          {entry.role && (
+                          {(entry.role || entry.agent_role || entry.speaker) && (
                             <Badge variant="outline" className="capitalize">
-                              {entry.role}
+                              {entry.role || entry.agent_role || entry.speaker}
                             </Badge>
+                          )}
+                          {entry.node_name && (
+                            <Badge variant="secondary">{entry.node_name}</Badge>
                           )}
                           {timestamp && (
                             <span className="text-xs text-slate-500">{timestamp}</span>
@@ -161,6 +158,16 @@ export function MeetingTranscriptDialog({
                                   </p>
                                   <pre className="mt-1 whitespace-pre-wrap break-words rounded border bg-white p-3 font-mono">
                                     {rawReply}
+                                  </pre>
+                                </div>
+                              )}
+                              {entry.context && (
+                                <div>
+                                  <p className="font-semibold uppercase tracking-wide text-slate-500">
+                                    Context
+                                  </p>
+                                  <pre className="mt-1 whitespace-pre-wrap break-words rounded border bg-white p-3 font-mono">
+                                    {JSON.stringify(entry.context, null, 2)}
                                   </pre>
                                 </div>
                               )}
