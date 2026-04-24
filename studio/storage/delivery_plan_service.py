@@ -127,7 +127,10 @@ class DeliveryPlanService:
             dep_ids: list[str] = []
             for title in raw.get("depends_on", []):
                 if title not in task_id_map:
-                    raise ValueError(f"depends_on references unknown task '{title}'")
+                    logging.getLogger(__name__).warning(
+                        "depends_on '%s' is not a known task, ignoring", title,
+                    )
+                    continue
                 dep_ids.append(task_id_map[title])
             dep_graph[tid] = dep_ids
 
