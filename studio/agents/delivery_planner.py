@@ -19,7 +19,7 @@ class DeliveryPlannerAgent:
             self._claude_runner = claude_runner
             return
 
-        profile = AgentProfileLoader(repo_root=project_root).load("delivery_planner")
+        profile = AgentProfileLoader().load("delivery_planner")
         self._claude_runner = ClaudeRoleAdapter(
             project_root=project_root,
             profile=profile,

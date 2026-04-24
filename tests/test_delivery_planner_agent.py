@@ -154,3 +154,42 @@ def test_delivery_planner_agent_raises_on_error() -> None:
 
     with pytest.raises(ClaudeRoleError, match="claude_disabled"):
         DeliveryPlannerAgent(claude_runner=runner).run(_state())
+
+
+def test_delivery_planner_agent_loads_profile_from_repo_root_and_preserves_project_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    project_root = tmp_path / "workspace"
+    project_root.mkdir()
+    sentinel_profile = object()
+    observed: dict[str, object] = {}
+
+    def fake_load(self: object, agent_name: str) -> object:
+        observed["loader_repo_root"] = getattr(self, "repo_root")
+        observed["agent_name"] = agent_name
+        return sentinel_profile
+
+    class FakeAdapter:
+        def __init__(
+            self,
+            *,
+            project_root: Path | None = None,
+            profile: object | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
+            observed["adapter_project_root"] = project_root
+            observed["adapter_profile"] = profile
+            observed["adapter_session_id"] = session_id
+            observed["adapter_resume_session"] = resume_session
+
+    monkeypatch.setattr("studio.agents.delivery_planner.AgentProfileLoader.load", fake_load)
+    monkeypatch.setattr("studio.agents.delivery_planner.ClaudeRoleAdapter", FakeAdapter)
+
+    DeliveryPlannerAgent(project_root=project_root)
+
+    assert observed["agent_name"] == "delivery_planner"
+    assert observed["loader_repo_root"] == repo_root
+    assert observed["adapter_project_root"] == project_root
+    assert observed["adapter_profile"] is sentinel_profile
