@@ -145,29 +145,19 @@ export function RequirementClarificationDialog({
 
         if (task.status === 'completed' && task.meeting_result) {
           const result = task.meeting_result
-          console.log('[kickoff] Meeting completed, generating delivery plan:', result.meeting_id, result.project_id)
-          setKickoffUi({ phase: 'delivery_generating', result })
-          deliveryMutation.mutate(
-            { meetingId: result.meeting_id, projectId: result.project_id },
-            {
-              onSuccess: (data) => {
-                console.log('[kickoff] Delivery plan generated:', data)
-                setKickoffUi({ phase: 'delivery_ready', result })
-              },
-              onError: (error) => {
-                console.error('[kickoff] Delivery plan failed:', error)
-                setKickoffUi({
-                  phase: 'delivery_failed',
-                  result,
-                  error: error instanceof Error ? error.message : 'Delivery generation failed.',
-                })
-              },
-            },
-          )
+          setKickoffUi({ phase: 'delivery_ready', result })
           return true
         }
 
         if (task.status === 'failed') {
+          if (task.meeting_result) {
+            setKickoffUi({
+              phase: 'delivery_failed',
+              result: task.meeting_result,
+              error: task.error || 'Delivery generation failed.',
+            })
+            return true
+          }
           setKickoffUi({
             phase: 'kickoff_failed',
             error: task.error || 'Kickoff meeting failed.',

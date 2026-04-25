@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from studio.llm import ClaudeRoleError
 from studio.schemas.requirement import RequirementCard
 from studio.storage.workspace import StudioWorkspace
 
@@ -155,7 +157,7 @@ def test_send_message_runs_agent_in_threadpool(client, workspace, monkeypatch):
         response = client.post(
             f"/api/clarifications/requirements/req_001/messages?workspace={workspace}",
             json={"message": "I want a snake game.", "session_id": session_id},
-    )
+        )
 
     assert response.status_code == 200
     assert len(calls) == 1
@@ -208,26 +210,29 @@ def test_kickoff_rejects_unready_session(client, workspace):
     assert "not ready" in response.json()["detail"].lower()
 
 
-def test_kickoff_starts_background_task(client, workspace):
-    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
-    session_id = start.json()["session"]["id"]
-
-    # Manually set session to ready
+def _mark_session_ready(workspace: str, session_id: str, *, attendees: list[str]) -> None:
     ws = StudioWorkspace(Path(workspace) / ".studio-data")
     session = ws.clarifications.get(session_id)
     from studio.schemas.clarification import MeetingContextDraft, ReadinessCheck
+
     session = session.model_copy(update={
         "meeting_context": MeetingContextDraft(
-            summary="Combat system",
-            goals=["Define MVP combat loop"],
-            acceptance_criteria=["3v3 battle completes"],
+            summary="Snake MVP",
+            goals=["Build the first playable snake prototype"],
+            acceptance_criteria=["Classic snake loop works"],
             risks=["Scope growth"],
-            validated_attendees=["design", "dev"],
+            validated_attendees=attendees,
         ),
         "readiness": ReadinessCheck(ready=True, missing_fields=[]),
         "status": "ready",
     })
     ws.clarifications.save(session)
+
+
+def test_kickoff_starts_background_task(client, workspace):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+    _mark_session_ready(workspace, session_id, attendees=["design", "dev"])
 
     with patch("studio.storage.kickoff_service.SessionRegistry") as MockRegistry, \
          patch("studio.storage.kickoff_service.build_meeting_graph") as MockGraph:
@@ -263,31 +268,15 @@ def test_kickoff_starts_background_task(client, workspace):
     assert data["status"] == "kickoff_started"
 
 
-def test_kickoff_task_poll_returns_status(client, workspace):
+def test_kickoff_task_poll_completes_and_generates_delivery_plan(client, workspace):
     start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     session_id = start.json()["session"]["id"]
-
-    ws = StudioWorkspace(Path(workspace) / ".studio-data")
-    session = ws.clarifications.get(session_id)
-    from studio.schemas.clarification import MeetingContextDraft, ReadinessCheck
-    session = session.model_copy(update={
-        "meeting_context": MeetingContextDraft(
-            summary="Snake MVP",
-            goals=["Build the first playable snake prototype"],
-            acceptance_criteria=["Classic snake loop works"],
-            risks=["Scope growth"],
-            validated_attendees=["design", "dev", "qa"],
-        ),
-        "readiness": ReadinessCheck(ready=True, missing_fields=[]),
-        "status": "ready",
-    })
-    ws.clarifications.save(session)
+    _mark_session_ready(workspace, session_id, attendees=["design", "dev", "qa"])
 
     with patch("studio.storage.kickoff_service.SessionRegistry") as MockRegistry, \
-         patch("studio.storage.kickoff_service.build_meeting_graph") as MockGraph:
-        mock_reg = MagicMock()
-        mock_reg.create_all.return_value = []
-        MockRegistry.return_value = mock_reg
+         patch("studio.storage.kickoff_service.build_meeting_graph") as MockGraph, \
+         patch("studio.storage.kickoff_service.DeliveryPlanService") as MockDeliveryPlanService:
+        MockRegistry.return_value.create_all.return_value = []
 
         mock_graph = MagicMock()
         mock_graph.ainvoke = AsyncMock(return_value={
@@ -305,19 +294,83 @@ def test_kickoff_task_poll_returns_status(client, workspace):
         })
         MockGraph.return_value = mock_graph
 
+        delivery_service = MagicMock()
+        MockDeliveryPlanService.return_value = delivery_service
+
         kickoff_response = client.post(
             f"/api/clarifications/requirements/req_001/kickoff?workspace={workspace}",
             json={"session_id": session_id},
         )
 
-    assert kickoff_response.status_code == 200
-    task_id = kickoff_response.json()["task_id"]
+        assert kickoff_response.status_code == 200
+        task_id = kickoff_response.json()["task_id"]
 
-    # Poll for task status
-    poll_response = client.get(
-        f"/api/clarifications/kickoff-tasks/{task_id}?workspace={workspace}",
-    )
-    assert poll_response.status_code == 200
-    task_data = poll_response.json()
-    assert task_data["status"] in ("pending", "running", "completed")
-    assert task_data["project_id"].startswith("proj_")
+        poll_data = None
+        for _ in range(20):
+            poll_response = client.get(
+                f"/api/clarifications/kickoff-tasks/{task_id}?workspace={workspace}",
+            )
+            assert poll_response.status_code == 200
+            poll_data = poll_response.json()
+            if poll_data["status"] == "completed":
+                break
+            time.sleep(0.05)
+
+    assert poll_data is not None
+    assert poll_data["status"] == "completed"
+    assert poll_data["meeting_result"]["meeting_id"] == "meeting_002"
+    delivery_service.generate_plan.assert_called_once()
+
+
+def test_kickoff_task_retries_transient_delivery_plan_failure(client, workspace):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+    _mark_session_ready(workspace, session_id, attendees=["design"])
+
+    with patch("studio.storage.kickoff_service.SessionRegistry") as MockRegistry, \
+         patch("studio.storage.kickoff_service.build_meeting_graph") as MockGraph, \
+         patch("studio.storage.kickoff_service.DeliveryPlanService") as MockDeliveryPlanService:
+        MockRegistry.return_value.create_all.return_value = []
+
+        mock_graph = MagicMock()
+        mock_graph.ainvoke = AsyncMock(return_value={
+            "node_name": "moderator_minutes",
+            "minutes": {
+                "id": "meeting_003",
+                "requirement_id": "req_001",
+                "title": "Kickoff: Snake MVP",
+                "summary": "The team aligned on a snake MVP.",
+                "attendees": ["design"],
+                "consensus": [],
+                "conflicts": [],
+                "pending_user_decisions": [],
+            },
+        })
+        MockGraph.return_value = mock_graph
+
+        delivery_service = MagicMock()
+        delivery_service.generate_plan.side_effect = [ClaudeRoleError("invalid_claude_output"), None]
+        MockDeliveryPlanService.return_value = delivery_service
+
+        kickoff_response = client.post(
+            f"/api/clarifications/requirements/req_001/kickoff?workspace={workspace}",
+            json={"session_id": session_id},
+        )
+
+        assert kickoff_response.status_code == 200
+        task_id = kickoff_response.json()["task_id"]
+
+        poll_data = None
+        for _ in range(20):
+            poll_response = client.get(
+                f"/api/clarifications/kickoff-tasks/{task_id}?workspace={workspace}",
+            )
+            assert poll_response.status_code == 200
+            poll_data = poll_response.json()
+            if poll_data["status"] == "completed":
+                break
+            time.sleep(0.05)
+
+    assert poll_data is not None
+    assert poll_data["status"] == "completed"
+    assert delivery_service.generate_plan.call_count == 2

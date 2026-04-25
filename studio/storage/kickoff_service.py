@@ -9,18 +9,20 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
 from studio.api.websocket import broadcast_entity_changed
+from studio.llm import ClaudeRoleError
 from studio.runtime.graph import build_meeting_graph
-from studio.schemas.kickoff_task import KickoffTask
 from studio.schemas.clarification import RequirementClarificationSession
+from studio.schemas.kickoff_task import KickoffTask
+from studio.storage.delivery_plan_service import DeliveryPlanService
 from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
 logger = logging.getLogger(__name__)
 
 _MANAGED_AGENTS = ["moderator", "design", "dev", "qa", "quality", "art", "reviewer"]
+_DELIVERY_PLANNING_ATTEMPTS = 2
 
 
 class KickoffService:
@@ -118,6 +120,13 @@ class KickoffService:
                 },
             }
 
+            if meeting_id:
+                await asyncio.to_thread(
+                    self._generate_delivery_plan_with_retry,
+                    meeting_id,
+                    project_id,
+                )
+
             self._update_task(
                 task_id,
                 status="completed",
@@ -146,7 +155,10 @@ class KickoffService:
 
         except Exception as exc:
             logger.exception("Kickoff task %s failed", task_id)
-            self._update_task(task_id, status="failed", error=str(exc))
+            failed_update: dict[str, object] = {"status": "failed", "error": str(exc)}
+            if "meeting_result" in locals():
+                failed_update["meeting_result"] = meeting_result
+            self._update_task(task_id, **failed_update)
             await broadcast_entity_changed(
                 workspace=workspace,
                 entity_type="kickoff_task",
@@ -158,3 +170,22 @@ class KickoffService:
         task = self._ws.kickoff_tasks.get(task_id)
         updated = task.model_copy(update=kwargs)
         self._ws.kickoff_tasks.save(updated)
+
+    def _generate_delivery_plan_with_retry(self, meeting_id: str, project_id: str) -> None:
+        delivery_service = DeliveryPlanService(
+            self._workspace_root,
+            project_root=self._project_root,
+        )
+        last_delivery_error: Exception | None = None
+        for _ in range(_DELIVERY_PLANNING_ATTEMPTS):
+            try:
+                delivery_service.generate_plan(
+                    meeting_id=meeting_id,
+                    project_id=project_id,
+                )
+                return
+            except (ValueError, FileNotFoundError, ClaudeRoleError) as exc:
+                last_delivery_error = exc
+
+        if last_delivery_error is not None:
+            raise last_delivery_error

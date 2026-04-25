@@ -19,7 +19,7 @@ class QaAgent:
             self._claude_runner = claude_runner
             return
 
-        profile = AgentProfileLoader(repo_root=project_root).load("qa")
+        profile = AgentProfileLoader().load("qa")
         self._claude_runner = ClaudeRoleAdapter(
             project_root=project_root,
             profile=profile,

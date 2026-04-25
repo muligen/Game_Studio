@@ -619,6 +619,70 @@ def test_subprocess_fallback_uses_configured_timeout(monkeypatch, tmp_path) -> N
     assert captured["timeout"] == 12
 
 
+def test_subprocess_fallback_replaces_invalid_output_bytes(monkeypatch, tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["errors"] = kwargs.get("errors")
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout='{"decision":"continue","reason":"decode-safe","risks":[]}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    payload = adapter._generate_payload_via_subprocess(
+        "reviewer",
+        {"feature": "photo mode"},
+        adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
+    )
+
+    assert captured["errors"] == "replace"
+    assert payload.reason == "decode-safe"
+
+
+def test_subprocess_fallback_rejects_missing_stdout(monkeypatch, tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=None,
+            stderr=None,
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(ClaudeRoleError, match="missing_claude_result"):
+        adapter._generate_payload_via_subprocess(
+            "reviewer",
+            {"feature": "photo mode"},
+            adapter.debug_prompt("reviewer", {"feature": "photo mode"}),
+        )
+
+
 def test_role_script_runs_from_claude_project_root_without_pythonpath(tmp_path) -> None:
     claude_root = tmp_path / ".claude" / "agents" / "reviewer"
     claude_root.mkdir(parents=True)

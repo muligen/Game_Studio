@@ -497,6 +497,8 @@ export interface components {
       meeting_id: string;
       /** Requirement Id */
       requirement_id: string;
+      /** Project Id */
+      project_id?: string | null;
       /** Events */
       events?: components["schemas"]["MeetingTranscriptEvent"][];
     };

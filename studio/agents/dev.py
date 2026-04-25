@@ -19,7 +19,7 @@ class DevAgent:
             self._claude_runner = claude_runner
             return
 
-        profile = AgentProfileLoader(repo_root=project_root).load("dev")
+        profile = AgentProfileLoader().load("dev")
         self._claude_runner = ClaudeRoleAdapter(
             project_root=project_root,
             profile=profile,

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -11,7 +9,6 @@ from starlette.concurrency import run_in_threadpool
 from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.agents.profile_loader import AgentProfileLoader
 from studio.llm import ClaudeRoleAdapter
-from studio.llm import ClaudeRoleError
 from studio.schemas.clarification import (
     ClarificationMessage,
     MeetingContextDraft,
@@ -19,7 +16,6 @@ from studio.schemas.clarification import (
     RequirementClarificationSession,
 )
 from studio.storage.kickoff_service import KickoffService
-from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
 router = APIRouter(prefix="/clarifications", tags=["clarifications"])
@@ -167,9 +163,9 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
         missing = session.readiness.missing_fields if session.readiness else ["unknown"]
         raise HTTPException(status_code=400, detail=f"Session not ready for kickoff. Missing: {', '.join(missing)}")
 
-    for a in session.meeting_context.validated_attendees:
-        if a not in _SUPPORTED_ATTENDEES:
-            raise HTTPException(status_code=400, detail=f"Unsupported attendee: {a}")
+    for attendee in session.meeting_context.validated_attendees:
+        if attendee not in _SUPPORTED_ATTENDEES:
+            raise HTTPException(status_code=400, detail=f"Unsupported attendee: {attendee}")
 
     session = session.model_copy(update={"status": "kickoff_started", "updated_at": datetime.now(UTC).isoformat()})
     store.clarifications.save(session)

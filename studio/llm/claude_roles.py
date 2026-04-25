@@ -887,14 +887,17 @@ class ClaudeRoleAdapter:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                errors="replace",
                 env=self._subprocess_env(),
                 timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc
         if proc.returncode != 0:
-            message = proc.stderr.strip() or proc.stdout.strip() or "claude_subprocess_failed"
+            message = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "claude_subprocess_failed"
             raise ClaudeRoleError(message)
+        if not proc.stdout:
+            raise ClaudeRoleError("missing_claude_result")
 
         try:
             parsed = json.loads(proc.stdout)
@@ -934,14 +937,17 @@ class ClaudeRoleAdapter:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
+                errors="replace",
                 env=self._subprocess_env(),
                 timeout=self.timeout_seconds,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc
         if proc.returncode != 0:
-            message = proc.stderr.strip() or proc.stdout.strip() or "claude_subprocess_failed"
+            message = (proc.stderr or "").strip() or (proc.stdout or "").strip() or "claude_subprocess_failed"
             raise ClaudeRoleError(message)
+        if proc.stdout is None:
+            raise ClaudeRoleError("missing_claude_result")
         return proc.stdout
 
     def _prompt(self, role_name: str, context: dict[str, object]) -> str:

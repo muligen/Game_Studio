@@ -4,6 +4,8 @@ node_modules
 # Build output
 dist
 dist-ssr
+playwright-report
+test-results
 
 # Local env files
 .env

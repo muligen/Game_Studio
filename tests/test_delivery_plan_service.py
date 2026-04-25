@@ -158,7 +158,7 @@ class TestGeneratePlan:
             svc.generate_plan("meet_001", "proj_001")
 
     @staticmethod
-    def test_rejects_unknown_owner_agent(
+    def test_falls_back_for_unknown_owner_agent(
         svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
     ) -> None:
         _completed_meeting(tmp_path)
@@ -175,8 +175,9 @@ class TestGeneratePlan:
             ],
         )
 
-        with pytest.raises(ValueError, match="unknown owner_agent"):
-            svc.generate_plan("meet_001", "proj_001")
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["tasks"][0].owner_agent == "dev"
 
     @staticmethod
     def test_normalizes_known_owner_agent_aliases(
@@ -273,6 +274,72 @@ class TestGeneratePlan:
         assert result["plan"].status == "awaiting_user_decision"
         assert result["decision_gate"] is not None
         assert [task.status for task in result["tasks"]] == ["preview", "preview"]
+
+    @staticmethod
+    def test_ignores_decision_placeholder_dependency_when_gate_exists(
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose visual style"])
+        _requirement(tmp_path)
+        planner.payload = {
+            "tasks": [
+                {
+                    "title": "Implement snake visuals",
+                    "description": "Apply the chosen visual direction.",
+                    "owner_agent": "design",
+                    "depends_on": ["STAKEHOLDER_DECISION_PAUSE"],
+                    "acceptance_criteria": ["Visual direction is reflected in the board."],
+                },
+            ],
+            "decision_gate": {
+                "items": [
+                    {
+                        "id": "visual_direction",
+                        "question": "Which visual direction should be used?",
+                        "context": "Meeting raised visual ambiguity.",
+                        "options": ["classic arcade", "minimal"],
+                    },
+                ],
+            },
+        }
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["tasks"][0].depends_on_task_ids == []
+        assert result["tasks"][0].status == "preview"
+
+    @staticmethod
+    def test_ignores_decision_gate_dependency_when_gate_exists(
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose startup viewport"])
+        _requirement(tmp_path)
+        planner.payload = {
+            "tasks": [
+                {
+                    "title": "Implement startup viewport",
+                    "description": "Apply the chosen startup framing.",
+                    "owner_agent": "design",
+                    "depends_on": ["DECISION_GATE: visual_style_startup_pause_viewport"],
+                    "acceptance_criteria": ["Startup viewport matches the selected direction."],
+                },
+            ],
+            "decision_gate": {
+                "items": [
+                    {
+                        "id": "startup_viewport",
+                        "question": "Which startup viewport should the MVP use?",
+                        "context": "Meeting raised visual framing ambiguity.",
+                        "options": ["tight", "wide"],
+                    },
+                ],
+            },
+        }
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["tasks"][0].depends_on_task_ids == []
+        assert result["tasks"][0].status == "preview"
 
     @staticmethod
     def test_generates_gate_item_ids_when_planner_omits_them(

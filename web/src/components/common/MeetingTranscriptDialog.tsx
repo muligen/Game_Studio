@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { meetingsApi, type MeetingTranscriptEntry } from '@/lib/api'
 
 interface MeetingTranscriptDialogProps {
@@ -67,7 +69,12 @@ export function MeetingTranscriptDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[85vh] max-w-5xl flex-col overflow-hidden">
         <DialogHeader>
-          <DialogTitle>Meeting Transcript</DialogTitle>
+          <div className="flex items-center justify-between gap-3">
+            <DialogTitle>Meeting Transcript</DialogTitle>
+            <DialogClose asChild>
+              <Button variant="outline" size="sm">Close</Button>
+            </DialogClose>
+          </div>
         </DialogHeader>
 
         {transcriptQuery.isPending && (

@@ -23,8 +23,14 @@ def test_meeting_transcript_event_requires_role_node_and_message() -> None:
 
 
 def test_meeting_transcript_defaults_to_empty_events() -> None:
-    transcript = MeetingTranscript(id="meeting_001", meeting_id="meeting_001", requirement_id="req_001")
+    transcript = MeetingTranscript(
+        id="meeting_001",
+        meeting_id="meeting_001",
+        requirement_id="req_001",
+        project_id="proj_001",
+    )
 
+    assert transcript.project_id == "proj_001"
     assert transcript.events == []
 
 
