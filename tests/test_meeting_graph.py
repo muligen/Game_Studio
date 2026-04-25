@@ -6,6 +6,7 @@ import pytest
 from studio.runtime.graph import build_meeting_graph
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.runtime import NodeDecision, NodeResult
+from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
 
@@ -219,6 +220,7 @@ def test_meeting_graph_uses_meeting_context_and_filters_unknown_attendees(
 
     monkeypatch.setattr("studio.agents.moderator.ModeratorAgent", FakeModeratorAgent)
     _install_fake_participants(monkeypatch, FakeParticipantAgent)
+    SessionRegistry(workspace_root).create_all("proj_001", "req_001", ["moderator", "design"])
 
     graph = build_meeting_graph()
     result = graph.invoke(
@@ -332,6 +334,7 @@ def test_meeting_graph_defaults_attendees_when_validation_removes_everything(
 
     monkeypatch.setattr("studio.agents.moderator.ModeratorAgent", FakeModeratorAgent)
     _install_fake_participants(monkeypatch, FakeParticipantAgent)
+    SessionRegistry(workspace_root).create_all("proj_001", "req_001", ["moderator", "design"])
 
     graph = build_meeting_graph()
     result = graph.invoke(
@@ -756,6 +759,7 @@ def test_meeting_graph_persists_transcript_events_from_moderator_and_agents(
     monkeypatch.setattr("studio.agents.moderator.ModeratorAgent", FakeModeratorAgent)
     _install_fake_participants(monkeypatch, FakeParticipantAgent)
 
+    SessionRegistry(workspace_root).create_all("proj_001", "req_001", ["moderator", "design"])
     graph = build_meeting_graph()
     graph.invoke(
         {
@@ -763,12 +767,14 @@ def test_meeting_graph_persists_transcript_events_from_moderator_and_agents(
             "project_root": str(_REPO_ROOT),
             "requirement_id": "req_001",
             "user_intent": "Design a puzzle game",
+            "project_id": "proj_001",
             "meeting_context": {"validated_attendees": ["design"]},
         }
     )
 
     transcript = StudioWorkspace(workspace_root).meeting_transcripts.get("meeting_001")
 
+    assert transcript.project_id == "proj_001"
     assert [event.sequence for event in transcript.events] == [1, 2, 3, 4]
     assert [event.agent_role for event in transcript.events] == [
         "moderator",

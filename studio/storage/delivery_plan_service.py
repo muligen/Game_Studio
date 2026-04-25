@@ -112,12 +112,16 @@ class DeliveryPlanService:
             tid = f"task_{uuid4().hex}"
             task_id_map[str(raw["title"])] = tid
 
+        gate_items_data = planner_output.get("decision_gate", {}).get("items", [])
+        has_gate = bool(gate_items_data)
         dep_graph: dict[str, list[str]] = {}
         for raw in raw_tasks:
             tid = task_id_map[str(raw["title"])]
             dep_ids: list[str] = []
             for title in raw.get("depends_on", []):
                 if title not in task_id_map:
+                    if has_gate and self._is_decision_placeholder(str(title)):
+                        continue
                     raise ValueError(f"depends_on references unknown task '{title}'")
                 dep_ids.append(task_id_map[title])
             dep_graph[tid] = dep_ids
@@ -125,8 +129,6 @@ class DeliveryPlanService:
         if self._has_cycle(dep_graph):
             raise ValueError("task dependency graph contains a cycle")
 
-        gate_items_data = planner_output.get("decision_gate", {}).get("items", [])
-        has_gate = bool(gate_items_data)
         plan_id = f"plan_{uuid4().hex}"
         plan = DeliveryPlan(
             id=plan_id,
@@ -377,6 +379,11 @@ class DeliveryPlanService:
     def _normalize_owner_agent(owner: object) -> str:
         normalized = str(owner).strip().lower()
         return OWNER_AGENT_ALIASES.get(normalized, normalized)
+
+    @staticmethod
+    def _is_decision_placeholder(value: str) -> bool:
+        normalized = value.strip().upper()
+        return normalized.startswith("STAKEHOLDER_DECISION") or normalized.startswith("USER_DECISION")
 
     def _has_cycle(self, graph: dict[str, list[str]]) -> bool:
         visiting: set[str] = set()

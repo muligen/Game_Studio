@@ -28,6 +28,7 @@ router = APIRouter(prefix="/clarifications", tags=["clarifications"])
 _SUPPORTED_ATTENDEES = {"design", "art", "dev", "qa"}
 _MANAGED_AGENTS = ["moderator", "design", "dev", "qa", "quality", "art", "reviewer"]
 _CLARIFICATION_TIMEOUT_SECONDS = 45
+_DELIVERY_PLANNING_ATTEMPTS = 2
 
 
 class SendMessageRequest(BaseModel):
@@ -66,6 +67,50 @@ def _find_existing_session(store: StudioWorkspace, requirement_id: str):
     if not matches:
         return None
     return max(matches, key=lambda session: session.updated_at)
+
+
+def _invoke_kickoff_graph(
+    *,
+    ws_root: Path,
+    project_root: str,
+    req_id: str,
+    project_id: str,
+    meeting_context: dict[str, object],
+) -> dict[str, object]:
+    graph = build_meeting_graph()
+    return graph.invoke({
+        "workspace_root": str(ws_root),
+        "project_root": project_root,
+        "requirement_id": req_id,
+        "user_intent": f"Kickoff: {meeting_context.get('summary', '')}",
+        "project_id": project_id,
+        "meeting_context": meeting_context,
+    })
+
+
+def _generate_delivery_plan_with_retry(
+    *,
+    ws_root: Path,
+    project_root: Path,
+    meeting_id: str,
+    project_id: str,
+) -> None:
+    delivery_service = DeliveryPlanService(
+        ws_root,
+        project_root=project_root,
+    )
+    last_delivery_error: Exception | None = None
+    for _ in range(_DELIVERY_PLANNING_ATTEMPTS):
+        try:
+            delivery_service.generate_plan(
+                meeting_id=meeting_id,
+                project_id=project_id,
+            )
+            return
+        except (ValueError, FileNotFoundError, ClaudeRoleError) as exc:
+            last_delivery_error = exc
+    if last_delivery_error is not None:
+        raise last_delivery_error
 
 
 @router.post("/requirements/{req_id}/session")
@@ -182,26 +227,25 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
     registry.create_all(project_id, req_id, _MANAGED_AGENTS)
 
     project_root = str(resolve_project_root(workspace))
-    graph = build_meeting_graph()
-    result = graph.invoke({
-        "workspace_root": str(ws_root),
-        "project_root": project_root,
-        "requirement_id": req_id,
-        "user_intent": f"Kickoff: {session.meeting_context.summary}",
-        "project_id": project_id,
-        "meeting_context": session.meeting_context.model_dump(),
-    })
+    meeting_context = session.meeting_context.model_dump()
+    result = await run_in_threadpool(
+        _invoke_kickoff_graph,
+        ws_root=ws_root,
+        project_root=project_root,
+        req_id=req_id,
+        project_id=project_id,
+        meeting_context=meeting_context,
+    )
 
     minutes = result.get("minutes", {})
     meeting_id = minutes.get("id", "")
 
     if meeting_id:
         try:
-            delivery_service = DeliveryPlanService(
-                ws_root,
+            await run_in_threadpool(
+                _generate_delivery_plan_with_retry,
+                ws_root=ws_root,
                 project_root=resolve_project_root(workspace),
-            )
-            delivery_service.generate_plan(
                 meeting_id=meeting_id,
                 project_id=project_id,
             )

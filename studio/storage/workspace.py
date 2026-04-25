@@ -94,6 +94,7 @@ class StudioWorkspace:
         *,
         meeting_id: str,
         requirement_id: str,
+        project_id: str | None = None,
         agent_role: str,
         node_name: str,
         prompt: object,
@@ -107,6 +108,7 @@ class StudioWorkspace:
                 id=meeting_id,
                 meeting_id=meeting_id,
                 requirement_id=requirement_id,
+                project_id=project_id,
             )
 
         event = MeetingTranscriptEvent(
@@ -119,7 +121,10 @@ class StudioWorkspace:
             context=_transcript_dict(context),
             reply=_transcript_value(reply),
         )
-        updated = transcript.model_copy(update={"events": [*transcript.events, event]})
+        update: dict[str, object] = {"events": [*transcript.events, event]}
+        if project_id:
+            update["project_id"] = project_id
+        updated = transcript.model_copy(update=update)
         self.meeting_transcripts.save(updated)
         return updated
 
@@ -128,12 +133,14 @@ class StudioWorkspace:
         *,
         meeting_id: str,
         requirement_id: str,
+        project_id: str | None = None,
         events: list[dict[str, object]],
     ) -> MeetingTranscript:
         transcript = MeetingTranscript(
             id=meeting_id,
             meeting_id=meeting_id,
             requirement_id=requirement_id,
+            project_id=project_id,
             events=[
                 MeetingTranscriptEvent(
                     sequence=index,

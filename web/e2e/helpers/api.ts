@@ -34,7 +34,7 @@ export interface DeliveryBoardResponse {
 }
 
 const apiBaseUrl = process.env.E2E_API_URL ?? 'http://127.0.0.1:8000'
-const workspace = process.env.E2E_WORKSPACE ?? '.'
+const defaultWorkspace = process.env.E2E_WORKSPACE ?? '.'
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`)
@@ -45,13 +45,19 @@ async function fetchJson<T>(path: string): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function fetchTranscript(meetingId: string): Promise<MeetingTranscriptResponse> {
+export async function fetchTranscript(
+  meetingId: string,
+  workspace: string = defaultWorkspace,
+): Promise<MeetingTranscriptResponse> {
   return fetchJson<MeetingTranscriptResponse>(
     `/api/meetings/${meetingId}/transcript?workspace=${encodeURIComponent(workspace)}`,
   )
 }
 
-export async function fetchDeliveryBoard(requirementId?: string): Promise<DeliveryBoardResponse> {
+export async function fetchDeliveryBoard(
+  requirementId?: string,
+  workspace: string = defaultWorkspace,
+): Promise<DeliveryBoardResponse> {
   const params = new URLSearchParams({ workspace })
   if (requirementId) {
     params.set('requirement_id', requirementId)

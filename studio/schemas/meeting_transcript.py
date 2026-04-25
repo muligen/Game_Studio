@@ -29,4 +29,5 @@ class MeetingTranscript(BaseModel):
     id: StrippedNonEmptyStr
     meeting_id: StrippedNonEmptyStr
     requirement_id: StrippedNonEmptyStr
+    project_id: StrippedNonEmptyStr | None = None
     events: list[MeetingTranscriptEvent] = Field(default_factory=list)

@@ -811,6 +811,7 @@ def build_meeting_graph():
             workspace.save_meeting_transcript(
                 meeting_id=_meeting_id_for_requirement(requirement_id),
                 requirement_id=requirement_id,
+                project_id=str(state.get("project_id", "")) or None,
                 events=transcript_events,
             )
 

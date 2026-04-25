@@ -275,6 +275,39 @@ class TestGeneratePlan:
         assert [task.status for task in result["tasks"]] == ["preview", "preview"]
 
     @staticmethod
+    def test_ignores_decision_placeholder_dependency_when_gate_exists(
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose visual style"])
+        _requirement(tmp_path)
+        planner.payload = {
+            "tasks": [
+                {
+                    "title": "Implement snake visuals",
+                    "description": "Apply the chosen visual direction.",
+                    "owner_agent": "design",
+                    "depends_on": ["STAKEHOLDER_DECISION_PAUSE"],
+                    "acceptance_criteria": ["Visual direction is reflected in the board."],
+                },
+            ],
+            "decision_gate": {
+                "items": [
+                    {
+                        "id": "visual_direction",
+                        "question": "Which visual direction should be used?",
+                        "context": "Meeting raised visual ambiguity.",
+                        "options": ["classic arcade", "minimal"],
+                    },
+                ],
+            },
+        }
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["tasks"][0].depends_on_task_ids == []
+        assert result["tasks"][0].status == "preview"
+
+    @staticmethod
     def test_generates_gate_item_ids_when_planner_omits_them(
         svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
     ) -> None:

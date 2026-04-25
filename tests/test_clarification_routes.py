@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from studio.llm import ClaudeRoleError
 from studio.schemas.requirement import RequirementCard
 from studio.storage.workspace import StudioWorkspace
 
@@ -332,3 +333,53 @@ def test_kickoff_generates_delivery_plan_server_side(client, workspace):
         "meeting_id": "meeting_002",
         "project_id": response.json()["project_id"],
     }
+
+
+def test_kickoff_retries_transient_delivery_plan_failure(client, workspace):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+
+    ws = StudioWorkspace(Path(workspace) / ".studio-data")
+    session = ws.clarifications.get(session_id)
+    from studio.schemas.clarification import MeetingContextDraft, ReadinessCheck
+    session = session.model_copy(update={
+        "meeting_context": MeetingContextDraft(
+            summary="Snake MVP",
+            goals=["Build the first playable snake prototype"],
+            acceptance_criteria=["Classic snake loop works"],
+            risks=["Scope growth"],
+            validated_attendees=["design"],
+        ),
+        "readiness": ReadinessCheck(ready=True, missing_fields=[]),
+        "status": "ready",
+    })
+    ws.clarifications.save(session)
+
+    with patch("studio.api.routes.clarifications.SessionRegistry") as MockRegistry, \
+         patch("studio.api.routes.clarifications.build_meeting_graph") as MockGraph, \
+         patch("studio.api.routes.clarifications.DeliveryPlanService") as MockDeliveryPlanService:
+        MockRegistry.return_value.create_all.return_value = []
+        MockGraph.return_value.invoke.return_value = {
+            "node_name": "moderator_minutes",
+            "minutes": {
+                "id": "meeting_002",
+                "requirement_id": "req_001",
+                "title": "Kickoff: Snake MVP",
+                "summary": "The team aligned on a snake MVP.",
+                "attendees": ["design"],
+                "consensus": [],
+                "conflicts": [],
+                "pending_user_decisions": [],
+            },
+        }
+        delivery_service = MagicMock()
+        delivery_service.generate_plan.side_effect = [ClaudeRoleError("invalid_claude_output"), MagicMock()]
+        MockDeliveryPlanService.return_value = delivery_service
+
+        response = client.post(
+            f"/api/clarifications/requirements/req_001/kickoff?workspace={workspace}",
+            json={"session_id": session_id},
+        )
+
+    assert response.status_code == 200
+    assert delivery_service.generate_plan.call_count == 2

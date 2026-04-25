@@ -109,22 +109,7 @@ export function RequirementClarificationDialog({
       clarificationsApi.kickoff(workspace, requirementId, session!.id),
     onMutate: () => setKickoffUi({ phase: 'kickoff_running' }),
     onSuccess: (result) => {
-      setKickoffUi({ phase: 'delivery_generating', result })
-      deliveryMutation.mutate(
-        { meetingId: result.meeting_id, projectId: result.project_id },
-        {
-          onSuccess: () => {
-            setKickoffUi({ phase: 'delivery_ready', result })
-          },
-          onError: (error) => {
-            setKickoffUi({
-              phase: 'delivery_failed',
-              result,
-              error: error instanceof Error ? error.message : 'Delivery generation failed.',
-            })
-          },
-        },
-      )
+      setKickoffUi({ phase: 'delivery_ready', result })
     },
     onError: (error) => {
       setKickoffUi({
