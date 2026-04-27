@@ -1,7 +1,7 @@
 import { Badge } from '@/components/ui/badge'
 import { poolApi } from '@/lib/api'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 const AGENT_COLORS: Record<string, string> = {
   design: 'bg-blue-100 text-blue-800',
@@ -13,6 +13,7 @@ const AGENT_COLORS: Record<string, string> = {
 
 export function PoolStatusBar() {
   const queryClient = useQueryClient()
+  const [showErrors, setShowErrors] = useState(false)
 
   const { data: pool } = useQuery({
     queryKey: ['pool-status'],
@@ -34,6 +35,9 @@ export function PoolStatusBar() {
 
   if (!pool) return null
 
+  const stuckCount = pool.tasks?.filter(t => t.running_duration_seconds > 300).length ?? 0
+  const errorCount = pool.recent_errors?.length ?? 0
+
   return (
     <div className="bg-white rounded-lg shadow-sm border p-4">
       <div className="flex items-center justify-between">
@@ -43,6 +47,17 @@ export function PoolStatusBar() {
             {pool.active_count}/{pool.max_workers} workers
             {pool.queued_count > 0 && (
               <span className="text-amber-600 ml-1">({pool.queued_count} queued)</span>
+            )}
+            {errorCount > 0 && (
+              <button
+                className="text-red-600 font-semibold ml-1 hover:underline"
+                onClick={() => setShowErrors(!showErrors)}
+              >
+                ({errorCount} errors)
+              </button>
+            )}
+            {stuckCount > 0 && (
+              <span className="text-amber-600 font-semibold ml-1">({stuckCount} stuck)</span>
             )}
           </span>
         </div>
@@ -58,6 +73,19 @@ export function PoolStatusBar() {
           )}
         </div>
       </div>
+
+      {showErrors && pool.recent_errors && pool.recent_errors.length > 0 && (
+        <div className="mt-2 border-t pt-2 max-h-40 overflow-y-auto">
+          {[...pool.recent_errors].reverse().map((err, i) => (
+            <div key={i} className="text-xs text-gray-700 py-0.5">
+              <span className={err.error_type === 'stuck' ? 'text-amber-600' : 'text-red-600'}>
+                [{err.error_type}]
+              </span>{' '}
+              {err.agent_type}: {err.error_message}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -260,6 +260,15 @@ export const workflowsApi = {
 } as const
 
 // Pool Status
+export interface RecentError {
+  task_id: string
+  agent_type: string
+  requirement_id: string
+  error_type: "failed" | "stuck" | "timeout"
+  error_message: string
+  timestamp: string
+}
+
 export interface PoolStatus {
   max_workers: number
   active_count: number
@@ -270,7 +279,10 @@ export interface PoolStatus {
     agent_type: string
     requirement_id: string
     requirement_title: string
+    started_at: string
+    running_duration_seconds: number
   }>
+  recent_errors: RecentError[]
 }
 
 export const poolApi = {
