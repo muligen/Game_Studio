@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -94,7 +95,11 @@ class DeliveryTaskPoller:
                                 agent_type=task.owner_agent,
                                 requirement_id=task.requirement_id,
                                 error_type="stuck",
-                                error_message=f"Task {task.id} lease expired at {lease.expires_at}",
+                                error_message=f"Task {task.id} lease expired",
+                                details={
+                                    "lease_expires_at": lease.expires_at,
+                                    "task_title": getattr(task, "title", ""),
+                                },
                             )
                             self._rollback_task(service, task)
                     except (ValueError, TypeError):
@@ -186,14 +191,20 @@ class DeliveryTaskPoller:
         """
         try:
             return self._run_task_agent_inner(service, task, started_task)
-        except Exception:
+        except Exception as exc:
             logger.exception("Unhandled error in _run_task_agent for task %s", task.id)
             pool.record_task_error(
                 task_id=task.id,
                 agent_type=task.owner_agent,
                 requirement_id=task.requirement_id,
                 error_type="failed",
-                error_message=f"Unhandled error for task {task.id}",
+                error_message=f"Unhandled error: {exc}",
+                details={
+                    "exception_type": type(exc).__name__,
+                    "traceback": traceback.format_exc()[-2000:],
+                    "task_title": getattr(task, "title", ""),
+                    "task_description": getattr(task, "description", "")[:500],
+                },
             )
             self._rollback_task(service, task)
             return {"error": f"Unhandled error for task {task.id}"}
@@ -243,14 +254,23 @@ class DeliveryTaskPoller:
         try:
             result = agent.run(state)
             logger.info("Agent %s completed for task %s", agent_name, task.id)
-        except Exception:
+        except Exception as exc:
             logger.exception("Agent %s failed for task %s", agent_name, task.id)
+            prompt_text = state.goal.get("prompt", "") if state.goal else ""
             pool.record_task_error(
                 task_id=task.id,
                 agent_type=agent_name,
                 requirement_id=task.requirement_id,
                 error_type="failed",
-                error_message=f"Agent {agent_name} failed for task {task.id}",
+                error_message=f"Agent {agent_name}: {exc}",
+                details={
+                    "exception_type": type(exc).__name__,
+                    "traceback": traceback.format_exc()[-2000:],
+                    "task_title": task.title,
+                    "task_description": task.description[:500],
+                    "prompt": prompt_text[:2000],
+                    "acceptance_criteria": task.acceptance_criteria,
+                },
             )
             self._rollback_task(service, task)
             return {"error": f"Agent {agent_name} failed"}
@@ -288,14 +308,19 @@ class DeliveryTaskPoller:
                 tests_or_checks=[],
                 follow_up_notes=[],
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to complete task %s, rolling back", task.id)
             pool.record_task_error(
                 task_id=task.id,
                 agent_type=agent_name,
                 requirement_id=task.requirement_id,
                 error_type="failed",
-                error_message=f"Failed to complete task {task.id}",
+                error_message=f"Complete task failed: {exc}",
+                details={
+                    "exception_type": type(exc).__name__,
+                    "traceback": traceback.format_exc()[-2000:],
+                    "task_title": task.title,
+                },
             )
             self._rollback_task(service, task)
             return {"error": "Failed to complete task"}

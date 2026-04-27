@@ -38,6 +38,7 @@ export function Agents() {
   const queryClient = useQueryClient()
   const { connected, subscribe } = useWebSocket()
   const [showErrors, setShowErrors] = useState(false)
+  const [expandedErrors, setExpandedErrors] = useState<Set<number>>(new Set())
 
   const { data: pool } = useQuery({
     queryKey: ['pool-status'],
@@ -119,18 +120,73 @@ export function Agents() {
               {showErrors ? '−' : '+'} {pool.recent_errors.length} Recent Agent Errors
             </button>
             {showErrors && (
-              <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
-                {[...pool.recent_errors].reverse().map((err, i) => (
-                  <div key={i} className="text-xs bg-white rounded p-2 border border-red-100">
-                    <div className="font-mono text-red-700">
-                      [{err.error_type.toUpperCase()}] {err.agent_type} &mdash; {err.error_message}
+              <div className="mt-2 space-y-2 max-h-96 overflow-y-auto">
+                {[...pool.recent_errors].reverse().map((err, i) => {
+                  const expanded = expandedErrors.has(i)
+                  const toggle = () => {
+                    const next = new Set(expandedErrors)
+                    if (next.has(i)) next.delete(i)
+                    else next.add(i)
+                    setExpandedErrors(next)
+                  }
+                  const detail: Record<string, unknown> = (err.details as Record<string, unknown>) || {}
+                  return (
+                    <div key={i} className="text-xs bg-white rounded p-2 border border-red-100">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="font-mono text-red-700 break-all">
+                            [{err.error_type.toUpperCase()}] {err.agent_type}
+                            {detail.exception_type ? ` (${String(detail.exception_type)})` : ''}
+                          </div>
+                          <div className="text-gray-600 mt-0.5 break-all">{err.error_message}</div>
+                          <div className="text-gray-400 mt-0.5">
+                            {new Date(err.timestamp).toLocaleTimeString()}
+                            {detail.task_title ? ` | ${String(detail.task_title).slice(0, 80)}` : ''}
+                          </div>
+                        </div>
+                        <button
+                          className="text-xs text-blue-600 hover:underline shrink-0"
+                          onClick={toggle}
+                        >
+                          {expanded ? 'Collapse' : 'Details'}
+                        </button>
+                      </div>
+                      {expanded && (
+                        <div className="mt-2 space-y-1.5 border-t border-red-100 pt-2">
+                          {detail.prompt && (
+                            <details open>
+                              <summary className="text-gray-600 cursor-pointer">Prompt</summary>
+                              <pre className="mt-1 text-gray-700 whitespace-pre-wrap break-all bg-gray-50 p-1.5 rounded max-h-40 overflow-y-auto font-mono">
+                                {String(detail.prompt)}
+                              </pre>
+                            </details>
+                          )}
+                          {detail.traceback && (
+                            <details>
+                              <summary className="text-gray-600 cursor-pointer">Traceback</summary>
+                              <pre className="mt-1 text-red-700 whitespace-pre-wrap break-all bg-gray-50 p-1.5 rounded max-h-40 overflow-y-auto font-mono">
+                                {String(detail.traceback)}
+                              </pre>
+                            </details>
+                          )}
+                          {detail.acceptance_criteria && (
+                            <details>
+                              <summary className="text-gray-600 cursor-pointer">Acceptance Criteria</summary>
+                              <pre className="mt-1 text-gray-700 whitespace-pre-wrap break-all bg-gray-50 p-1.5 rounded max-h-32 overflow-y-auto font-mono">
+                                {JSON.stringify(detail.acceptance_criteria, null, 2)}
+                              </pre>
+                            </details>
+                          )}
+                          {detail.lease_expires_at && (
+                            <div className="text-gray-600">
+                              Lease expired at: {String(detail.lease_expires_at)}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-gray-500 mt-0.5">
-                      Task: {err.task_id.slice(0, 12)}... |{' '}
-                      {new Date(err.timestamp).toLocaleTimeString()}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

@@ -122,6 +122,7 @@ def record_task_error(
     requirement_id: str,
     error_type: str,
     error_message: str,
+    details: dict[str, object] | None = None,
 ) -> None:
     """Record a task error so monitoring dashboards can surface it."""
     with _lock:
@@ -131,6 +132,7 @@ def record_task_error(
             "requirement_id": requirement_id,
             "error_type": error_type,
             "error_message": error_message,
+            "details": details or {},
             "timestamp": datetime.now(timezone.utc).isoformat(),
         })
     _notify_status_changed()
