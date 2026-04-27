@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useWorkspace } from '@/lib/workspace'
@@ -26,10 +26,18 @@ const AGENT_BADGE_COLORS: Record<string, string> = {
   reviewer: 'bg-indigo-200 text-indigo-800',
 }
 
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  if (mins > 0) return `${mins}m ${secs}s`
+  return `${secs}s`
+}
+
 export function Agents() {
   const { workspace } = useWorkspace()
   const queryClient = useQueryClient()
   const { connected, subscribe } = useWebSocket()
+  const [showErrors, setShowErrors] = useState(false)
 
   const { data: pool } = useQuery({
     queryKey: ['pool-status'],
@@ -94,8 +102,39 @@ export function Agents() {
             {pool?.queued_count ? (
               <span className="text-amber-600">({pool.queued_count} queued)</span>
             ) : null}
+            {pool?.recent_errors && pool.recent_errors.length > 0 ? (
+              <span className="text-red-600 font-semibold">
+                ({pool.recent_errors.length} errors)
+              </span>
+            ) : null}
           </div>
         </div>
+
+        {pool?.recent_errors && pool.recent_errors.length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+            <button
+              className="text-sm text-red-700 font-medium flex items-center gap-1"
+              onClick={() => setShowErrors(!showErrors)}
+            >
+              {showErrors ? '−' : '+'} {pool.recent_errors.length} Recent Agent Errors
+            </button>
+            {showErrors && (
+              <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                {[...pool.recent_errors].reverse().map((err, i) => (
+                  <div key={i} className="text-xs bg-white rounded p-2 border border-red-100">
+                    <div className="font-mono text-red-700">
+                      [{err.error_type.toUpperCase()}] {err.agent_type} &mdash; {err.error_message}
+                    </div>
+                    <div className="text-gray-500 mt-0.5">
+                      Task: {err.task_id.slice(0, 12)}... |{' '}
+                      {new Date(err.timestamp).toLocaleTimeString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {projectIds.map(projectId => {
           const projectSessions = sessions.filter(s => s.project_id === projectId)
@@ -110,7 +149,7 @@ export function Agents() {
                   if (!session) return null
 
                   const isRunning = runningAgents.has(agentType)
-                  const runningTask = (pool?.tasks as Array<{ agent_type: string; requirement_title: string }>)?.find(
+                  const runningTask = (pool?.tasks as Array<{ agent_type: string; requirement_title: string; running_duration_seconds: number }>)?.find(
                     t => t.agent_type === agentType,
                   )
 
@@ -135,14 +174,34 @@ export function Agents() {
                       </div>
 
                       {isRunning && runningTask && (
-                        <p className="text-xs text-gray-600 mb-2 truncate">
-                          Working: {runningTask.requirement_title || runningTask.agent_type}
-                        </p>
+                        <div className="mb-2 space-y-1">
+                          <p className="text-xs text-gray-600 truncate">
+                            Working: {runningTask.requirement_title || runningTask.agent_type}
+                          </p>
+                          {runningTask.running_duration_seconds != null && (
+                            <p className={`text-xs font-mono ${
+                              runningTask.running_duration_seconds > 300
+                                ? 'text-amber-600 font-semibold'
+                                : 'text-gray-500'
+                            }`}>
+                              Running for {formatDuration(runningTask.running_duration_seconds)}
+                            </p>
+                          )}
+                        </div>
                       )}
 
                       <div className="text-xs text-gray-500 mb-3 space-y-1">
                         <div>Session: {session.session_id.slice(0, 12)}...</div>
-                        <div>Last used: {new Date(session.last_used_at).toLocaleString()}</div>
+                        <div>
+                          Last used: {new Date(session.last_used_at).toLocaleString()}
+                          {isRunning && (() => {
+                            const leaseAge = Date.now() - new Date(session.last_used_at).getTime()
+                            if (leaseAge > 300_000) {
+                              return <span className="text-red-500 ml-1">(lease may be stuck)</span>
+                            }
+                            return null
+                          })()}
+                        </div>
                       </div>
 
                       {isRunning ? (

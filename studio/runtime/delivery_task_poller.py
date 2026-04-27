@@ -89,6 +89,13 @@ class DeliveryTaskPoller:
                                 task.id,
                                 lease.expires_at,
                             )
+                            pool.record_task_error(
+                                task_id=task.id,
+                                agent_type=task.owner_agent,
+                                requirement_id=task.requirement_id,
+                                error_type="stuck",
+                                error_message=f"Task {task.id} lease expired at {lease.expires_at}",
+                            )
                             self._rollback_task(service, task)
                     except (ValueError, TypeError):
                         pass
@@ -181,6 +188,13 @@ class DeliveryTaskPoller:
             return self._run_task_agent_inner(service, task, started_task)
         except Exception:
             logger.exception("Unhandled error in _run_task_agent for task %s", task.id)
+            pool.record_task_error(
+                task_id=task.id,
+                agent_type=task.owner_agent,
+                requirement_id=task.requirement_id,
+                error_type="failed",
+                error_message=f"Unhandled error for task {task.id}",
+            )
             self._rollback_task(service, task)
             return {"error": f"Unhandled error for task {task.id}"}
 
@@ -231,6 +245,13 @@ class DeliveryTaskPoller:
             logger.info("Agent %s completed for task %s", agent_name, task.id)
         except Exception:
             logger.exception("Agent %s failed for task %s", agent_name, task.id)
+            pool.record_task_error(
+                task_id=task.id,
+                agent_type=agent_name,
+                requirement_id=task.requirement_id,
+                error_type="failed",
+                error_message=f"Agent {agent_name} failed for task {task.id}",
+            )
             self._rollback_task(service, task)
             return {"error": f"Agent {agent_name} failed"}
 
@@ -269,6 +290,13 @@ class DeliveryTaskPoller:
             )
         except Exception:
             logger.exception("Failed to complete task %s, rolling back", task.id)
+            pool.record_task_error(
+                task_id=task.id,
+                agent_type=agent_name,
+                requirement_id=task.requirement_id,
+                error_type="failed",
+                error_message=f"Failed to complete task {task.id}",
+            )
             self._rollback_task(service, task)
             return {"error": "Failed to complete task"}
 
