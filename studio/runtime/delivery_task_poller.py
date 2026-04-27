@@ -15,6 +15,7 @@ from typing import Any
 
 from studio.runtime import pool
 from studio.storage.delivery_plan_service import DeliveryPlanService
+from studio.storage.git_tracker import GitTracker
 from studio.storage.workspace import StudioWorkspace
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ class DeliveryTaskPoller:
         logger.info("Found %d ready delivery tasks", len(ready_tasks))
 
         for task in ready_tasks:
-            self._execute_task(service, task)
+            self._try_execute_task(service, task)
 
     def _recover_stuck_tasks(self) -> None:
         """Recover tasks that are stuck in in_progress with expired leases."""
@@ -116,26 +117,39 @@ class DeliveryTaskPoller:
         service._ws.delivery_tasks.save(rolled_back)
         logger.info("Rolled back task %s to ready status", task.id)
 
-    def _execute_task(
+    def _try_execute_task(
         self,
         service: DeliveryPlanService,
         task: Any,
     ) -> None:
-        """Execute a single delivery task."""
+        """Acquire lease and submit task to the agent pool.
+
+        The lease is acquired BEFORE pool submission so that the task status
+        changes to ``in_progress`` immediately.  This prevents the next tick
+        from re-submitting the same task.
+        """
+        started_task = None
+        try:
+            started_task = service.start_task(task.id)
+        except ValueError as exc:
+            logger.warning("Cannot start task %s: %s", task.id, exc)
+            return
+
         logger.info(
             "Executing task %s (owner=%s, title=%s)",
             task.id,
-            task.owner_agent,
+            started_task.owner_agent,
             task.title,
         )
 
         future = pool.submit_agent(
-            task.owner_agent,
-            task.requirement_id,
+            started_task.owner_agent,
+            started_task.requirement_id,
             task.title,
             self._run_task_agent,
             service,
             task,
+            started_task,
         )
 
         def _on_done(_: object) -> None:
@@ -151,14 +165,26 @@ class DeliveryTaskPoller:
         self,
         service: DeliveryPlanService,
         task: Any,
+        started_task: Any,
     ) -> dict[str, object]:
-        """Run the agent for a single delivery task."""
-        started_task = None
+        """Run the agent for a single delivery task.
+
+        ``started_task`` is the task with status=in_progress, already acquired
+        by ``_try_execute_task()`` before pool submission.
+        """
+
+        # Initialize git tracker and project directory
+        repo_root = Path(service._ws.root).resolve()
+        if repo_root.name == ".studio-data":
+            repo_root = repo_root.parent
+        tracker = GitTracker(repo_root=repo_root, project_id=started_task.project_id)
+        tracker.ensure_project_dir()
+
+        pre_state: dict[str, str] = {}
         try:
-            started_task = service.start_task(task.id)
-        except ValueError as exc:
-            logger.warning("Cannot start task %s: %s", task.id, exc)
-            return {"error": str(exc)}
+            pre_state = tracker.capture_state()
+        except Exception:
+            logger.warning("Failed to capture pre-execution state for %s", task.id)
 
         from studio.runtime.dispatcher import RuntimeDispatcher
 
@@ -178,6 +204,7 @@ class DeliveryTaskPoller:
                 "task_title": task.title,
                 "task_description": task.description,
                 "acceptance_criteria": task.acceptance_criteria,
+                "project_dir": str(tracker.project_dir),
             },
         )
 
@@ -190,16 +217,36 @@ class DeliveryTaskPoller:
             self._rollback_task(service, task)
             return {"error": f"Agent {agent_name} failed"}
 
+        # Detect file changes
+        diff = GitTracker.GitDiffResult(changed_files=[])
+        commit_hash = ""
+        try:
+            diff = tracker.detect_changes(pre_state)
+            if diff.has_changes:
+                commit_hash = tracker.add_and_commit(
+                    f"Task {task.id}: {task.title}\n\nAgent: {agent_name}"
+                )
+                logger.info(
+                    "Task %s: %d files changed (commit=%s)",
+                    task.id,
+                    len(diff.changed_files),
+                    commit_hash,
+                )
+        except Exception:
+            logger.warning("Failed to detect/commit changes for task %s", task.id)
+
         summary = f"{agent_name} completed: {task.title}"
         if result and result.trace and result.trace.get("fallback_used"):
             summary += " (fallback)"
+
+        changed_files = [c.path for c in diff.changed_files]
 
         try:
             complete_result = service.complete_task(
                 task_id=task.id,
                 summary=summary,
-                output_artifact_ids=[],
-                changed_files=[],
+                output_artifact_ids=changed_files,
+                changed_files=changed_files,
                 tests_or_checks=[],
                 follow_up_notes=[],
             )
@@ -211,5 +258,6 @@ class DeliveryTaskPoller:
         return {
             "task_id": task.id,
             "summary": summary,
+            "git_commit": commit_hash,
             "execution_result": complete_result["execution_result"].model_dump(),
         }

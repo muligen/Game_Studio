@@ -41,6 +41,9 @@ export function PoolStatusBar() {
           <span className="text-sm font-medium text-gray-700">Agent Pool</span>
           <span className="text-xs text-gray-500">
             {pool.active_count}/{pool.max_workers} workers
+            {pool.queued_count > 0 && (
+              <span className="text-amber-600 ml-1">({pool.queued_count} queued)</span>
+            )}
           </span>
         </div>
         <div className="flex items-center gap-2">

@@ -952,11 +952,24 @@ class ClaudeRoleAdapter:
 
     def _prompt(self, role_name: str, context: dict[str, object]) -> str:
         payload = json.dumps(context, ensure_ascii=False, sort_keys=True)
+        schema_json = json.dumps(
+            self._output_format(role_name), ensure_ascii=False, sort_keys=True
+        )
+
+        tools_enabled = self.load_config().mode == "tools_enabled"
+        if tools_enabled:
+            instruction = (
+                "Use the available file tools to do the actual work first. "
+                "After completing your work, respond with JSON matching this schema:"
+            )
+        else:
+            instruction = "Return only JSON matching this schema:"
+
         return "\n".join(
             [
                 self._require_profile().system_prompt,
-                "Return only JSON matching this schema:",
-                json.dumps(self._output_format(role_name), ensure_ascii=False, sort_keys=True),
+                instruction,
+                schema_json,
                 f"Context: {payload}",
             ]
         )

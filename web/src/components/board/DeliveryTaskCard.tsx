@@ -56,6 +56,21 @@ export function DeliveryTaskCard({ task, onStart }: DeliveryTaskCardProps) {
           ))}
         </div>
       )}
+      {task.status === 'done' && task.output_artifact_ids.length > 0 && (
+        <div className="mt-2 text-xs text-muted-foreground border-t pt-2">
+          <div className="font-medium text-emerald-700">
+            {task.output_artifact_ids.length} file{task.output_artifact_ids.length > 1 ? 's' : ''} changed
+          </div>
+          {task.output_artifact_ids.slice(0, 3).map((f) => (
+            <div key={f} className="truncate font-mono">{f}</div>
+          ))}
+          {task.output_artifact_ids.length > 3 && (
+            <div className="text-muted-foreground">
+              +{task.output_artifact_ids.length - 3} more
+            </div>
+          )}
+        </div>
+      )}
       {canStart && (
         <button
           className="mt-2 text-xs text-blue-600 hover:underline"

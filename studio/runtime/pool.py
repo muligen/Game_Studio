@@ -73,6 +73,7 @@ def submit_agent(
 def status() -> dict[str, Any]:
     """Return current pool status for monitoring."""
     with _lock:
+        tracked = len(_active_tasks)
         tasks = [
             {
                 "task_id": t.task_id,
@@ -82,10 +83,13 @@ def status() -> dict[str, Any]:
             }
             for t in _active_tasks.values()
         ]
+    # _pool._threads gives the actual running thread count.
+    running = len(getattr(_pool, "_threads", set()))
     return {
         "max_workers": _max_workers,
-        "active_count": len(tasks),
-        "idle": len(tasks) == 0,
+        "active_count": running,
+        "queued_count": max(0, tracked - running),
+        "idle": tracked == 0,
         "tasks": tasks,
     }
 

@@ -335,12 +335,28 @@ class ClaudeWorkerAdapter:
         return match.group(1).strip()
 
     def _prompt(self, user_prompt: str) -> str:
+        schema_json = json.dumps(
+            _WORKER_OUTPUT_FORMAT, ensure_ascii=False, sort_keys=True
+        )
+        context_json = json.dumps(
+            {"prompt": user_prompt}, ensure_ascii=False, sort_keys=True
+        )
+
+        tools_enabled = self.load_config().mode == "tools_enabled"
+        if tools_enabled:
+            instruction = (
+                "Use the available file tools to do the actual work first. "
+                "After completing your work, respond with JSON matching this schema:"
+            )
+        else:
+            instruction = "Return only JSON matching this schema:"
+
         return "\n".join(
             [
                 self._require_profile().system_prompt,
-                "Return only JSON matching this schema:",
-                json.dumps(_WORKER_OUTPUT_FORMAT, ensure_ascii=False, sort_keys=True),
-                f'Context: {json.dumps({"prompt": user_prompt}, ensure_ascii=False, sort_keys=True)}',
+                instruction,
+                schema_json,
+                f"Context: {context_json}",
             ]
         )
 
