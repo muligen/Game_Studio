@@ -94,8 +94,13 @@ class DeliveryTaskPoller:
                         pass
 
     def _rollback_task(self, service: DeliveryPlanService, task: Any) -> None:
-        """Roll back a stuck task to ready status."""
+        """Roll back a stuck task to ready status and release its lease."""
         from studio.schemas.delivery import DeliveryTask
+
+        try:
+            service._lease_mgr.release(task.project_id, task.owner_agent)
+        except Exception:
+            logger.debug("No lease to release for %s/%s", task.project_id, task.owner_agent)
 
         rolled_back = DeliveryTask(
             id=task.id,
@@ -172,7 +177,19 @@ class DeliveryTaskPoller:
         ``started_task`` is the task with status=in_progress, already acquired
         by ``_try_execute_task()`` before pool submission.
         """
+        try:
+            return self._run_task_agent_inner(service, task, started_task)
+        except Exception:
+            logger.exception("Unhandled error in _run_task_agent for task %s", task.id)
+            self._rollback_task(service, task)
+            return {"error": f"Unhandled error for task {task.id}"}
 
+    def _run_task_agent_inner(
+        self,
+        service: DeliveryPlanService,
+        task: Any,
+        started_task: Any,
+    ) -> dict[str, object]:
         # Initialize git tracker and project directory
         repo_root = Path(service._ws.root).resolve()
         if repo_root.name == ".studio-data":
