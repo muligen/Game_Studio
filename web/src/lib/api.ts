@@ -266,6 +266,7 @@ export interface RecentError {
   requirement_id: string
   error_type: "failed" | "stuck" | "timeout"
   error_message: string
+  details: Record<string, unknown>
   timestamp: string
 }
 
