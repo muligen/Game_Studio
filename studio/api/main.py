@@ -28,7 +28,7 @@ from studio.runtime.poller import WorkflowPoller
 @asynccontextmanager
 async def _default_lifespan(app: FastAPI):
     """Start the workflow poller and delivery task poller in the background."""
-    workspace_path = Path(".studio-data") / ".studio-data"
+    workspace_path = Path(".studio-data")
     workflow_poller = WorkflowPoller(workspace_path=workspace_path)
     delivery_task_poller = DeliveryTaskPoller(workspace_path=workspace_path)
 
