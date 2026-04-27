@@ -995,10 +995,10 @@ class ClaudeRoleAdapter:
     def _output_format(role_name: str) -> dict[str, object]:
         output_format = _ROLE_OUTPUT_FORMATS.get(role_name)
         if output_format is not None:
-            return {"type": "json_schema", "schema": output_format}
+            return output_format
         if role_name in _ACTIVE_ROLE_NAMES:
             raise ClaudeRoleError(f"missing_output_format:{role_name}")
-        return {"type": "json_schema", "schema": _ROLE_OUTPUT_FORMATS["reviewer"]}
+        return _ROLE_OUTPUT_FORMATS["reviewer"]
 
     @staticmethod
     def _parse_result_text(result_text: str) -> dict[str, Any]:
