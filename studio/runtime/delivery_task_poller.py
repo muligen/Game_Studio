@@ -16,7 +16,7 @@ from typing import Any
 
 from studio.runtime import pool
 from studio.storage.delivery_plan_service import DeliveryPlanService
-from studio.storage.git_tracker import GitTracker
+from studio.storage.git_tracker import GitDiffResult, GitTracker
 from studio.storage.workspace import StudioWorkspace
 
 logger = logging.getLogger(__name__)
@@ -276,7 +276,7 @@ class DeliveryTaskPoller:
             return {"error": f"Agent {agent_name} failed"}
 
         # Detect file changes
-        diff = GitTracker.GitDiffResult(changed_files=[])
+        diff = GitDiffResult(changed_files=[])
         commit_hash = ""
         try:
             diff = tracker.detect_changes(pre_state)
