@@ -21,22 +21,37 @@ from studio.api.routes import (
 )
 from studio.api.websocket import get_websocket_manager
 from studio.runtime import pool
+from studio.runtime.delivery_task_poller import DeliveryTaskPoller
 from studio.runtime.poller import WorkflowPoller
 
 
 @asynccontextmanager
 async def _default_lifespan(app: FastAPI):
-    """Start the workflow poller in the background."""
+    """Start the workflow poller and delivery task poller in the background."""
     workspace_path = Path(".studio-data") / ".studio-data"
-    poller = WorkflowPoller(workspace_path=workspace_path)
-    task = asyncio.create_task(poller.start())
+    workflow_poller = WorkflowPoller(workspace_path=workspace_path)
+    delivery_task_poller = DeliveryTaskPoller(workspace_path=workspace_path)
+
+    workflow_task = asyncio.create_task(workflow_poller.start())
+    delivery_task = asyncio.create_task(delivery_task_poller.start())
+
     yield
-    await poller.stop()
-    task.cancel()
+
+    await workflow_poller.stop()
+    await delivery_task_poller.stop()
+
+    workflow_task.cancel()
+    delivery_task.cancel()
+
     try:
-        await task
+        await workflow_task
     except asyncio.CancelledError:
         pass
+    try:
+        await delivery_task
+    except asyncio.CancelledError:
+        pass
+
     pool.shutdown()
 
 
