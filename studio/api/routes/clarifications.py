@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import re
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -60,6 +61,27 @@ def _find_existing_session(store: StudioWorkspace, requirement_id: str):
     if not matches:
         return None
     return max(matches, key=lambda session: session.updated_at)
+
+
+def _infer_validated_attendees(*texts: str) -> list[str]:
+    supported = ("design", "art", "dev", "qa")
+    combined = "\n".join(text.lower() for text in texts if text).strip()
+    if not combined:
+        return []
+
+    patterns = (
+        r"\b(design|art|dev|qa)\b(?:\s+will\s+be|\s+as)?\s+the\s+sole\s+attendee\b",
+        r"\b(design|art|dev|qa)\b(?:\s+should\s+be|\s+as)?\s+the\s+only\s+meeting\s+attendee\b",
+        r"\buse\s+(design|art|dev|qa)\s+as\s+the\s+only\s+meeting\s+attendee\b",
+        r"\b(design|art|dev|qa)\s+only\b.*\battendee\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, combined, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            attendee = match.group(1).lower()
+            if attendee in supported:
+                return [attendee]
+    return []
 
 
 @router.post("/requirements/{req_id}/session")
@@ -125,6 +147,13 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
     session.messages.append(assistant_msg)
 
     raw = payload.meeting_context if isinstance(payload.meeting_context, dict) else {}
+    validated_attendees = [a for a in raw.get("validated_attendees", []) if a in _SUPPORTED_ATTENDEES]
+    if not validated_attendees:
+        validated_attendees = _infer_validated_attendees(
+            request.message.strip(),
+            reply_text,
+            *(message.content for message in session.messages[-4:]),
+        )
     draft = MeetingContextDraft(
         summary=str(raw.get("summary", getattr(session.meeting_context, "summary", "pending") if session.meeting_context else "pending")),
         goals=[str(g) for g in raw.get("goals", [])],
@@ -133,7 +162,7 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
         acceptance_criteria=[str(a) for a in raw.get("acceptance_criteria", [])],
         risks=[str(r) for r in raw.get("risks", [])],
         references=[str(ref) for ref in raw.get("references", [])],
-        validated_attendees=[a for a in raw.get("validated_attendees", []) if a in _SUPPORTED_ATTENDEES],
+        validated_attendees=validated_attendees,
     )
 
     readiness = _validate_readiness(draft)

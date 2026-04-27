@@ -164,6 +164,41 @@ def test_send_message_runs_agent_in_threadpool(client, workspace, monkeypatch):
     mock_instance.generate.assert_called_once()
 
 
+def test_send_message_infers_validated_attendee_from_explicit_reply(client, workspace):
+    start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = start.json()["session"]["id"]
+
+    with patch("studio.api.routes.clarifications.ClaudeRoleAdapter") as MockAdapter:
+        mock_instance = MagicMock()
+        mock_instance.generate.return_value = type("Payload", (), {
+            "reply": (
+                "I've noted that Design will be the sole attendee and will focus on retro visual clarity."
+            ),
+            "meeting_context": {
+                "summary": "Snake game",
+                "goals": ["Build a snake MVP"],
+                "constraints": [],
+                "open_questions": ["Movement timing"],
+                "acceptance_criteria": ["Arrow keys move the snake"],
+                "risks": ["Scope growth"],
+                "references": [],
+                "validated_attendees": [],
+            },
+        })()
+        MockAdapter.return_value = mock_instance
+
+        response = client.post(
+            f"/api/clarifications/requirements/req_001/messages?workspace={workspace}",
+            json={
+                "message": "Use design as the only meeting attendee.",
+                "session_id": session_id,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["session"]["meeting_context"]["validated_attendees"] == ["design"]
+
+
 def test_send_message_rejects_empty_message(client, workspace):
     start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     session_id = start.json()["session"]["id"]
