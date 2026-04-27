@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +53,9 @@ class DeliveryTaskPoller:
         logger.info("DeliveryTaskPoller stopping")
 
     def _tick(self) -> None:
-        """Single scan: find ready tasks and execute them."""
+        """Single scan: recover stuck tasks, then find ready tasks and execute them."""
+        self._recover_stuck_tasks()
+
         service = DeliveryPlanService(self.workspace_path)
         board = service.list_board()
 
@@ -64,6 +67,54 @@ class DeliveryTaskPoller:
 
         for task in ready_tasks:
             self._execute_task(service, task)
+
+    def _recover_stuck_tasks(self) -> None:
+        """Recover tasks that are stuck in in_progress with expired leases."""
+        service = DeliveryPlanService(self.workspace_path)
+        board = service.list_board()
+
+        from datetime import datetime, UTC
+
+        now = datetime.now(UTC)
+        for task in board["tasks"]:
+            if task.status == "in_progress":
+                lease = service._lease_mgr.find(task.project_id, task.owner_agent)
+                if lease and lease.status == "held":
+                    try:
+                        expires = datetime.fromisoformat(lease.expires_at)
+                        if now > expires:
+                            logger.warning(
+                                "Recovering stuck task %s (lease expired at %s)",
+                                task.id,
+                                lease.expires_at,
+                            )
+                            self._rollback_task(service, task)
+                    except (ValueError, TypeError):
+                        pass
+
+    def _rollback_task(self, service: DeliveryPlanService, task: Any) -> None:
+        """Roll back a stuck task to ready status."""
+        from studio.schemas.delivery import DeliveryTask
+
+        rolled_back = DeliveryTask(
+            id=task.id,
+            plan_id=task.plan_id,
+            meeting_id=task.meeting_id,
+            requirement_id=task.requirement_id,
+            project_id=task.project_id,
+            title=task.title,
+            description=task.description,
+            owner_agent=task.owner_agent,
+            status="ready",
+            depends_on_task_ids=list(task.depends_on_task_ids),
+            acceptance_criteria=list(task.acceptance_criteria),
+            meeting_snapshot=task.meeting_snapshot,
+            decision_resolution_version=task.decision_resolution_version,
+            created_at=task.created_at,
+            updated_at=datetime.now(UTC).isoformat(),
+        )
+        service._ws.delivery_tasks.save(rolled_back)
+        logger.info("Rolled back task %s to ready status", task.id)
 
     def _execute_task(
         self,
@@ -102,6 +153,7 @@ class DeliveryTaskPoller:
         task: Any,
     ) -> dict[str, object]:
         """Run the agent for a single delivery task."""
+        started_task = None
         try:
             started_task = service.start_task(task.id)
         except ValueError as exc:
@@ -129,25 +181,32 @@ class DeliveryTaskPoller:
             },
         )
 
+        result = None
         try:
             result = agent.run(state)
             logger.info("Agent %s completed for task %s", agent_name, task.id)
         except Exception:
             logger.exception("Agent %s failed for task %s", agent_name, task.id)
-            result = None
+            self._rollback_task(service, task)
+            return {"error": f"Agent {agent_name} failed"}
 
         summary = f"{agent_name} completed: {task.title}"
         if result and result.trace and result.trace.get("fallback_used"):
             summary += " (fallback)"
 
-        complete_result = service.complete_task(
-            task_id=task.id,
-            summary=summary,
-            output_artifact_ids=[],
-            changed_files=[],
-            tests_or_checks=[],
-            follow_up_notes=[],
-        )
+        try:
+            complete_result = service.complete_task(
+                task_id=task.id,
+                summary=summary,
+                output_artifact_ids=[],
+                changed_files=[],
+                tests_or_checks=[],
+                follow_up_notes=[],
+            )
+        except Exception:
+            logger.exception("Failed to complete task %s, rolling back", task.id)
+            self._rollback_task(service, task)
+            return {"error": "Failed to complete task"}
 
         return {
             "task_id": task.id,

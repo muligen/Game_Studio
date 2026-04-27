@@ -6,6 +6,7 @@ import type { KickoffDecisionGate } from '@/lib/api'
 import { DeliveryTaskCard } from '@/components/board/DeliveryTaskCard'
 import { KickoffDecisionGateCard } from '@/components/board/KickoffDecisionGateCard'
 import { KickoffDecisionDialog } from '@/components/common/KickoffDecisionDialog'
+import { PoolStatusBar } from '@/components/common/PoolStatusBar'
 import { useWebSocket } from '@/hooks/useWebSocket'
 
 const COLUMNS = [
@@ -77,7 +78,10 @@ export function DeliveryBoard() {
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="container mx-auto px-4 py-8 space-y-6">
-        <h1 className="text-3xl font-bold text-gray-900">Delivery Board</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold text-gray-900">Delivery Board</h1>
+        </div>
+        <PoolStatusBar />
         <div className="flex gap-6 overflow-x-auto pb-4">
           {COLUMNS.map((col) => (
             <div key={col.key} className="flex-shrink-0 w-80">
