@@ -734,8 +734,8 @@ class ClaudeRoleAdapter:
             cwd=self._claude_project_root(),
             model=config.model,
             tools=[] if config.mode == "text" else None,
-            permission_mode="default",
-            setting_sources=["project"],
+            permission_mode="accept_edits",
+            setting_sources=["project", "local"],
             env=self._sdk_env(config),
             output_format=self._output_format(role_name),
             session_id=None if self.resume_session else self.session_id,
@@ -995,10 +995,10 @@ class ClaudeRoleAdapter:
     def _output_format(role_name: str) -> dict[str, object]:
         output_format = _ROLE_OUTPUT_FORMATS.get(role_name)
         if output_format is not None:
-            return output_format
+            return {"type": "json_schema", "schema": output_format}
         if role_name in _ACTIVE_ROLE_NAMES:
             raise ClaudeRoleError(f"missing_output_format:{role_name}")
-        return _ROLE_OUTPUT_FORMATS["reviewer"]
+        return {"type": "json_schema", "schema": _ROLE_OUTPUT_FORMATS["reviewer"]}
 
     @staticmethod
     def _parse_result_text(result_text: str) -> dict[str, Any]:
