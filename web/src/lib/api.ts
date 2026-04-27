@@ -576,6 +576,12 @@ export const sessionsApi = {
     }) as Promise<{ sessions: ProjectAgentSession[] }>,
 } as const
 
+export interface AgentMessage {
+  role: 'user' | 'assistant'
+  content: string
+  uuid: string
+}
+
 export const agentsApi = {
   chat: (
     projectId: string,
@@ -587,4 +593,13 @@ export const agentsApi = {
       params: { workspace },
       body: request,
     }) as Promise<{ role: string; content: string }>,
+
+  getMessages: (
+    projectId: string,
+    agent: string,
+    workspace: string,
+  ): Promise<{ messages: AgentMessage[] }> =>
+    apiRequest(`/agents/${projectId}/${agent}/messages`, 'get', {
+      params: { workspace },
+    }) as Promise<{ messages: AgentMessage[] }>,
 } as const

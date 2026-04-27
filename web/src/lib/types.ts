@@ -216,6 +216,41 @@ export interface paths {
     /** Get Kickoff Task */
     get: operations["get_kickoff_task_api_clarifications_kickoff_tasks__task_id__get"];
   };
+  "/api/sessions/project/{project_id}": {
+    /**
+     * List Sessions
+     * @description List all agent sessions for a project.
+     */
+    get: operations["list_sessions_api_sessions_project__project_id__get"];
+  };
+  "/api/sessions": {
+    /**
+     * List All Sessions
+     * @description List all agent sessions across projects.
+     */
+    get: operations["list_all_sessions_api_sessions_get"];
+  };
+  "/api/sessions/{session_composite_id}/status": {
+    /**
+     * Get Session Status
+     * @description Get session status including whether the agent is busy (lease held).
+     */
+    get: operations["get_session_status_api_sessions__session_composite_id__status_get"];
+  };
+  "/api/agents/{project_id}/{agent}/chat": {
+    /**
+     * Chat With Agent
+     * @description Send a message to an idle agent and get a response.
+     */
+    post: operations["chat_with_agent_api_agents__project_id___agent__chat_post"];
+  };
+  "/api/agents/{project_id}/{agent}/messages": {
+    /**
+     * Get Agent Messages
+     * @description Load chat history for an agent session from the Claude CLI transcript.
+     */
+    get: operations["get_agent_messages_api_agents__project_id___agent__messages_get"];
+  };
 }
 
 export type webhooks = Record<string, never>;
@@ -347,6 +382,11 @@ export interface components {
       repro_steps?: string[];
       /** Notes */
       notes?: string[];
+    };
+    /** ChatRequest */
+    ChatRequest: {
+      /** Message */
+      message: string;
     };
     /**
      * CompleteTaskRequest
@@ -1612,6 +1652,160 @@ export interface operations {
       200: {
         content: {
           "application/json": unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * List Sessions
+   * @description List all agent sessions for a project.
+   */
+  list_sessions_api_sessions_project__project_id__get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        project_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * List All Sessions
+   * @description List all agent sessions across projects.
+   */
+  list_all_sessions_api_sessions_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Session Status
+   * @description Get session status including whether the agent is busy (lease held).
+   */
+  get_session_status_api_sessions__session_composite_id__status_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        session_composite_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Chat With Agent
+   * @description Send a message to an idle agent and get a response.
+   */
+  chat_with_agent_api_agents__project_id___agent__chat_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        project_id: string;
+        agent: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ChatRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Agent Messages
+   * @description Load chat history for an agent session from the Claude CLI transcript.
+   */
+  get_agent_messages_api_agents__project_id___agent__messages_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        project_id: string;
+        agent: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
         };
       };
       /** @description Validation Error */

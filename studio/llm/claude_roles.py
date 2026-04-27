@@ -166,7 +166,7 @@ class DeliveryPlannerTaskItem(BaseModel):
 
     title: str
     description: str
-    owner_agent: str
+    owner_agent: Literal["design", "dev", "qa", "art", "reviewer", "quality"]
     depends_on: list[str]
     acceptance_criteria: list[str]
     source_evidence: list[str]
@@ -377,7 +377,7 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
                     "properties": {
                         "title": {"type": "string"},
                         "description": {"type": "string"},
-                        "owner_agent": {"type": "string"},
+                        "owner_agent": {"type": "string", "enum": ["design", "dev", "qa", "art", "reviewer", "quality"]},
                         "depends_on": {"type": "array", "items": {"type": "string"}},
                         "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
                         "source_evidence": {"type": "array", "items": {"type": "string"}},
@@ -734,7 +734,7 @@ class ClaudeRoleAdapter:
             cwd=self._claude_project_root(),
             model=config.model,
             tools=[] if config.mode == "text" else None,
-            permission_mode="accept_edits",
+            permission_mode="acceptEdits",
             setting_sources=["project", "local"],
             env=self._sdk_env(config),
             output_format=self._output_format(role_name),
@@ -799,8 +799,8 @@ class ClaudeRoleAdapter:
             cwd=self._claude_project_root(),
             model=config.model,
             tools=[] if config.mode == "text" else None,
-            permission_mode="default",
-            setting_sources=["project"],
+            permission_mode="acceptEdits",
+            setting_sources=["project", "local"],
             env=self._sdk_env(config),
             session_id=None if self.resume_session else self.session_id,
             resume=self.session_id if self.resume_session else None,

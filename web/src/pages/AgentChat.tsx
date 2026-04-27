@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { agentsApi, poolApi } from '@/lib/api'
+import { agentsApi, poolApi, type AgentMessage } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
 
 interface Message {
@@ -20,6 +20,23 @@ export function AgentChat() {
     queryFn: () => poolApi.status(),
     refetchInterval: 5000,
   })
+
+  const historyQuery = useQuery({
+    queryKey: ['agent-messages', projectId, agent],
+    queryFn: () => agentsApi.getMessages(projectId!, agent!, workspace),
+    enabled: !!projectId && !!agent,
+  })
+
+  useEffect(() => {
+    if (historyQuery.data?.messages) {
+      setMessages(
+        historyQuery.data.messages.map((m: AgentMessage) => ({
+          role: m.role,
+          content: m.content,
+        })),
+      )
+    }
+  }, [historyQuery.data])
 
   const chatMutation = useMutation({
     mutationFn: (message: string) =>
@@ -79,12 +96,16 @@ export function AgentChat() {
 
       <div className="flex-1 overflow-y-auto container mx-auto px-4 py-4">
         <div className="max-w-2xl mx-auto space-y-3">
-          {messages.length === 0 && (
+          {historyQuery.isLoading ? (
+            <div className="text-center text-gray-400 mt-12">
+              <p className="text-lg">Loading history...</p>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="text-center text-gray-400 mt-12">
               <p className="text-lg">Chat with {agent} agent</p>
               <p className="text-sm mt-1">Messages are sent using the agent's Claude session</p>
             </div>
-          )}
+          ) : null}
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div

@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
+from claude_agent_sdk import get_session_messages as sdk_get_session_messages
+
 from studio.agents.profile_loader import AgentProfileLoader
 from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.llm import ClaudeRoleError
@@ -49,6 +51,61 @@ async def chat_with_agent(
     SessionRegistry(ws_root).touch(project_id, agent)
 
     return {"role": "assistant", "content": response_text}
+
+
+@router.get("/{project_id}/{agent}/messages")
+async def get_agent_messages(
+    project_id: str,
+    agent: str,
+    workspace: str,
+) -> dict:
+    """Load chat history for an agent session from the Claude CLI transcript."""
+    ws_root = resolve_workspace_root(workspace)
+
+    session = SessionRegistry(ws_root).find(project_id, agent)
+    if session is None:
+        return {"messages": []}
+
+    profile = AgentProfileLoader().load(agent)
+    project_root = resolve_project_root(str(ws_root).replace(".studio-data", "").rstrip("/"))
+    claude_root = profile.claude_project_root
+    if not claude_root.is_absolute():
+        claude_root = (project_root / claude_root).resolve()
+
+    try:
+        sdk_messages = sdk_get_session_messages(
+            session.session_id,
+            directory=str(claude_root),
+        )
+    except Exception:
+        logger.exception("Failed to load messages for session %s", session.session_id)
+        return {"messages": []}
+
+    messages: list[dict] = []
+    for msg in sdk_messages:
+        content = _extract_content_text(msg.message)
+        if not content:
+            continue
+        messages.append({
+            "role": msg.type,
+            "content": content,
+            "uuid": msg.uuid,
+        })
+
+    return {"messages": messages}
+
+
+def _extract_content_text(message: dict) -> str:
+    content = message.get("content", "") if isinstance(message, dict) else ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block.get("text", ""))
+        return "\n".join(texts)
+    return ""
 
 
 def _run_chat(ws_root, session_id: str, agent: str, message: str) -> str:
