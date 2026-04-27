@@ -5,6 +5,8 @@ import { BugsBoard } from '@/pages/BugsBoard'
 import { DesignEditor } from '@/pages/DesignEditor'
 import { Logs } from '@/pages/Logs'
 import { DeliveryBoard } from '@/pages/DeliveryBoard'
+import { Agents } from '@/pages/Agents'
+import { AgentChat } from '@/pages/AgentChat'
 import './App.css'
 
 const queryClient = new QueryClient()
@@ -19,6 +21,7 @@ function App() {
               <Link to="/requirements" className="hover:underline">Workbench</Link>
               <Link to="/bugs" className="hover:underline">Bugs</Link>
               <Link to="/delivery" className="hover:underline">Delivery</Link>
+              <Link to="/agents" className="hover:underline">Agents</Link>
               <Link to="/logs" className="hover:underline">Logs</Link>
             </nav>
           </div>
@@ -28,6 +31,8 @@ function App() {
           <Route path="/requirements" element={<RequirementsBoard />} />
           <Route path="/bugs" element={<BugsBoard />} />
           <Route path="/delivery" element={<DeliveryBoard />} />
+          <Route path="/agents" element={<Agents />} />
+          <Route path="/agents/:projectId/:agent" element={<AgentChat />} />
           <Route path="/logs" element={<Logs />} />
           <Route path="/design-docs/:id" element={<DesignEditor />} />
         </Routes>

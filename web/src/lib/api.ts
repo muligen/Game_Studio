@@ -263,6 +263,7 @@ export const workflowsApi = {
 export interface PoolStatus {
   max_workers: number
   active_count: number
+  queued_count: number
   idle: boolean
   tasks: Array<{
     task_id: string
@@ -537,4 +538,40 @@ export const deliveryApi = {
       params: { workspace },
       body: {},
     }) as Promise<DeliveryTask>,
+} as const
+
+export interface ProjectAgentSession {
+  id: string
+  project_id: string
+  requirement_id: string
+  agent: string
+  session_id: string
+  status: 'active' | 'expired'
+  created_at: string
+  last_used_at: string
+}
+
+export const sessionsApi = {
+  listByProject: (projectId: string, workspace: string): Promise<{ project_id: string; sessions: ProjectAgentSession[] }> =>
+    apiRequest(`/sessions/project/${projectId}`, 'get', {
+      params: { workspace },
+    }) as Promise<{ project_id: string; sessions: ProjectAgentSession[] }>,
+
+  listAll: (workspace: string): Promise<{ sessions: ProjectAgentSession[] }> =>
+    apiRequest('/sessions', 'get', {
+      params: { workspace },
+    }) as Promise<{ sessions: ProjectAgentSession[] }>,
+} as const
+
+export const agentsApi = {
+  chat: (
+    projectId: string,
+    agent: string,
+    request: { message: string },
+    workspace: string,
+  ): Promise<{ role: string; content: string }> =>
+    apiRequest(`/agents/${projectId}/${agent}/chat`, 'post', {
+      params: { workspace },
+      body: request,
+    }) as Promise<{ role: string; content: string }>,
 } as const
