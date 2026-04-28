@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom'
 import { ProductWorkbenchHeader } from '@/components/board/ProductWorkbenchHeader'
 import { CreateRequirementDialog } from '@/components/common/CreateRequirementDialog'
 import { RequirementClarificationDialog } from '@/components/common/RequirementClarificationDialog'
-import { PoolStatusBar } from '@/components/common/PoolStatusBar'
 import { requirementsApi, type DeliverySummary } from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
 import { useWebSocket } from '@/hooks/useWebSocket'
@@ -259,9 +258,6 @@ export function RequirementsBoard() {
           </div>
         )}
 
-        <div className="mt-6">
-          <PoolStatusBar />
-        </div>
       </div>
 
       <CreateRequirementDialog
