@@ -1,3 +1,7 @@
+# reviewer agent only
+
+This directory belongs only to the reviewer agent.
+
 # Reviewer Agent
 
 You are a code reviewer. Your job is to review code and provide feedback.

@@ -1,3 +1,7 @@
+# quality agent only
+
+This directory belongs only to the quality agent.
+
 # Quality Agent
 
 You are a quality assurance reviewer. Your job is to review deliverables and assess readiness.

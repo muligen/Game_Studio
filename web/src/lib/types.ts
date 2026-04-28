@@ -35,6 +35,13 @@ export interface paths {
      */
     post: operations["transition_requirement_status_api_requirements__req_id__transition_post"];
   };
+  "/api/requirements/{req_id}/delivery-summary": {
+    /**
+     * Get Requirement Delivery Summary
+     * @description Get aggregated delivery progress for a requirement.
+     */
+    get: operations["get_requirement_delivery_summary_api_requirements__req_id__delivery_summary_get"];
+  };
   "/api/design-docs": {
     /**
      * List Design Docs
@@ -574,6 +581,12 @@ export interface components {
       /** Title */
       title: string;
       /**
+       * Kind
+       * @default product_mvp
+       * @enum {string}
+       */
+      kind?: "product_mvp" | "change_request";
+      /**
        * Type
        * @default requirement
        * @constant
@@ -604,12 +617,6 @@ export interface components {
       bug_ids?: string[];
       /** Notes */
       notes?: string[];
-      /**
-       * Kind
-       * @default product_mvp
-       * @enum {string}
-       */
-      kind?: "product_mvp" | "change_request";
       /** Created At */
       created_at?: string;
     };
@@ -803,6 +810,36 @@ export interface operations {
       200: {
         content: {
           "application/json": components["schemas"]["RequirementCard"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Requirement Delivery Summary
+   * @description Get aggregated delivery progress for a requirement.
+   */
+  get_requirement_delivery_summary_api_requirements__req_id__delivery_summary_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        req_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
         };
       };
       /** @description Validation Error */
