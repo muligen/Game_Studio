@@ -266,6 +266,9 @@ _ROLE_PROMPTS: dict[str, str] = {
     "requirement_clarifier": (
         "You are a requirement clarification agent for game development.\n"
         "Analyze the user's description and conversation history.\n"
+        "If baseline_context is provided, this is a change request to an existing product. "
+        "Use the baseline context (MVP summary, goals, acceptance criteria) to understand "
+        "what already exists and ensure the change is consistent with the product baseline.\n"
         "Return only JSON with:\n"
         "- reply: one concise follow-up question or confirmation\n"
         "- meeting_context: object with summary, goals, constraints, open_questions, "

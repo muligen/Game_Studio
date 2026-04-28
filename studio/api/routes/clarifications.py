@@ -139,14 +139,33 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
         profile = AgentProfileLoader().load("requirement_clarifier")
         adapter = ClaudeRoleAdapter(profile=profile, timeout_seconds=_CLARIFICATION_TIMEOUT_SECONDS)
         history = [{"role": m.role, "content": m.content} for m in session.messages]
+
+        # For change requests, include the MVP baseline context
+        baseline_context = None
+        try:
+            requirement = store.requirements.get(req_id)
+            if requirement.kind == "change_request":
+                all_reqs = store.requirements.list_all()
+                mvp_req = next((r for r in all_reqs if r.kind == "product_mvp"), None)
+                if mvp_req:
+                    mvp_session = _find_existing_session(store, mvp_req.id)
+                    if mvp_session and mvp_session.meeting_context:
+                        baseline_context = mvp_session.meeting_context.model_dump()
+        except Exception:
+            pass
+
+        agent_context: dict[str, object] = {
+            "requirement_id": req_id,
+            "conversation": history,
+            "current_context": session.meeting_context.model_dump() if session.meeting_context else {},
+        }
+        if baseline_context:
+            agent_context["baseline_context"] = baseline_context
+
         payload = await run_in_threadpool(
             adapter.generate,
             "requirement_clarifier",
-            {
-                "requirement_id": req_id,
-                "conversation": history,
-                "current_context": session.meeting_context.model_dump() if session.meeting_context else {},
-            },
+            agent_context,
         )
     except Exception as exc:
         session = session.model_copy(update={"status": "failed", "updated_at": datetime.now(UTC).isoformat()})
