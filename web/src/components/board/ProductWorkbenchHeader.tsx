@@ -67,7 +67,7 @@ export function ProductWorkbenchHeader({
           <Button onClick={onContinueClarifying} className="ml-4">
             {config.actionLabel}
           </Button>
-        ) : hasActiveIteration ? null : (
+        ) : (
           <Button onClick={onCreateRequirement} className="ml-4">
             {config.actionLabel}
           </Button>

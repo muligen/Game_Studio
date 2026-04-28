@@ -126,26 +126,30 @@ export function RequirementsBoard() {
 
               <div className="space-y-4">
                 {workbench.iterations.map((iter, i) => {
-                  const isActive = iter.isActive
+                  const phase = iter.phase
                   const req = iter.requirement
                   const kind = iter.kind
                   const title = getIterationTitle(kind, i)
+
+                  const dotColor =
+                    phase === 'active' ? 'bg-blue-500 ring-2 ring-blue-200' :
+                    phase === 'queued' ? 'bg-gray-400' :
+                    'bg-green-500'
+
+                  const cardBorder =
+                    phase === 'active' ? 'border-blue-200 ring-1 ring-blue-100' :
+                    phase === 'queued' ? 'border-gray-200 opacity-60' :
+                    'border-gray-200'
 
                   return (
                     <div key={req.id} className="relative pl-12">
                       {/* Dot on the timeline */}
                       <div
-                        className={`absolute left-3.5 w-3 h-3 rounded-full border-2 border-white -translate-x-1/2 ${
-                          isActive ? 'bg-blue-500 ring-2 ring-blue-200' : 'bg-green-500'
-                        }`}
+                        className={`absolute left-3.5 w-3 h-3 rounded-full border-2 border-white -translate-x-1/2 ${dotColor}`}
                       />
 
                       {/* Card */}
-                      <div
-                        className={`bg-white rounded-lg shadow-sm border ${
-                          isActive ? 'border-blue-200 ring-1 ring-blue-100' : 'border-gray-200'
-                        } p-4`}
-                      >
+                      <div className={`bg-white rounded-lg shadow-sm border ${cardBorder} p-4`}>
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -166,6 +170,11 @@ export function RequirementsBoard() {
                               >
                                 {statusLabel(req.status || 'draft')}
                               </span>
+                              {phase === 'queued' && (
+                                <span className="text-xs text-gray-400 italic">
+                                  Waiting for previous iteration
+                                </span>
+                              )}
                             </div>
 
                             <p className="text-sm text-gray-700 mt-1 truncate">{req.title}</p>
@@ -173,7 +182,7 @@ export function RequirementsBoard() {
                           </div>
 
                           <div className="flex flex-col items-end gap-2 shrink-0">
-                            {isActive ? (
+                            {phase === 'active' ? (
                               <>
                                 {req.status === 'draft' || req.status === 'designing' ? (
                                   <button
@@ -206,6 +215,8 @@ export function RequirementsBoard() {
                                   requirementId={req.id}
                                 />
                               </>
+                            ) : phase === 'queued' ? (
+                              <span className="text-xs text-gray-400">Queued</span>
                             ) : (
                               <Link
                                 to={`/delivery?requirement_id=${req.id}`}
@@ -225,8 +236,8 @@ export function RequirementsBoard() {
           </div>
         )}
 
-        {/* New iteration button after MVP baseline established */}
-        {workbench.baselineStatus === 'active' && !workbench.activeIteration && (
+        {/* New iteration button always visible when MVP baseline is established */}
+        {workbench.baselineStatus === 'active' && (
           <div className="relative pl-12">
             <div className="absolute left-3.5 w-3 h-3 rounded-full border-2 border-dashed border-gray-400 bg-gray-100 -translate-x-1/2" />
             <button

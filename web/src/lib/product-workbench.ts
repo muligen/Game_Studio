@@ -7,10 +7,12 @@ import type { RequirementCard } from './api'
 export type RequirementKind = 'product_mvp' | 'change_request'
 export type BaselineStatus = 'not_started' | 'defining_mvp' | 'active'
 
+export type IterationPhase = 'active' | 'queued' | 'completed'
+
 export interface IterationInfo {
   requirement: RequirementCard
   kind: RequirementKind
-  isActive: boolean
+  phase: IterationPhase
 }
 
 export interface ProductWorkbenchState {
@@ -18,6 +20,7 @@ export interface ProductWorkbenchState {
   mvpRequirement: RequirementCard | null
   iterations: IterationInfo[]
   activeIteration: IterationInfo | null
+  queuedIterations: IterationInfo[]
   completedIterations: IterationInfo[]
 }
 
@@ -34,6 +37,7 @@ export function deriveProductWorkbenchState(
       mvpRequirement: null,
       iterations: [],
       activeIteration: null,
+      queuedIterations: [],
       completedIterations: [],
     }
   }
@@ -49,20 +53,29 @@ export function deriveProductWorkbenchState(
   const mvpDone = mvpRequirement.status === 'done'
   const baselineStatus: BaselineStatus = mvpDone ? 'active' : 'defining_mvp'
 
-  const iterations: IterationInfo[] = sorted.map((req, i) => ({
-    requirement: req,
-    kind: (i === 0 ? 'product_mvp' : 'change_request') as RequirementKind,
-    isActive: req.status !== 'done',
-  }))
+  let seenActive = false
+  const iterations: IterationInfo[] = sorted.map((req, i) => {
+    const kind: RequirementKind = i === 0 ? 'product_mvp' : 'change_request'
+    if (req.status === 'done') {
+      return { requirement: req, kind, phase: 'completed' as const }
+    }
+    if (!seenActive) {
+      seenActive = true
+      return { requirement: req, kind, phase: 'active' as const }
+    }
+    return { requirement: req, kind, phase: 'queued' as const }
+  })
 
-  const completedIterations = iterations.filter((it) => !it.isActive)
-  const activeIteration = iterations.find((it) => it.isActive) || null
+  const completedIterations = iterations.filter((it) => it.phase === 'completed')
+  const activeIteration = iterations.find((it) => it.phase === 'active') || null
+  const queuedIterations = iterations.filter((it) => it.phase === 'queued')
 
   return {
     baselineStatus,
     mvpRequirement,
     iterations,
     activeIteration,
+    queuedIterations,
     completedIterations,
   }
 }
