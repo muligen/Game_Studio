@@ -162,6 +162,38 @@ $env:LANGSMITH_PROJECT = "game-studio-runtime"
 langgraph dev
 ```
 
+### Optional Langfuse Observability
+
+Game Studio can export workflow and LLM traces to Langfuse. This is optional;
+local development and tests run without Langfuse credentials.
+
+Start from `.env.example`:
+
+```env
+GAME_STUDIO_LANGFUSE_ENABLED=false
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_HOST=https://cloud.langfuse.com
+GAME_STUDIO_LANGFUSE_CAPTURE_IO=true
+GAME_STUDIO_LANGFUSE_SAMPLE_RATE=1.0
+```
+
+To enable Langfuse:
+
+1. Set `GAME_STUDIO_LANGFUSE_ENABLED=true`.
+2. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`.
+3. Keep `LANGFUSE_HOST=https://cloud.langfuse.com` for Langfuse Cloud, or set your self-hosted URL.
+4. Run a CLI or Web workflow.
+
+Manual smoke test:
+
+```batch
+uv run python -m studio.interfaces.cli run-demo --workspace .runtime-data --prompt "Design a simple 2D game concept"
+```
+
+Langfuse should show workflow spans and Claude observations. Local `llm_logs`
+continue to be written for offline debugging.
+
 ### Manual Verification
 
 1. Start the local LangGraph server with `langgraph dev` or the `uvx` command above.
