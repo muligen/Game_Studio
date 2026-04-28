@@ -133,6 +133,16 @@ class KickoffService:
                 meeting_result=meeting_result,
             )
 
+            # Transition requirement to approved
+            try:
+                from studio.domain.requirement_flow import transition_requirement
+                req = self._ws.requirements.get(requirement_id)
+                if req.status in ("designing", "pending_user_review", "draft"):
+                    req = transition_requirement(req, "approved")
+                    self._ws.requirements.save(req)
+            except Exception:
+                logger.exception("Failed to auto-advance requirement %s to approved", requirement_id)
+
             # Update clarification session to completed
             try:
                 kickoff_task = self._ws.kickoff_tasks.get(task_id)

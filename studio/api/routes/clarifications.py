@@ -102,6 +102,17 @@ async def start_or_get_session(workspace: str, req_id: str):
         requirement_id=req_id,
     )
     saved = store.clarifications.save(session)
+
+    # Transition requirement: draft → designing
+    try:
+        from studio.domain.requirement_flow import transition_requirement
+        requirement = store.requirements.get(req_id)
+        if requirement.status == "draft":
+            requirement = transition_requirement(requirement, "designing")
+            store.requirements.save(requirement)
+    except Exception:
+        pass
+
     return {"session": saved.model_dump()}
 
 

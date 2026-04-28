@@ -130,7 +130,7 @@ def test_transition_requirement_invalid_transition(temp_workspace: StudioWorkspa
 
     response = test_client.post(
         f"/api/requirements/req_invalid/transition?workspace={get_workspace_param(workspace_path)}",
-        json={"next_status": "done"},
+        json={"next_status": "testing"},
     )
     assert response.status_code == 400
     assert "invalid" in response.json()["detail"].lower()

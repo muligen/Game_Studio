@@ -4,9 +4,9 @@ from studio.schemas.requirement import RequirementCard, RequirementStatus
 
 
 _ALLOWED_TRANSITIONS: dict[RequirementStatus, set[RequirementStatus]] = {
-    "draft": {"designing"},
-    "designing": {"pending_user_review"},
-    "pending_user_review": {"approved", "designing"},
+    "draft": {"designing", "approved", "done"},
+    "designing": {"pending_user_review", "approved", "done"},
+    "pending_user_review": {"approved", "designing", "done"},
     "approved": {"implementing", "done"},
     "implementing": {"self_test_passed", "done"},
     "self_test_passed": {"testing", "done"},
