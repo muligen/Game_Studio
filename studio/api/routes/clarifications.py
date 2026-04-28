@@ -140,17 +140,35 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
         adapter = ClaudeRoleAdapter(profile=profile, timeout_seconds=_CLARIFICATION_TIMEOUT_SECONDS)
         history = [{"role": m.role, "content": m.content} for m in session.messages]
 
-        # For change requests, include the MVP baseline context
+        # For change requests, accumulate context from all completed previous requirements
         baseline_context = None
         try:
             requirement = store.requirements.get(req_id)
             if requirement.kind == "change_request":
                 all_reqs = store.requirements.list_all()
-                mvp_req = next((r for r in all_reqs if r.kind == "product_mvp"), None)
-                if mvp_req:
-                    mvp_session = _find_existing_session(store, mvp_req.id)
-                    if mvp_session and mvp_session.meeting_context:
-                        baseline_context = mvp_session.meeting_context.model_dump()
+                sorted_reqs = sorted(all_reqs, key=lambda r: r.created_at)
+                # Collect all requirements created before this one that have a completed session
+                previous_contexts: list[dict[str, object]] = []
+                for prev_req in sorted_reqs:
+                    if prev_req.id == req_id:
+                        break
+                    prev_session = _find_existing_session(store, prev_req.id)
+                    if prev_session and prev_session.meeting_context:
+                        ctx = prev_session.meeting_context.model_dump()
+                        previous_contexts.append({
+                            "requirement_id": prev_req.id,
+                            "title": prev_req.title,
+                            "kind": prev_req.kind,
+                            "status": prev_req.status,
+                            "summary": ctx.get("summary", ""),
+                            "goals": ctx.get("goals", []),
+                            "acceptance_criteria": ctx.get("acceptance_criteria", []),
+                        })
+                if previous_contexts:
+                    baseline_context = {
+                        "product_evolution": previous_contexts,
+                        "completed_count": len([c for c in previous_contexts if c["status"] == "done"]),
+                    }
         except Exception:
             pass
 
