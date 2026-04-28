@@ -315,6 +315,8 @@ class LangfuseTelemetry:
     def _load_backend(self) -> Any | None:
         if not self.config.export_enabled:
             return None
+        if "PYTEST_CURRENT_TEST" in os.environ:
+            return None
         self._apply_env()
         try:
             from langfuse import get_client

@@ -14,6 +14,8 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import AssistantMessage, ResultMessage
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from studio.observability import LangfuseTelemetry
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -604,6 +606,7 @@ class ClaudeRoleAdapter:
         self.timeout_seconds = timeout_seconds
         self._env_path = self.project_root / ".env"
         self._last_debug_record: dict[str, object] | None = None
+        self._telemetry = LangfuseTelemetry.from_project_root(self.project_root)
 
     def load_config(self) -> ClaudeRoleConfig:
         values = _parse_dotenv(self._env_path)
@@ -640,22 +643,43 @@ class ClaudeRoleAdapter:
     ):
         _require_active_role(role_name)
         prompt = self._prompt(role_name, context)
+        metadata = {
+            "role_name": role_name,
+            "session_id": self.session_id,
+            "resume_session": self.resume_session,
+            "claude_project_root": str(self._claude_project_root()),
+        }
+        with self._telemetry.llm_observation(
+            name=f"claude:{role_name}",
+            metadata=metadata,
+            input={"prompt": prompt, "context": context},
+        ) as observation:
+            try:
+                config = self.load_config()
+                observation.update(metadata={"model": config.model, "mode": config.mode})
+                if not config.enabled:
+                    raise ClaudeRoleError("claude_disabled")
+                if not config.api_key:
+                    raise ClaudeRoleError("missing_claude_configuration")
 
-        config = self.load_config()
-        if not config.enabled:
-            raise ClaudeRoleError("claude_disabled")
-        if not config.api_key:
-            raise ClaudeRoleError("missing_claude_configuration")
-
-        if self._has_running_loop():
-            return self._generate_payload_via_subprocess(role_name, context, prompt)
-
-        try:
-            return asyncio.run(self._generate_payload(role_name, context, config, prompt))
-        except ClaudeRoleError as exc:
-            if "Blocking call to os.getcwd" not in str(exc):
+                if self._has_running_loop():
+                    payload = self._generate_payload_via_subprocess(role_name, context, prompt)
+                else:
+                    try:
+                        payload = asyncio.run(
+                            self._generate_payload(role_name, context, config, prompt)
+                        )
+                    except ClaudeRoleError as exc:
+                        if "Blocking call to os.getcwd" not in str(exc):
+                            raise
+                        payload = self._generate_payload_via_subprocess(role_name, context, prompt)
+                observation.update(output=payload)
+                if self._last_debug_record is not None:
+                    self._last_debug_record["langfuse"] = self._telemetry.current_metadata()
+                return payload
+            except Exception as exc:
+                observation.update(error=exc)
                 raise
-            return self._generate_payload_via_subprocess(role_name, context, prompt)
 
     def debug_prompt(self, role_name: str, context: dict[str, object]) -> str:
         _require_active_role(role_name)
@@ -670,21 +694,40 @@ class ClaudeRoleAdapter:
                 f"User message: {message}",
             ]
         )
-        config = self.load_config()
-        if not config.enabled:
-            raise ClaudeRoleError("claude_disabled")
-        if not config.api_key:
-            raise ClaudeRoleError("missing_claude_configuration")
+        with self._telemetry.llm_observation(
+            name="claude:chat",
+            metadata={
+                "role_name": "chat",
+                "session_id": self.session_id,
+                "resume_session": self.resume_session,
+                "claude_project_root": str(self._claude_project_root()),
+            },
+            input={"message": message},
+        ) as observation:
+            try:
+                config = self.load_config()
+                observation.update(metadata={"model": config.model, "mode": config.mode})
+                if not config.enabled:
+                    raise ClaudeRoleError("claude_disabled")
+                if not config.api_key:
+                    raise ClaudeRoleError("missing_claude_configuration")
 
-        if self._has_running_loop():
-            return self._chat_via_subprocess(prompt)
-
-        try:
-            return asyncio.run(self._chat(prompt, config))
-        except ClaudeRoleError as exc:
-            if "Blocking call to os.getcwd" not in str(exc):
+                if self._has_running_loop():
+                    reply = self._chat_via_subprocess(prompt)
+                else:
+                    try:
+                        reply = asyncio.run(self._chat(prompt, config))
+                    except ClaudeRoleError as exc:
+                        if "Blocking call to os.getcwd" not in str(exc):
+                            raise
+                        reply = self._chat_via_subprocess(prompt)
+                observation.update(output=reply)
+                if self._last_debug_record is not None:
+                    self._last_debug_record["langfuse"] = self._telemetry.current_metadata()
+                return reply
+            except Exception as exc:
+                observation.update(error=exc)
                 raise
-            return self._chat_via_subprocess(prompt)
 
     def consume_debug_record(self) -> dict[str, object] | None:
         record = self._last_debug_record
@@ -989,7 +1032,7 @@ class ClaudeRoleAdapter:
         if existing_pythonpath:
             pythonpath_parts.append(existing_pythonpath)
         env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
-        return env
+        return self._telemetry.subprocess_env(env)
 
     @staticmethod
     def _output_format(role_name: str) -> dict[str, object]:
