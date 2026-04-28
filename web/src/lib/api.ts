@@ -85,6 +85,19 @@ export async function apiRequest(
 }
 
 // Requirements API
+export interface DeliverySummary {
+  requirement_id: string
+  plan_count: number
+  tasks: {
+    total: number
+    done: number
+    in_progress: number
+    ready: number
+    blocked: number
+  }
+  latest_plan_status: string | null
+}
+
 export const requirementsApi = {
   list: (workspace: string): Promise<RequirementCard[]> =>
     apiRequest('/requirements', 'get', {
@@ -123,6 +136,11 @@ export const requirementsApi = {
       },
     }) as Promise<RequirementCard>
   },
+
+  getDeliverySummary: (workspace: string, id: string): Promise<DeliverySummary> =>
+    apiRequest(`/requirements/${id}/delivery-summary`, 'get', {
+      params: { workspace },
+    }) as Promise<DeliverySummary>,
 } as const
 
 // Design Docs API

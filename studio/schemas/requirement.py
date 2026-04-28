@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -8,6 +9,7 @@ from studio.schemas.artifact import StrippedNonEmptyStr
 
 
 RequirementType = Literal["requirement"]
+RequirementKind = Literal["product_mvp", "change_request"]
 RequirementPriority = Literal["low", "medium", "high"]
 RequirementStatus = Literal[
     "draft",
@@ -28,6 +30,7 @@ class RequirementCard(BaseModel):
 
     id: StrippedNonEmptyStr
     title: StrippedNonEmptyStr
+    kind: RequirementKind = "product_mvp"
     type: RequirementType = "requirement"
     priority: RequirementPriority = "medium"
     status: RequirementStatus = "draft"
@@ -36,3 +39,4 @@ class RequirementCard(BaseModel):
     balance_table_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     bug_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     notes: list[StrippedNonEmptyStr] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

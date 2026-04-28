@@ -604,6 +604,14 @@ export interface components {
       bug_ids?: string[];
       /** Notes */
       notes?: string[];
+      /**
+       * Kind
+       * @default product_mvp
+       * @enum {string}
+       */
+      kind?: "product_mvp" | "change_request";
+      /** Created At */
+      created_at?: string;
     };
     /**
      * ResolveGateRequest

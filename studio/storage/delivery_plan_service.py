@@ -357,6 +357,16 @@ class DeliveryPlanService:
             plan = plan.model_copy(update={"status": "completed", "updated_at": now})
             self._ws.delivery_plans.save(plan)
 
+            try:
+                req = self._ws.requirements.get(plan.requirement_id)
+                if req.status != "done":
+                    from studio.domain.requirement_flow import transition_requirement
+                    req = transition_requirement(req, "done")
+                    self._ws.requirements.save(req)
+            except Exception:
+                logger = logging.getLogger(__name__)
+                logger.exception("Failed to auto-advance requirement %s", plan.requirement_id)
+
         return {"task": task, "execution_result": exec_result}
 
     def list_board(self, requirement_id: str | None = None) -> dict:

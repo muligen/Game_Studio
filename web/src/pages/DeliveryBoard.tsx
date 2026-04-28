@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useWorkspace } from '@/lib/workspace'
 import { deliveryApi } from '@/lib/api'
 import type { KickoffDecisionGate } from '@/lib/api'
@@ -23,11 +24,13 @@ export function DeliveryBoard() {
   const { workspace } = useWorkspace()
   const queryClient = useQueryClient()
   const { connected, subscribe } = useWebSocket()
+  const [searchParams] = useSearchParams()
+  const requirementId = searchParams.get('requirement_id') || undefined
   const [resolveGate, setResolveGate] = useState<KickoffDecisionGate | null>(null)
 
   const { data: board, isLoading, error } = useQuery({
-    queryKey: ['delivery-board', workspace],
-    queryFn: () => deliveryApi.listBoard(workspace),
+    queryKey: ['delivery-board', workspace, requirementId],
+    queryFn: () => deliveryApi.listBoard(workspace, requirementId),
   })
 
   useEffect(() => {
@@ -79,7 +82,16 @@ export function DeliveryBoard() {
     <div className="min-h-screen bg-gray-100">
       <div className="container mx-auto px-4 py-8 space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900">Delivery Board</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-3xl font-bold text-gray-900">Delivery Board</h1>
+            {requirementId && (
+              <span className="text-sm text-gray-500 font-mono">
+                Filtered: {requirementId}
+                <Link to="/delivery" className="ml-2 text-blue-600 hover:underline">Clear</Link>
+              </span>
+            )}
+          </div>
+          <Link to="/" className="text-sm text-blue-600 hover:underline">&larr; Workbench</Link>
         </div>
         <PoolStatusBar />
         <div className="flex gap-6 overflow-x-auto pb-4">

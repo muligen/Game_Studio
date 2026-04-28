@@ -198,6 +198,12 @@ async def complete_delivery_task(
         entity_id=task_id,
         action="updated",
     )
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="requirement",
+        entity_id=result["task"].requirement_id,
+        action="updated",
+    )
     return {
         "task": result["task"].model_dump(),
         "execution_result": result["execution_result"].model_dump(),

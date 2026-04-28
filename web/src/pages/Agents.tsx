@@ -153,33 +153,33 @@ export function Agents() {
                       </div>
                       {expanded && (
                         <div className="mt-2 space-y-1.5 border-t border-red-100 pt-2">
-                          {detail.prompt && (
+                          {!!detail.prompt && (
                             <details open>
                               <summary className="text-gray-600 cursor-pointer">Prompt</summary>
                               <pre className="mt-1 text-gray-700 whitespace-pre-wrap break-all bg-gray-50 p-1.5 rounded max-h-40 overflow-y-auto font-mono">
-                                {String(detail.prompt)}
+                                {String(detail.prompt ?? '')}
                               </pre>
                             </details>
                           )}
-                          {detail.traceback && (
+                          {!!detail.traceback && (
                             <details>
                               <summary className="text-gray-600 cursor-pointer">Traceback</summary>
                               <pre className="mt-1 text-red-700 whitespace-pre-wrap break-all bg-gray-50 p-1.5 rounded max-h-40 overflow-y-auto font-mono">
-                                {String(detail.traceback)}
+                                {String(detail.traceback ?? '')}
                               </pre>
                             </details>
                           )}
-                          {detail.acceptance_criteria && (
+                          {!!detail.acceptance_criteria && (
                             <details>
                               <summary className="text-gray-600 cursor-pointer">Acceptance Criteria</summary>
                               <pre className="mt-1 text-gray-700 whitespace-pre-wrap break-all bg-gray-50 p-1.5 rounded max-h-32 overflow-y-auto font-mono">
-                                {JSON.stringify(detail.acceptance_criteria, null, 2)}
+                                {String(JSON.stringify(detail.acceptance_criteria ?? '', null, 2))}
                               </pre>
                             </details>
                           )}
-                          {detail.lease_expires_at && (
+                          {!!detail.lease_expires_at && (
                             <div className="text-gray-600">
-                              Lease expired at: {String(detail.lease_expires_at)}
+                              Lease expired at: {String(detail.lease_expires_at ?? '')}
                             </div>
                           )}
                         </div>
