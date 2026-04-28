@@ -135,3 +135,11 @@ def test_run_hook_delegates_payload_to_upstream(tmp_path: Path) -> None:
     assert calls[0]["input"] == '{"session_id":"s1"}'
     delegated_env = calls[0]["env"]
     assert delegated_env["CC_LANGFUSE_AGENT_ROLE"] == "design"
+
+
+def test_shared_hook_script_exists_and_uses_wrapper() -> None:
+    script = Path(".claude/hooks/langfuse_hook.py")
+
+    assert script.exists()
+    content = script.read_text(encoding="utf-8")
+    assert "from studio.observability.claude_code_hook import main" in content
