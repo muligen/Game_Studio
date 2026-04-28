@@ -108,6 +108,31 @@ def _consume_agent_llm_log(agent: object) -> dict[str, object] | None:
     return entry
 
 
+def _append_llm_log_entry(
+    logger: LlmRunLogger,
+    *,
+    run_id: str,
+    node_name: str,
+    entry: dict[str, object],
+    telemetry_metadata: dict[str, object] | None = None,
+) -> None:
+    metadata: dict[str, object] = {}
+    if isinstance(telemetry_metadata, dict):
+        metadata.update(telemetry_metadata)
+    langfuse_metadata = entry.get("langfuse")
+    if isinstance(langfuse_metadata, dict):
+        metadata.update({str(key): value for key, value in langfuse_metadata.items()})
+
+    logger.append(
+        run_id=run_id,
+        node_name=node_name,
+        prompt=str(entry.get("prompt", "")),
+        context=entry.get("context") if isinstance(entry.get("context"), dict) else {},
+        reply=entry.get("reply"),
+        metadata=metadata or None,
+    )
+
+
 def _meeting_id_for_requirement(requirement_id: str) -> str:
     return f"meeting_{requirement_id.split('_')[-1]}"
 
@@ -202,11 +227,12 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             result = agent.run(runtime_state)
             llm_entry = _consume_agent_llm_log(agent)
             if llm_entry is not None:
-                llm_logs.append(
+                _append_llm_log_entry(
+                    llm_logs,
                     run_id=run_id,
                     node_name="worker",
-                    metadata=telemetry.current_metadata(),
-                    **llm_entry,
+                    entry=llm_entry,
+                    telemetry_metadata=telemetry.current_metadata(),
                 )
             stored = []
             for artifact in result.artifacts:
@@ -269,11 +295,12 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
             result = agent.run(runtime_state, artifact_payload=payload)
             llm_entry = _consume_agent_llm_log(agent)
             if llm_entry is not None:
-                llm_logs.append(
+                _append_llm_log_entry(
+                    llm_logs,
                     run_id=run_id,
                     node_name="reviewer",
-                    metadata=telemetry.current_metadata(),
-                    **llm_entry,
+                    entry=llm_entry,
+                    telemetry_metadata=telemetry.current_metadata(),
                 )
             risks = list(runtime_state.risks)
             patch_risks = result.state_patch.get("risks")

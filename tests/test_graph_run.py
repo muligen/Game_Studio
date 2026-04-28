@@ -426,6 +426,80 @@ def test_demo_runtime_llm_logs_serialize_structured_reply_objects(
     assert log_entries[1]["reply"] == {"decision": "continue", "reason": "ok", "risks": []}
 
 
+def test_demo_runtime_llm_logs_merge_langfuse_metadata_from_debug_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _StubWorkerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "worker"}},
+                artifacts=[
+                    ArtifactRecord(
+                        artifact_id="concept-draft",
+                        artifact_type="design_brief",
+                        source_node="worker",
+                        payload={"title": "Relics", "summary": "desc", "genre": "rpg"},
+                    )
+                ],
+                trace={"node": "worker", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "worker prompt",
+                "context": {"prompt": "Design a simple 2D game concept"},
+                "reply": {"title": "Relics", "summary": "desc", "genre": "rpg"},
+                "langfuse": {"langfuse_trace_id": "trace-123"},
+            }
+
+    class _StubReviewerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "reviewer"}, "risks": []},
+                trace={"node": "reviewer", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "reviewer prompt",
+                "context": {"artifact_payload": {"title": "Relics", "summary": "desc", "genre": "rpg"}},
+                "reply": {"decision": "continue", "reason": "ok", "risks": []},
+                "langfuse": {"langfuse_trace_id": "trace-456"},
+            }
+
+    class _StubPlannerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "planner"}},
+                trace={"node": "planner"},
+            )
+
+    class _StubDispatcher:
+        def __init__(self) -> None:
+            self._agents = {
+                "planner": _StubPlannerAgent(),
+                "worker": _StubWorkerAgent(),
+                "reviewer": _StubReviewerAgent(),
+            }
+
+        def get(self, node_name: str):
+            return self._agents[node_name]
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _StubDispatcher)
+
+    runtime = build_demo_runtime(tmp_path)
+    result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    log_entries = json.loads(
+        (tmp_path / "logs" / f'{result["run_id"]}.json').read_text(encoding="utf-8")
+    )
+    assert log_entries[0]["metadata"]["langfuse_trace_id"] == "trace-123"
+    assert log_entries[1]["metadata"]["langfuse_trace_id"] == "trace-456"
+
+
 def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None:
     workspace_root = tmp_path / ".studio-data"
     workspace = StudioWorkspace(workspace_root)
