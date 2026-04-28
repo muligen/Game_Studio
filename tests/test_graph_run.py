@@ -58,6 +58,18 @@ def test_demo_runtime_runs_to_completion(tmp_path: Path) -> None:
     assert result["telemetry"]["node_traces"]["reviewer"]["node"] == "reviewer"
 
 
+def test_demo_graph_runs_with_langfuse_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PYTHONUTF8", "1")
+    runtime = build_demo_runtime(tmp_path)
+
+    result = runtime.invoke({"prompt": "Design a tiny puzzle game"})
+
+    assert result["telemetry"]["status"] == "completed"
+    assert "node_traces" in result["telemetry"]
+
+
 def test_demo_runtime_surfaces_retry_when_review_fails(tmp_path: Path) -> None:
     runtime = build_demo_runtime(tmp_path, force_review_retry=True)
     result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
@@ -412,6 +424,80 @@ def test_demo_runtime_llm_logs_serialize_structured_reply_objects(
         (tmp_path / "logs" / f'{result["run_id"]}.json').read_text(encoding="utf-8")
     )
     assert log_entries[1]["reply"] == {"decision": "continue", "reason": "ok", "risks": []}
+
+
+def test_demo_runtime_llm_logs_merge_langfuse_metadata_from_debug_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _StubWorkerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "worker"}},
+                artifacts=[
+                    ArtifactRecord(
+                        artifact_id="concept-draft",
+                        artifact_type="design_brief",
+                        source_node="worker",
+                        payload={"title": "Relics", "summary": "desc", "genre": "rpg"},
+                    )
+                ],
+                trace={"node": "worker", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "worker prompt",
+                "context": {"prompt": "Design a simple 2D game concept"},
+                "reply": {"title": "Relics", "summary": "desc", "genre": "rpg"},
+                "langfuse": {"langfuse_trace_id": "trace-123"},
+            }
+
+    class _StubReviewerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "reviewer"}, "risks": []},
+                trace={"node": "reviewer", "llm_provider": "claude", "fallback_used": False},
+            )
+
+        def consume_llm_log_entry(self):
+            return {
+                "prompt": "reviewer prompt",
+                "context": {"artifact_payload": {"title": "Relics", "summary": "desc", "genre": "rpg"}},
+                "reply": {"decision": "continue", "reason": "ok", "risks": []},
+                "langfuse": {"langfuse_trace_id": "trace-456"},
+            }
+
+    class _StubPlannerAgent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"plan": {"current_node": "planner"}},
+                trace={"node": "planner"},
+            )
+
+    class _StubDispatcher:
+        def __init__(self) -> None:
+            self._agents = {
+                "planner": _StubPlannerAgent(),
+                "worker": _StubWorkerAgent(),
+                "reviewer": _StubReviewerAgent(),
+            }
+
+        def get(self, node_name: str):
+            return self._agents[node_name]
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _StubDispatcher)
+
+    runtime = build_demo_runtime(tmp_path)
+    result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
+
+    log_entries = json.loads(
+        (tmp_path / "logs" / f'{result["run_id"]}.json').read_text(encoding="utf-8")
+    )
+    assert log_entries[0]["metadata"]["langfuse_trace_id"] == "trace-123"
+    assert log_entries[1]["metadata"]["langfuse_trace_id"] == "trace-456"
 
 
 def test_design_graph_updates_requirement_and_design_doc(tmp_path: Path) -> None:

@@ -576,3 +576,27 @@ def test_worker_main_rejects_incomplete_profile_cli_args_before_loading_config(
     assert exit_code == 1
     assert captured.out == ""
     assert captured.err.strip() == "missing_agent_profile"
+
+
+def test_worker_adapter_subprocess_env_includes_langfuse(tmp_path: Path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "GAME_STUDIO_LANGFUSE_ENABLED=true",
+                "LANGFUSE_PUBLIC_KEY=pk",
+                "LANGFUSE_SECRET_KEY=sk",
+                "LANGFUSE_HOST=https://langfuse.example",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profile = _profile(system_prompt="worker", claude_project_root=claude_root)
+    adapter = ClaudeWorkerAdapter(project_root=tmp_path, profile=profile)
+
+    env = adapter._subprocess_env()
+
+    assert env["LANGFUSE_PUBLIC_KEY"] == "pk"
+    assert env["LANGFUSE_SECRET_KEY"] == "sk"
+    assert env["LANGFUSE_HOST"] == "https://langfuse.example"

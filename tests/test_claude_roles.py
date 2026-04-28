@@ -885,3 +885,82 @@ def test_main_rejects_incomplete_profile_cli_args_before_loading_config(
     assert exit_code == 1
     assert captured.out == ""
     assert captured.err.strip() == "missing_agent_profile"
+
+
+def test_role_adapter_subprocess_env_includes_langfuse(tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "GAME_STUDIO_LANGFUSE_ENABLED=true",
+                "LANGFUSE_PUBLIC_KEY=pk",
+                "LANGFUSE_SECRET_KEY=sk",
+                "LANGFUSE_HOST=https://langfuse.example",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profile = _profile(
+        name="reviewer",
+        system_prompt="review",
+        claude_project_root=claude_root,
+    )
+    adapter = ClaudeRoleAdapter(project_root=tmp_path, profile=profile)
+
+    env = adapter._subprocess_env()
+
+    assert env["LANGFUSE_PUBLIC_KEY"] == "pk"
+    assert env["LANGFUSE_SECRET_KEY"] == "sk"
+    assert env["LANGFUSE_HOST"] == "https://langfuse.example"
+
+
+def test_role_adapter_records_debug_metadata_from_observation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    claude_root.mkdir(parents=True)
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            [
+                "GAME_STUDIO_CLAUDE_ENABLED=true",
+                "ANTHROPIC_API_KEY=key",
+                "GAME_STUDIO_LANGFUSE_ENABLED=true",
+                "LANGFUSE_PUBLIC_KEY=pk",
+                "LANGFUSE_SECRET_KEY=sk",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    profile = _profile(
+        name="reviewer",
+        system_prompt="review",
+        claude_project_root=claude_root,
+    )
+
+    async def fake_generate_payload(self, role_name, context, config, prompt):
+        self._last_debug_record = {
+            "prompt": prompt,
+            "context": context,
+            "reply": {"decision": "continue", "reason": "ok", "risks": []},
+        }
+        return claude_roles_module.ReviewerPayload(
+            decision="continue",
+            reason="ok",
+            risks=[],
+        )
+
+    monkeypatch.setattr(
+        claude_roles_module.ClaudeRoleAdapter,
+        "_generate_payload",
+        fake_generate_payload,
+    )
+
+    adapter = ClaudeRoleAdapter(project_root=tmp_path, profile=profile)
+    payload = adapter.generate("reviewer", {"prompt": "hello"})
+    record = adapter.consume_debug_record()
+
+    assert payload.decision == "continue"
+    assert record is not None
+    assert record["context"] == {"prompt": "hello"}
+    assert "langfuse" in record
