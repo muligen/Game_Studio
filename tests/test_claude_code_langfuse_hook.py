@@ -143,3 +143,39 @@ def test_shared_hook_script_exists_and_uses_wrapper() -> None:
     assert script.exists()
     content = script.read_text(encoding="utf-8")
     assert "from studio.observability.claude_code_hook import main" in content
+
+
+AGENT_NAMES = [
+    "art",
+    "delivery_planner",
+    "design",
+    "dev",
+    "moderator",
+    "qa",
+    "quality",
+    "requirement_clarifier",
+    "reviewer",
+    "worker",
+]
+
+
+def test_all_agent_settings_have_langfuse_stop_hook() -> None:
+    expected_command = 'uv run python "../../hooks/langfuse_hook.py"'
+
+    for agent_name in AGENT_NAMES:
+        path = Path(".claude") / "agents" / agent_name / ".claude" / "settings.local.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+
+        assert data["env"]["TRACE_TO_LANGFUSE"] == "true"
+        assert data["hooks"]["Stop"][0]["hooks"][0] == {
+            "type": "command",
+            "command": expected_command,
+        }
+
+
+def test_all_agent_settings_preserve_permissions() -> None:
+    for agent_name in AGENT_NAMES:
+        path = Path(".claude") / "agents" / agent_name / ".claude" / "settings.local.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+
+        assert data["permissions"]["allow"] == ["Bash(*)", "Edit(*)"]

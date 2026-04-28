@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Edit(*)"
+    ]
+  },
+  "env": {
+    "TRACE_TO_LANGFUSE": "true"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python \"../../hooks/langfuse_hook.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
