@@ -63,6 +63,15 @@ async def create_requirement(
     )
     kind: RequirementKind = "change_request" if mvp_done else "product_mvp"
 
+    # Serial execution: only one active requirement at a time
+    if kind == "change_request":
+        active_cr = next((r for r in existing if r.kind == "change_request" and r.status != "done"), None)
+        if active_cr:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Cannot create a new change request while '{active_cr.title}' (status: {active_cr.status}) is still in progress.",
+            )
+
     req_id = f"req_{uuid4().hex[:8]}"
     card = RequirementCard(
         id=req_id,
