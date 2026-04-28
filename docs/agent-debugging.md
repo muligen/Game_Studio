@@ -95,6 +95,62 @@ Each file maps a project and agent to a Claude session id:
 Get-Content -Raw .runtime-data/project-session-demo/.studio-data/project_agent_sessions/proj_xxxxxxxx_qa.json
 ```
 
+## Claude Code Agent Langfuse Tracing
+
+Claude Code subagents under `.claude/agents/*` use a shared `Stop` hook at
+`.claude/hooks/langfuse_hook.py`. Each agent's own
+`.claude/settings.local.json` enables the hook with:
+
+```json
+"env": {
+  "TRACE_TO_LANGFUSE": "true"
+}
+```
+
+The shared script delegates to the globally installed
+`douinc/langfuse-claudecode` hook. Install it once:
+
+```powershell
+curl.exe -fsSL https://raw.githubusercontent.com/douinc/langfuse-claudecode/main/install.sh | bash
+```
+
+For Windows shells without `bash`, manually install the hook in
+`$HOME/.claude/hooks/langfuse-claudecode`:
+
+```powershell
+New-Item -ItemType Directory -Force "$HOME/.claude/hooks" | Out-Null
+git clone https://github.com/douinc/langfuse-claudecode "$HOME/.claude/hooks/langfuse-claudecode"
+uv sync --project "$HOME/.claude/hooks/langfuse-claudecode"
+```
+
+Set credentials in the shell before starting Claude Code:
+
+```powershell
+$env:LANGFUSE_PUBLIC_KEY = "pk-lf-..."
+$env:LANGFUSE_SECRET_KEY = "sk-lf-..."
+$env:LANGFUSE_BASE_URL = "https://cloud.langfuse.com"
+```
+
+Optional variables:
+
+```powershell
+$env:CC_LANGFUSE_USER_ID = "you@example.com"
+$env:CC_LANGFUSE_ENVIRONMENT = "local"
+$env:CC_LANGFUSE_DEBUG = "true"
+```
+
+Manual verification:
+
+1. Open Claude Code from an agent directory, for example
+   `.claude/agents/design`.
+2. Send a short prompt.
+3. Confirm Langfuse shows a Claude Code trace.
+4. Check `host_cwd`, `CC_LANGFUSE_ENVIRONMENT`, or local hook logs to identify
+   the agent role.
+
+The hook fails open. If Langfuse is down or credentials are missing, Claude Code
+continues normally and the hook prints a concise stderr message.
+
 ## Common Errors
 
 ### `--workspace is required when --project-id is set`
