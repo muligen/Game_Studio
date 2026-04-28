@@ -33,6 +33,7 @@ class LlmRunLogger:
         prompt: str,
         context: dict[str, object],
         reply: Any,
+        metadata: dict[str, object] | None = None,
     ) -> None:
         target = self.root / f"{run_id}.json"
         payload = {
@@ -43,6 +44,8 @@ class LlmRunLogger:
             "context": _json_ready(context),
             "reply": _json_ready(reply),
         }
+        if metadata:
+            payload["metadata"] = _json_ready(metadata)
         if target.exists():
             entries = json.loads(target.read_text(encoding="utf-8"))
             if not isinstance(entries, list):
