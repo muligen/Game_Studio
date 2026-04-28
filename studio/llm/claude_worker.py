@@ -14,6 +14,8 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import ResultMessage
 import yaml
 
+from studio.observability import LangfuseTelemetry
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -154,6 +156,7 @@ class ClaudeWorkerAdapter:
         self._env_path = self.project_root / ".env"
         self._role_adapter = role_adapter
         self._last_debug_record: dict[str, object] | None = None
+        self._telemetry = LangfuseTelemetry.from_project_root(self.project_root)
 
     def load_config(self) -> ClaudeWorkerConfig:
         values = _parse_dotenv(self._env_path)
@@ -178,28 +181,44 @@ class ClaudeWorkerAdapter:
         return self.load_config().enabled
 
     def generate_design_brief(self, prompt: str) -> ClaudeWorkerPayload:
-        if self._role_adapter is not None:
+        with self._telemetry.llm_observation(
+            name="claude:worker",
+            metadata={"role_name": "worker"},
+            input={"prompt": prompt},
+        ) as observation:
             try:
-                payload = self._role_adapter.generate("worker", {"prompt": prompt})
-            except Exception as exc:
-                raise ClaudeWorkerError(str(exc) or exc.__class__.__name__) from exc
-            if hasattr(self._role_adapter, "consume_debug_record"):
-                self._last_debug_record = self._role_adapter.consume_debug_record()
-            return _coerce_payload(payload)
+                if self._role_adapter is not None:
+                    payload = self._role_adapter.generate("worker", {"prompt": prompt})
+                    if hasattr(self._role_adapter, "consume_debug_record"):
+                        self._last_debug_record = self._role_adapter.consume_debug_record()
+                    coerced = _coerce_payload(payload)
+                    observation.update(output=coerced)
+                    if self._last_debug_record is not None:
+                        self._last_debug_record["langfuse"] = self._telemetry.current_metadata()
+                    return coerced
 
-        config = self.load_config()
-        if not config.enabled:
-            raise ClaudeWorkerError("claude_disabled")
-        if not config.api_key:
-            raise ClaudeWorkerError("missing_claude_configuration")
-        if self._has_running_loop():
-            return self._generate_design_brief_via_subprocess(prompt)
-        try:
-            return asyncio.run(self._generate_design_brief(prompt, config))
-        except ClaudeWorkerError as exc:
-            if "Blocking call to os.getcwd" not in str(exc):
-                raise
-            return self._generate_design_brief_via_subprocess(prompt)
+                config = self.load_config()
+                observation.update(metadata={"model": config.model, "mode": config.mode})
+                if not config.enabled:
+                    raise ClaudeWorkerError("claude_disabled")
+                if not config.api_key:
+                    raise ClaudeWorkerError("missing_claude_configuration")
+                if self._has_running_loop():
+                    payload = self._generate_design_brief_via_subprocess(prompt)
+                else:
+                    try:
+                        payload = asyncio.run(self._generate_design_brief(prompt, config))
+                    except ClaudeWorkerError as exc:
+                        if "Blocking call to os.getcwd" not in str(exc):
+                            raise
+                        payload = self._generate_design_brief_via_subprocess(prompt)
+                observation.update(output=payload)
+                if self._last_debug_record is not None:
+                    self._last_debug_record["langfuse"] = self._telemetry.current_metadata()
+                return payload
+            except Exception as exc:
+                observation.update(error=exc)
+                raise ClaudeWorkerError(str(exc) or exc.__class__.__name__) from exc
 
     def debug_prompt(self, prompt: str) -> str:
         return self._prompt(prompt)
@@ -375,7 +394,7 @@ class ClaudeWorkerAdapter:
         if existing_pythonpath:
             pythonpath_parts.append(existing_pythonpath)
         env["PYTHONPATH"] = os.pathsep.join(pythonpath_parts)
-        return env
+        return self._telemetry.subprocess_env(env)
 
 
 def _main() -> int:
