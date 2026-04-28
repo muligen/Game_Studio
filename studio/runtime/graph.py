@@ -11,6 +11,7 @@ from langgraph.types import Send
 from studio.artifacts.registry import ArtifactRegistry
 from studio.domain.requirement_flow import transition_requirement
 from studio.memory.store import MemoryStore
+from studio.observability import LangfuseTelemetry
 from studio.runtime.checkpoints import CheckpointManager
 from studio.runtime.dispatcher import RuntimeDispatcher
 from studio.runtime.llm_logs import LlmRunLogger
@@ -148,96 +149,153 @@ def build_demo_runtime(root: Path, force_review_retry: bool = False):
     memory_store = MemoryStore(root / "memory")
     checkpoints = CheckpointManager(root / "checkpoints")
     llm_logs = LlmRunLogger(root / "logs")
+    telemetry = LangfuseTelemetry.from_project_root(Path.cwd())
 
     def _checkpoint_key(run_id: str, node_name: str) -> str:
         return f"{run_id}-{node_name}"
 
     def planner_node(state: dict[str, Any]) -> dict[str, Any]:
         run_id = _new_run_id()
-        runtime_state = RuntimeState(
-            project_id="demo-project",
-            run_id=run_id,
-            task_id=f"{run_id}-planner",
-            goal=state,
-        )
-        result = dispatcher.get("planner").run(runtime_state)
-        merged = _merge_runtime_state(
-            runtime_state,
-            state_patch=result.state_patch,
-            node_name="planner",
-            trace=result.trace,
-        )
-        checkpoints.save(_checkpoint_key(run_id, "planner"), merged)
-        return merged.model_dump(mode="json")
+        with telemetry.node_span(
+            name="planner",
+            metadata={
+                "graph": "game_studio_demo",
+                "run_id": run_id,
+                "task_id": f"{run_id}-planner",
+                "node_name": "planner",
+            },
+            input={"goal": state},
+        ) as span:
+            runtime_state = RuntimeState(
+                project_id="demo-project",
+                run_id=run_id,
+                task_id=f"{run_id}-planner",
+                goal=state,
+            )
+            result = dispatcher.get("planner").run(runtime_state)
+            merged = _merge_runtime_state(
+                runtime_state,
+                state_patch=result.state_patch,
+                node_name="planner",
+                trace=result.trace,
+            )
+            checkpoints.save(_checkpoint_key(run_id, "planner"), merged)
+            span.update(output={"current_node": merged.plan.current_node})
+            return merged.model_dump(mode="json")
 
     def worker_node(state: dict[str, Any]) -> dict[str, Any]:
         runtime_state = RuntimeState.model_validate(state)
         run_id = runtime_state.run_id
-        session_tag = _session_tag_for_run(run_id)
-        runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-worker"})
-        agent = dispatcher.get("worker")
-        result = agent.run(runtime_state)
-        llm_entry = _consume_agent_llm_log(agent)
-        if llm_entry is not None:
-            llm_logs.append(run_id=run_id, node_name="worker", **llm_entry)
-        stored = []
-        for artifact in result.artifacts:
-            unique_id = f"{artifact.artifact_id}-{session_tag}"
-            to_store = artifact.model_copy(update={"artifact_id": unique_id})
-            stored.append(artifact_registry.save(to_store))
-        memory_key = f"{run_id}-summary"
-        memory_store.put("run", memory_key, {"summary": "worker produced concept draft"})
-        merged = _merge_runtime_state(
-            runtime_state,
-            state_patch=result.state_patch,
-            node_name="worker",
-            trace=result.trace,
-            overrides={
-                "artifacts": stored,
+        with telemetry.node_span(
+            name="worker",
+            metadata={
+                "graph": "game_studio_demo",
+                "run_id": run_id,
+                "task_id": f"{run_id}-worker",
+                "node_name": "worker",
             },
-        )
-        checkpoints.save(_checkpoint_key(run_id, "worker"), merged)
-        return merged.model_dump(mode="json")
+            input={"goal": runtime_state.goal},
+        ) as span:
+            session_tag = _session_tag_for_run(run_id)
+            runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-worker"})
+            agent = dispatcher.get("worker")
+            result = agent.run(runtime_state)
+            llm_entry = _consume_agent_llm_log(agent)
+            if llm_entry is not None:
+                llm_logs.append(
+                    run_id=run_id,
+                    node_name="worker",
+                    metadata=telemetry.current_metadata(),
+                    **llm_entry,
+                )
+            stored = []
+            for artifact in result.artifacts:
+                unique_id = f"{artifact.artifact_id}-{session_tag}"
+                to_store = artifact.model_copy(update={"artifact_id": unique_id})
+                stored.append(artifact_registry.save(to_store))
+            memory_key = f"{run_id}-summary"
+            memory_store.put("run", memory_key, {"summary": "worker produced concept draft"})
+            merged = _merge_runtime_state(
+                runtime_state,
+                state_patch=result.state_patch,
+                node_name="worker",
+                trace=result.trace,
+                overrides={
+                    "artifacts": stored,
+                },
+            )
+            checkpoints.save(_checkpoint_key(run_id, "worker"), merged)
+            span.update(
+                metadata={
+                    "fallback_used": bool(result.trace.get("fallback_used", False)),
+                    "fallback_reason": str(result.trace.get("fallback_reason", "")),
+                },
+                output={"current_node": merged.plan.current_node, "artifact_count": len(stored)},
+            )
+            return merged.model_dump(mode="json")
 
     def reviewer_node(state: dict[str, Any]) -> dict[str, Any]:
         runtime_state = RuntimeState.model_validate(state)
         run_id = runtime_state.run_id
-        runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-reviewer"})
-        if not runtime_state.artifacts:
+        with telemetry.node_span(
+            name="reviewer",
+            metadata={
+                "graph": "game_studio_demo",
+                "run_id": run_id,
+                "task_id": f"{run_id}-reviewer",
+                "node_name": "reviewer",
+            },
+            input={"artifact_count": len(runtime_state.artifacts)},
+        ) as span:
+            runtime_state = runtime_state.model_copy(update={"task_id": f"{run_id}-reviewer"})
+            if not runtime_state.artifacts:
+                updated = _merge_runtime_state(
+                    runtime_state,
+                    state_patch={"plan": {"current_node": "reviewer"}},
+                    node_name="reviewer",
+                    trace={"node": "reviewer", "reason": "missing_artifact"},
+                    status="needs_attention",
+                    overrides={"risks": [*runtime_state.risks, "missing review artifact"]},
+                )
+                checkpoints.save(_checkpoint_key(run_id, "reviewer"), updated)
+                span.update(
+                    metadata={"status": "needs_attention"},
+                    output={"reason": "missing_artifact"},
+                )
+                return updated.model_dump(mode="json")
+
+            payload = {} if force_review_retry else dict(runtime_state.artifacts[0].payload)
+            agent = dispatcher.get("reviewer")
+            result = agent.run(runtime_state, artifact_payload=payload)
+            llm_entry = _consume_agent_llm_log(agent)
+            if llm_entry is not None:
+                llm_logs.append(
+                    run_id=run_id,
+                    node_name="reviewer",
+                    metadata=telemetry.current_metadata(),
+                    **llm_entry,
+                )
+            risks = list(runtime_state.risks)
+            patch_risks = result.state_patch.get("risks")
+            if isinstance(patch_risks, list):
+                risks.extend(str(item) for item in patch_risks)
+            if result.decision.value == "retry":
+                risks.append("review retry requested")
+            status = "needs_attention" if result.decision.value == "retry" else "completed"
             updated = _merge_runtime_state(
                 runtime_state,
-                state_patch={"plan": {"current_node": "reviewer"}},
+                state_patch=result.state_patch,
                 node_name="reviewer",
-                trace={"node": "reviewer", "reason": "missing_artifact"},
-                status="needs_attention",
-                overrides={"risks": [*runtime_state.risks, "missing review artifact"]},
+                trace=result.trace,
+                status=status,
+                overrides={"risks": risks},
             )
             checkpoints.save(_checkpoint_key(run_id, "reviewer"), updated)
+            span.update(
+                metadata={"decision": result.decision.value, "status": status},
+                output={"risk_count": len(risks)},
+            )
             return updated.model_dump(mode="json")
-
-        payload = {} if force_review_retry else dict(runtime_state.artifacts[0].payload)
-        agent = dispatcher.get("reviewer")
-        result = agent.run(runtime_state, artifact_payload=payload)
-        llm_entry = _consume_agent_llm_log(agent)
-        if llm_entry is not None:
-            llm_logs.append(run_id=run_id, node_name="reviewer", **llm_entry)
-        risks = list(runtime_state.risks)
-        patch_risks = result.state_patch.get("risks")
-        if isinstance(patch_risks, list):
-            risks.extend(str(item) for item in patch_risks)
-        if result.decision.value == "retry":
-            risks.append("review retry requested")
-        status = "needs_attention" if result.decision.value == "retry" else "completed"
-        updated = _merge_runtime_state(
-            runtime_state,
-            state_patch=result.state_patch,
-            node_name="reviewer",
-            trace=result.trace,
-            status=status,
-            overrides={"risks": risks},
-        )
-        checkpoints.save(_checkpoint_key(run_id, "reviewer"), updated)
-        return updated.model_dump(mode="json")
 
     graph = StateGraph(dict)
     graph.add_node("planner", planner_node)
@@ -254,6 +312,7 @@ def build_design_graph():
     from studio.agents.design import DesignAgent
 
     graph = StateGraph(dict)
+    lf_telemetry = LangfuseTelemetry.from_project_root(Path.cwd())
 
     def design_node(state: dict[str, object]) -> dict[str, object]:
         workspace_root = _require_state_str(state, "workspace_root")
@@ -289,7 +348,21 @@ def build_design_graph():
                 **({"sent_back_reason": sent_back_reason} if sent_back_reason else {}),
             },
         )
-        result = agent.run(runtime_state)
+        with lf_telemetry.node_span(
+            name="design",
+            metadata={
+                "graph": "studio_design_workflow",
+                "requirement_id": requirement_id,
+                "node_name": "design",
+                "agent_role": "design",
+            },
+            input={"goal": runtime_state.goal},
+        ) as span:
+            result = agent.run(runtime_state)
+            span.update(
+                metadata={"fallback_used": bool(result.trace.get("fallback_used", False))},
+                output={"task_id": runtime_state.task_id},
+            )
 
         # Extract agent output from telemetry
         brief = result.state_patch.get("telemetry", {}).get("design_brief", {})
@@ -339,6 +412,7 @@ def build_delivery_graph():
     from studio.agents.quality import QualityAgent
 
     graph = StateGraph(dict)
+    lf_telemetry = LangfuseTelemetry.from_project_root(Path.cwd())
 
     def _delivery_llm_logger(state: dict[str, object]) -> LlmRunLogger:
         workspace_root = state.get("workspace_root")
@@ -368,7 +442,21 @@ def build_delivery_graph():
             task_id=f"delivery-dev-{requirement.id}",
             goal={"prompt": requirement.title, "requirement_id": requirement.id},
         )
-        result = agent.run(runtime_state)
+        with lf_telemetry.node_span(
+            name="dev",
+            metadata={
+                "graph": "studio_delivery_workflow",
+                "requirement_id": requirement.id,
+                "node_name": "dev",
+                "agent_role": "dev",
+            },
+            input={"goal": runtime_state.goal},
+        ) as span:
+            result = agent.run(runtime_state)
+            span.update(
+                metadata={"fallback_used": bool(result.trace.get("fallback_used", False))},
+                output={"task_id": runtime_state.task_id},
+            )
 
         # Transition implementing → self_test_passed
         updated = transition_requirement(requirement, "self_test_passed")
@@ -397,11 +485,28 @@ def build_delivery_graph():
             task_id=f"delivery-qa-{requirement.id}",
             goal={"prompt": requirement.title, "requirement_id": requirement.id},
         )
-        result = agent.run(runtime_state)
+        with lf_telemetry.node_span(
+            name="qa",
+            metadata={
+                "graph": "studio_delivery_workflow",
+                "requirement_id": requirement.id,
+                "node_name": "qa",
+                "agent_role": "qa",
+            },
+            input={"goal": runtime_state.goal},
+        ) as span:
+            result = agent.run(runtime_state)
 
         # Determine pass/fail from agent telemetry
         telemetry = result.state_patch.get("telemetry", {})
         passed = telemetry.get("passed", True)
+        span.update(
+            metadata={
+                "fallback_used": bool(result.trace.get("fallback_used", False)),
+                "passed": bool(passed),
+            },
+            output={"task_id": runtime_state.task_id, "passed": bool(passed)},
+        )
 
         if passed:
             # testing → pending_user_acceptance
@@ -435,11 +540,28 @@ def build_delivery_graph():
             task_id=f"delivery-quality-{requirement.id}",
             goal={"prompt": requirement.title, "requirement_id": requirement.id},
         )
-        result = agent.run(runtime_state)
+        with lf_telemetry.node_span(
+            name="quality",
+            metadata={
+                "graph": "studio_delivery_workflow",
+                "requirement_id": requirement.id,
+                "node_name": "quality",
+                "agent_role": "quality",
+            },
+            input={"goal": runtime_state.goal},
+        ) as span:
+            result = agent.run(runtime_state)
 
         # Determine pass/fail from agent telemetry
         telemetry = result.state_patch.get("telemetry", {})
         ready = telemetry.get("ready", True)
+        span.update(
+            metadata={
+                "fallback_used": bool(result.trace.get("fallback_used", False)),
+                "ready": bool(ready),
+            },
+            output={"task_id": runtime_state.task_id, "ready": bool(ready)},
+        )
 
         if ready:
             # quality_check → done
@@ -504,6 +626,7 @@ def build_meeting_graph():
     }
 
     _DEFAULT_ATTENDEES = ["design", "dev", "qa"]
+    lf_telemetry = LangfuseTelemetry.from_project_root(Path.cwd())
 
     def _filter_attendees(raw_attendees: object, meeting_context: dict[str, object] | None) -> list[str]:
         validated = meeting_context.get("validated_attendees") if isinstance(meeting_context, dict) else None
@@ -560,7 +683,17 @@ def build_meeting_graph():
             task_id=f"meeting-prepare-{requirement_id}",
             goal={"prompt": intent, "requirement_id": requirement_id},
         )
-        result = moderator.prepare(runtime_state, meeting_context=meeting_context)
+        with lf_telemetry.node_span(
+            name="moderator_prepare",
+            metadata={
+                "graph": "studio_meeting_workflow",
+                "requirement_id": requirement_id,
+                "node_name": "moderator_prepare",
+                "agent_role": "moderator",
+            },
+            input={"user_intent": intent, "meeting_context": meeting_context},
+        ) as span:
+            result = moderator.prepare(runtime_state, meeting_context=meeting_context)
         prep = result.state_patch.get("telemetry", {}).get("moderator_prepare", {})
         transcript_event = _meeting_transcript_event(
             node_name="moderator_prepare",
@@ -570,6 +703,7 @@ def build_meeting_graph():
 
         raw_attendees = prep.get("attendees", list(_DEFAULT_ATTENDEES))
         filtered = _filter_attendees(raw_attendees, meeting_context)
+        span.update(output={"attendees": filtered, "agenda_count": len(prep.get("agenda", []))})
 
         return {
             "node_name": "moderator_prepare",
@@ -610,7 +744,16 @@ def build_meeting_graph():
             task_id=f"meeting-{target_role}",
             goal=goal,
         )
-        result = agent.run(runtime_state)
+        with lf_telemetry.node_span(
+            name="agent_opinion",
+            metadata={
+                "graph": "studio_meeting_workflow",
+                "node_name": "agent_opinion",
+                "agent_role": target_role,
+            },
+            input={"agenda": agenda, "role": target_role},
+        ) as span:
+            result = agent.run(runtime_state)
         transcript_event = _meeting_transcript_event(
             node_name="agent_opinion",
             agent_role=target_role,
@@ -623,6 +766,10 @@ def build_meeting_graph():
             None,
         )
         report = telemetry.get(report_key, {}) if report_key else {}
+        span.update(
+            metadata={"fallback_used": bool(result.trace.get("fallback_used", False))},
+            output={"report_key": report_key or "", "role": target_role},
+        )
 
         opinion: dict[str, object] = {
             "agent_role": target_role,
@@ -664,8 +811,24 @@ def build_meeting_graph():
             task_id=f"meeting-summarize-{requirement_id}",
             goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
         )
-        result = moderator.summarize(runtime_state, opinions=opinions, meeting_context=meeting_context)
+        with lf_telemetry.node_span(
+            name="moderator_summarize",
+            metadata={
+                "graph": "studio_meeting_workflow",
+                "requirement_id": requirement_id,
+                "node_name": "moderator_summarize",
+                "agent_role": "moderator",
+            },
+            input={"opinion_count": len(opinions)},
+        ) as span:
+            result = moderator.summarize(runtime_state, opinions=opinions, meeting_context=meeting_context)
         summary = result.state_patch.get("telemetry", {}).get("moderator_summary", {})
+        span.update(
+            output={
+                "consensus_count": len(summary.get("consensus_points", [])),
+                "conflict_count": len(summary.get("conflict_points", [])),
+            }
+        )
         transcript_event = _meeting_transcript_event(
             node_name="moderator_summarize",
             agent_role="moderator",
@@ -699,13 +862,24 @@ def build_meeting_graph():
             task_id=f"meeting-discussion-{requirement_id}",
             goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
         )
-        result = moderator.discuss(
-            runtime_state,
-            conflicts=conflict_points,
-            opinions=opinions,
-            meeting_context=meeting_context,
-        )
+        with lf_telemetry.node_span(
+            name="moderator_discussion",
+            metadata={
+                "graph": "studio_meeting_workflow",
+                "requirement_id": requirement_id,
+                "node_name": "moderator_discussion",
+                "agent_role": "moderator",
+            },
+            input={"conflict_count": len(conflict_points)},
+        ) as span:
+            result = moderator.discuss(
+                runtime_state,
+                conflicts=conflict_points,
+                opinions=opinions,
+                meeting_context=meeting_context,
+            )
         discussion = result.state_patch.get("telemetry", {}).get("moderator_discussion", {})
+        span.update(output={"unresolved_count": len(discussion.get("unresolved_conflicts", []))})
         transcript_event = _meeting_transcript_event(
             node_name="moderator_discussion",
             agent_role="moderator",
@@ -753,8 +927,19 @@ def build_meeting_graph():
         unresolved = state.get("unresolved_conflicts")
         if isinstance(unresolved, list):
             all_context["unresolved_conflicts"] = unresolved
-        result = moderator.minutes(runtime_state, all_context=all_context)
+        with lf_telemetry.node_span(
+            name="moderator_minutes",
+            metadata={
+                "graph": "studio_meeting_workflow",
+                "requirement_id": requirement_id,
+                "node_name": "moderator_minutes",
+                "agent_role": "moderator",
+            },
+            input={"context_keys": sorted(all_context)},
+        ) as span:
+            result = moderator.minutes(runtime_state, all_context=all_context)
         minutes_data = result.state_patch.get("telemetry", {}).get("moderator_minutes", {})
+        span.update(output={"decision_count": len(minutes_data.get("decisions", []))})
         transcript_events = [
             event for event in state.get("transcript_events", []) if isinstance(event, dict)
         ]

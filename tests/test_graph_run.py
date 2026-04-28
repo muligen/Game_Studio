@@ -58,6 +58,18 @@ def test_demo_runtime_runs_to_completion(tmp_path: Path) -> None:
     assert result["telemetry"]["node_traces"]["reviewer"]["node"] == "reviewer"
 
 
+def test_demo_graph_runs_with_langfuse_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PYTHONUTF8", "1")
+    runtime = build_demo_runtime(tmp_path)
+
+    result = runtime.invoke({"prompt": "Design a tiny puzzle game"})
+
+    assert result["telemetry"]["status"] == "completed"
+    assert "node_traces" in result["telemetry"]
+
+
 def test_demo_runtime_surfaces_retry_when_review_fails(tmp_path: Path) -> None:
     runtime = build_demo_runtime(tmp_path, force_review_retry=True)
     result = runtime.invoke({"prompt": "Design a simple 2D game concept"})
