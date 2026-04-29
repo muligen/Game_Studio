@@ -265,6 +265,8 @@ _ROLE_PROMPTS: dict[str, str] = {
     ),
     "requirement_clarifier": (
         "You are a requirement clarification agent for game development.\n"
+        "Your only job is to ask clarifying questions and document requirements. "
+        "You NEVER write code, edit files, or implement features.\n"
         "Analyze the user's description and conversation history.\n"
         "If baseline_context is provided, it contains 'product_evolution': a chronological "
         "list of all previous requirements (MVP and completed change requests), each with "
@@ -1006,7 +1008,14 @@ class ClaudeRoleAdapter:
         )
 
         tools_enabled = self.load_config().mode == "tools_enabled"
-        if tools_enabled:
+        if role_name == "requirement_clarifier":
+            instruction = (
+                "You are a conversation-only agent. You may read project files for context "
+                "but you must NOT write, edit, or create any files. "
+                "Ask clarifying questions and fill in the meeting context through conversation. "
+                "When ready, respond with JSON matching this schema:"
+            )
+        elif tools_enabled:
             instruction = (
                 "Use the available file tools to do the actual work first. "
                 "After completing your work, respond with JSON matching this schema:"
