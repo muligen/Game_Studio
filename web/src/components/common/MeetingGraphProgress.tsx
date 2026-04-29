@@ -6,6 +6,7 @@ interface MeetingGraphProgressProps {
   phase:
     | 'kickoff_running'
     | 'kickoff_failed'
+    | 'meeting_complete'
     | 'delivery_generating'
     | 'delivery_failed'
     | 'delivery_ready'
@@ -28,6 +29,7 @@ function statusForStep(
 ): 'done' | 'active' | 'failed' | 'skipped' | 'pending' {
   if (phase === 'delivery_ready') return 'done'
   if (phase === 'delivery_failed' && step.node === 'delivery_plan') return 'failed'
+  if (phase === 'delivery_generating' && step.node === 'delivery_plan') return 'active'
   if (phase === 'kickoff_failed' && task?.current_node === step.node) return 'failed'
   if (task?.completed_nodes.includes(step.node)) return 'done'
   if (

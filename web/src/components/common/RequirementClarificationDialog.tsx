@@ -41,7 +41,7 @@ const MODE_CONFIG: Record<RequirementKind, {
 }> = {
   product_mvp: {
     dialogTitle: 'Clarify MVP',
-    goalText: 'Goal: define enough MVP context to start a kickoff meeting.',
+    goalText: 'Goal: define enough MVP context to start the meeting.',
     previewTitle: 'MVP Brief Preview',
     fields: [
       { key: 'summary', label: 'MVP Summary' },
@@ -136,7 +136,7 @@ export function RequirementClarificationDialog({
     onError: (error) => {
       setKickoffUi({
         phase: 'kickoff_failed',
-        error: error instanceof Error ? error.message : 'Kickoff failed.',
+        error: error instanceof Error ? error.message : 'Meeting start failed.',
       })
     },
   })
@@ -173,7 +173,7 @@ export function RequirementClarificationDialog({
           }
           setKickoffUi({
             phase: 'kickoff_failed',
-            error: task.error || 'Kickoff meeting failed.',
+            error: task.error || 'Meeting failed.',
           })
           return true
         }
@@ -253,10 +253,10 @@ export function RequirementClarificationDialog({
       return (
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <div className="w-full max-w-2xl space-y-4 rounded-lg border bg-slate-50 p-6">
-            <Badge variant="outline">Kickoff Completed</Badge>
+            <Badge variant="outline">Meeting Completed</Badge>
             <h3 className="text-lg font-semibold text-slate-900">{requirementTitle}</h3>
             <p className="text-sm text-slate-600">
-              The kickoff meeting for this requirement has already been completed.
+              The meeting for this requirement has already been completed.
             </p>
             <div className="flex gap-2">
               <Button onClick={() => { onOpenChange(false); navigate('/delivery') }}>
@@ -277,27 +277,27 @@ export function RequirementClarificationDialog({
         <div className="w-full max-w-2xl space-y-4 rounded-lg border bg-slate-50 p-6">
           <div className="space-y-2">
             <Badge variant="outline">
-              {kickoffUi.phase === 'kickoff_running' && 'Kickoff Running'}
+              {kickoffUi.phase === 'kickoff_running' && 'Meeting Running'}
               {kickoffUi.phase === 'delivery_generating' && 'Generating Delivery Plan'}
               {kickoffUi.phase === 'kickoff_failed' && 'Kickoff Failed'}
               {kickoffUi.phase === 'delivery_failed' && 'Delivery Generation Failed'}
-              {kickoffUi.phase === 'delivery_ready' && 'Kickoff Complete'}
+              {kickoffUi.phase === 'delivery_ready' && 'Delivery Ready'}
             </Badge>
             <h3 className="text-lg font-semibold text-slate-900">{requirementTitle}</h3>
             <p className="text-sm text-slate-600">
               {kickoffUi.phase === 'kickoff_running' &&
-                `The system is running the kickoff meeting now. (${elapsed}s elapsed)`}
+                `The system is running the meeting now. (${elapsed}s elapsed)`}
               {kickoffUi.phase === 'delivery_generating' &&
-                `Kickoff finished. Generating delivery tasks... (${elapsed}s elapsed)`}
+                `Meeting finished. Generating delivery tasks... (${elapsed}s elapsed)`}
               {kickoffUi.phase === 'kickoff_failed' && kickoffUi.error}
               {kickoffUi.phase === 'delivery_failed' &&
-                'Kickoff completed, but delivery task generation failed.'}
+                'Meeting completed, but delivery task generation failed.'}
               {kickoffUi.phase === 'delivery_ready' &&
-                'Kickoff completed and delivery tasks are ready on the board.'}
+                'Delivery tasks are ready on the board.'}
             </p>
             {kickoffUi.phase === 'kickoff_running' && elapsed > 30 && (
               <p className="text-xs text-amber-600">
-                Kickoff meetings typically take 1-3 minutes. Please wait...
+                Meetings typically take 1-3 minutes. Please wait...
               </p>
             )}
             {kickoffUi.phase === 'delivery_generating' && elapsed > 15 && (
@@ -406,7 +406,7 @@ export function RequirementClarificationDialog({
             {kickoffUi.phase === 'kickoff_failed' && (
               <>
                 <Button onClick={() => kickoffMutation.mutate()}>
-                  Retry Kickoff
+                  Retry Meeting
                 </Button>
                 <Button
                   variant="outline"
@@ -415,7 +415,7 @@ export function RequirementClarificationDialog({
                     setKickoffUi({ phase: 'idle' })
                   }}
                 >
-                  Edit Clarification
+                  Reopen Brief
                 </Button>
               </>
             )}
@@ -519,10 +519,10 @@ export function RequirementClarificationDialog({
 
               <div className="pt-4 border-t">
                 <Button className="w-full" disabled={!canKickoff || uiLocked} onClick={() => kickoffMutation.mutate()}>
-                  {kickoffMutation.isPending ? 'Starting...' : 'Start Kickoff Meeting'}
+                  {kickoffMutation.isPending ? 'Starting...' : 'Start Meeting'}
                 </Button>
                 {sessionCompleted && (
-                  <p className="text-xs text-slate-500 mt-1">Kickoff already completed.</p>
+                  <p className="text-xs text-slate-500 mt-1">Meeting already completed.</p>
                 )}
                 {session?.readiness && !session.readiness.ready && !sessionCompleted && (
                   <p className="text-xs text-amber-600 mt-1">

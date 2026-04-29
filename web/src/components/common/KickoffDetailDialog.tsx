@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
   Dialog,
@@ -14,6 +14,8 @@ import { MeetingTranscriptDialog } from '@/components/common/MeetingTranscriptDi
 import {
   clarificationsApi,
   deliveryApi,
+  requirementsApi,
+  type DeliverySummary,
   type KickoffMeetingResult,
   type KickoffResponse,
   type KickoffTaskStatus,
@@ -31,17 +33,23 @@ interface KickoffDetailDialogProps {
 }
 
 type DetailPhase =
+  | 'meeting_complete'
   | 'kickoff_running'
   | 'kickoff_failed'
   | 'delivery_generating'
   | 'delivery_failed'
   | 'delivery_ready'
 
-function phaseFromTask(task: KickoffTaskStatus | null): DetailPhase {
+function hasDelivery(summary: DeliverySummary | null): boolean {
+  return Boolean(summary && (summary.plan_count > 0 || summary.tasks.total > 0))
+}
+
+function phaseFromTask(task: KickoffTaskStatus | null, summary: DeliverySummary | null): DetailPhase {
   if (!task) return 'kickoff_running'
+  if (hasDelivery(summary)) return 'delivery_ready'
   if (task.status === 'failed' && task.meeting_result) return 'delivery_failed'
   if (task.status === 'failed') return 'kickoff_failed'
-  if (task.status === 'completed') return 'delivery_ready'
+  if (task.status === 'completed') return 'meeting_complete'
   return 'kickoff_running'
 }
 
@@ -66,11 +74,21 @@ export function KickoffDetailDialog({
   const [deliveryError, setDeliveryError] = useState<string | null>(null)
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [deliveryGenerated, setDeliveryGenerated] = useState(false)
+
+  const deliverySummaryQuery = useQuery({
+    queryKey: ['delivery-summary', workspace, requirementId],
+    queryFn: () => requirementsApi.getDeliverySummary(workspace, requirementId),
+    enabled: open,
+    refetchInterval: phase === 'delivery_generating' ? 2000 : 8000,
+  })
+  const deliverySummary = deliverySummaryQuery.data ?? null
 
   useEffect(() => {
     if (open) {
       setTaskId(kickoffTaskId)
       setDeliveryError(null)
+      setDeliveryGenerated(false)
     } else {
       setTask(null)
       setTranscriptOpen(false)
@@ -88,7 +106,7 @@ export function KickoffDetailDialog({
           const nextTask = await clarificationsApi.getKickoffTask(workspace, taskId)
           if (stopped) return
           setTask(nextTask)
-          setPhase(phaseFromTask(nextTask))
+          setPhase(phaseFromTask(nextTask, deliverySummary))
           if (nextTask.status === 'completed' || nextTask.status === 'failed') return
         } catch {
           return
@@ -101,7 +119,12 @@ export function KickoffDetailDialog({
     return () => {
       stopped = true
     }
-  }, [open, taskId, workspace])
+  }, [deliverySummary, open, taskId, workspace])
+
+  useEffect(() => {
+    if (!open) return
+    setPhase(phaseFromTask(task, deliverySummary))
+  }, [deliverySummary, open, task])
 
   useEffect(() => {
     if (!open || (phase !== 'kickoff_running' && phase !== 'delivery_generating')) {
@@ -139,11 +162,12 @@ export function KickoffDetailDialog({
   const errorText = deliveryError || task?.error || null
 
   const title = useMemo(() => {
-    if (phase === 'kickoff_running') return 'Kickoff Running'
-    if (phase === 'kickoff_failed') return 'Kickoff Failed'
+    if (phase === 'kickoff_running') return 'Meeting Running'
+    if (phase === 'kickoff_failed') return 'Meeting Failed'
+    if (phase === 'meeting_complete') return 'Meeting Complete'
     if (phase === 'delivery_generating') return 'Generating Delivery Plan'
     if (phase === 'delivery_failed') return 'Delivery Plan Failed'
-    return 'Kickoff Complete'
+    return 'Delivery Ready'
   }, [phase])
 
   const openMeetingMinutes = useCallback(() => {
@@ -168,10 +192,11 @@ export function KickoffDetailDialog({
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm text-slate-700">
                   {phase === 'kickoff_running' && `Meeting is running. ${elapsed}s elapsed.`}
+                  {phase === 'meeting_complete' && 'Meeting completed. Delivery can be generated from the meeting minutes.'}
                   {phase === 'delivery_generating' && `Delivery task generation is running. ${elapsed}s elapsed.`}
-                  {phase === 'kickoff_failed' && (errorText || 'Kickoff meeting failed.')}
-                  {phase === 'delivery_failed' && (errorText || 'Kickoff completed, but delivery task generation failed.')}
-                  {phase === 'delivery_ready' && 'Kickoff completed and delivery tasks are ready.'}
+                  {phase === 'kickoff_failed' && (errorText || 'Meeting failed.')}
+                  {phase === 'delivery_failed' && (errorText || 'Meeting completed, but delivery task generation failed.')}
+                  {phase === 'delivery_ready' && 'Delivery tasks are ready.'}
                 </p>
                 {activeAgents.length > 0 && (
                   <Badge variant="secondary">Active: {activeAgents.join(', ')}</Badge>
@@ -179,7 +204,10 @@ export function KickoffDetailDialog({
               </div>
             </div>
 
-            <MeetingGraphProgress task={task} phase={phase} />
+            <MeetingGraphProgress
+              task={task}
+              phase={phase}
+            />
 
             {result && (
               <div className="space-y-3 text-sm text-slate-700">
@@ -248,13 +276,40 @@ export function KickoffDetailDialog({
                 {deliveryMutation.isPending ? 'Retrying...' : 'Retry Generate Delivery Plan'}
               </Button>
             )}
+            {phase === 'meeting_complete' && result && (
+              <Button
+                disabled={deliveryMutation.isPending || deliveryGenerated}
+                onClick={() => {
+                  setPhase('delivery_generating')
+                  setDeliveryError(null)
+                  deliveryMutation.mutate(
+                    { meetingId: result.meeting_id, projectId: result.project_id },
+                    {
+                      onSuccess: () => {
+                        setDeliveryGenerated(true)
+                        deliverySummaryQuery.refetch()
+                        setPhase('delivery_ready')
+                      },
+                      onError: (error) => {
+                        setPhase('delivery_failed')
+                        setDeliveryError(
+                          error instanceof Error ? error.message : 'Delivery generation failed.',
+                        )
+                      },
+                    },
+                  )
+                }}
+              >
+                {deliveryMutation.isPending ? 'Generating...' : 'Generate Delivery'}
+              </Button>
+            )}
             {phase === 'kickoff_failed' && (
               <>
                 <Button
                   disabled={kickoffMutation.isPending || !sessionId}
                   onClick={() => kickoffMutation.mutate()}
                 >
-                  {kickoffMutation.isPending ? 'Retrying...' : 'Retry Kickoff'}
+                  {kickoffMutation.isPending ? 'Retrying...' : 'Retry Meeting'}
                 </Button>
                 <Button
                   variant="outline"
@@ -263,7 +318,7 @@ export function KickoffDetailDialog({
                     onEditClarification()
                   }}
                 >
-                  Edit Clarification
+                  Reopen Brief
                 </Button>
               </>
             )}
