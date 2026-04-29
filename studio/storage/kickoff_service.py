@@ -181,6 +181,19 @@ class KickoffService:
             if "meeting_result" in locals():
                 failed_update["meeting_result"] = meeting_result
             self._update_task(task_id, **failed_update)
+
+            # Reset session status so user can retry
+            try:
+                kickoff_task = self._ws.kickoff_tasks.get(task_id)
+                session = self._ws.clarifications.get(kickoff_task.session_id)
+                session = session.model_copy(update={
+                    "status": "failed",
+                    "updated_at": datetime.now(UTC).isoformat(),
+                })
+                self._ws.clarifications.save(session)
+            except (FileNotFoundError, ValueError):
+                logger.warning("Could not update session status for failed task %s", task_id)
+
             await broadcast_entity_changed(
                 workspace=workspace,
                 entity_type="kickoff_task",
