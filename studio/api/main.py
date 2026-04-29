@@ -22,7 +22,7 @@ from studio.api.routes import (
     workflows,
 )
 from studio.api.websocket import get_websocket_manager
-from studio.runtime import pool
+from studio.runtime import pool, process_registry
 from studio.runtime.delivery_task_poller import DeliveryTaskPoller
 from studio.runtime.poller import WorkflowPoller
 
@@ -54,7 +54,8 @@ async def _default_lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
-    pool.shutdown()
+    process_registry.kill_all(reason="server_shutdown")
+    pool.shutdown(wait=False)
 
 
 def create_app() -> FastAPI:
