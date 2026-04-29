@@ -85,6 +85,29 @@ def test_repository_save_is_atomic(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert repo.get("req_001").model_dump() == card.model_dump()
 
 
+def test_repository_save_retries_transient_replace_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = JsonRepository(tmp_path / "repo", RequirementCard)
+    card = RequirementCard(id="req_001", title="Add relic system")
+    attempts = 0
+    original_replace = Path.replace
+
+    def flaky_replace(self: Path, target: str | Path):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError(5, "Access is denied", str(target))
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    repo.save(card)
+
+    assert attempts == 2
+    assert repo.get("req_001").model_dump() == card.model_dump()
+
+
 def test_repository_list_all_skips_malformed_json(tmp_path: Path) -> None:
     repo = JsonRepository(tmp_path / "repo", RequirementCard)
     valid = RequirementCard(id="req_001", title="Add relic system")

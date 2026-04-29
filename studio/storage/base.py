@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Generic, TypeVar
 from uuid import uuid4
@@ -15,6 +17,19 @@ _SAFE_ID_PATTERN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$")
 _WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
     ("CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10)))
 )
+_SAVE_LOCKS_GUARD = threading.Lock()
+_SAVE_LOCKS: dict[str, threading.Lock] = {}
+_REPLACE_RETRY_DELAYS_SECONDS = (0.01, 0.05, 0.1)
+
+
+def _lock_for_path(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _SAVE_LOCKS_GUARD:
+        lock = _SAVE_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _SAVE_LOCKS[key] = lock
+        return lock
 
 
 class JsonRepository(Generic[ModelT]):
@@ -48,12 +63,24 @@ class JsonRepository(Generic[ModelT]):
         object_id = self._validate_object_id(str(payload["id"]))
         path = self._path_for(object_id)
         temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-        try:
-            temp_path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
-            temp_path.replace(path)
-        finally:
-            temp_path.unlink(missing_ok=True)
+        with _lock_for_path(path):
+            try:
+                temp_path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+                self._replace_with_retry(temp_path, path)
+            finally:
+                temp_path.unlink(missing_ok=True)
         return model
+
+    def _replace_with_retry(self, temp_path: Path, path: Path) -> None:
+        attempts = len(_REPLACE_RETRY_DELAYS_SECONDS) + 1
+        for attempt in range(attempts):
+            try:
+                temp_path.replace(path)
+                return
+            except PermissionError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(_REPLACE_RETRY_DELAYS_SECONDS[attempt])
 
     def get(self, object_id: str) -> ModelT:
         path = self._path_for(object_id)
