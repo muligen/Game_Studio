@@ -163,7 +163,10 @@ EXPECTED_AGENT_PERMISSIONS = {
     "delivery_planner": {"allow": ["Bash(*)", "Edit(*)"]},
     "design": {"allow": ["Bash(*)", "Edit(*)"]},
     "dev": {"allow": ["Bash(*)", "Edit(*)"]},
-    "moderator": {"allow": ["Bash(*)", "Edit(*)"]},
+    "moderator": {
+        "allow": ["Read(*)", "Glob(*)", "Grep(*)"],
+        "deny": ["Bash(*)", "Edit(*)", "Write(*)"],
+    },
     "qa": {"allow": ["Bash(*)", "Edit(*)"]},
     "quality": {"allow": ["Bash(*)", "Edit(*)"]},
     "requirement_clarifier": {
