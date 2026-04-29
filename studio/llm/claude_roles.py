@@ -632,6 +632,14 @@ def _parse_bool(value: str | None, *, default: bool = False) -> bool:
     raise ClaudeRoleError(f"invalid_boolean:{value}")
 
 
+def _is_meeting_opinion_context(context: dict[str, object]) -> bool:
+    goal = context.get("goal")
+    if not isinstance(goal, dict):
+        return False
+    phase = goal.get("phase")
+    return isinstance(phase, str) and phase.strip().lower() == "opinion"
+
+
 def _require_active_role(role_name: str) -> None:
     if role_name not in _ACTIVE_ROLE_NAMES:
         raise ClaudeRoleError(f"unsupported_role:{role_name}")
@@ -1049,6 +1057,7 @@ class ClaudeRoleAdapter:
         )
 
         tools_enabled = self.load_config().mode == "tools_enabled"
+        opinion_phase = _is_meeting_opinion_context(context)
         if role_name == "requirement_clarifier":
             instruction = (
                 "你是一个纯对话agent。你可以阅读项目文件以了解上下文，"
@@ -1056,7 +1065,7 @@ class ClaudeRoleAdapter:
                 "通过对话提出澄清问题并填写会议上下文。"
                 "准备就绪后，以符合此schema的JSON格式回复："
             )
-        elif role_name == "agent_opinion":
+        elif role_name == "agent_opinion" or opinion_phase:
             instruction = (
                 "你正在以专业顾问身份参加一场结构化评审会议。"
                 "仅限讨论——你现在不是在做实现、写代码、做设计或测试任何事情。"

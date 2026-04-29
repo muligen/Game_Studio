@@ -243,6 +243,44 @@ def test_prompt_uses_profile_system_prompt_for_qa(tmp_path) -> None:
     assert "You are the qa role." not in prompt
 
 
+def test_meeting_phase_prompt_uses_opinion_guardrails_for_concrete_roles(tmp_path) -> None:
+    (tmp_path / ".env").write_text(
+        "GAME_STUDIO_CLAUDE_ENABLED=true\nGAME_STUDIO_CLAUDE_MODE=tools_enabled\n",
+        encoding="utf-8",
+    )
+    claude_root = tmp_path / ".claude" / "agents" / "qa"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="qa",
+            system_prompt="QA profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    context = {
+        "goal": {
+            "prompt": "贪吃蛇",
+            "phase": "opinion",
+            "agenda": ["评审 MVP 范围"],
+            "role": "qa",
+            "meeting_context": {
+                "summary": "开发一个贪吃蛇 MVP",
+                "goals": ["确认范围"],
+                "constraints": [],
+                "open_questions": [],
+            },
+        }
+    }
+
+    prompt = adapter.debug_prompt("qa", context)
+
+    assert "现在不是在做实现" in prompt
+    assert "不要编写代码、编辑文件、创建文档或运行命令" in prompt
+    assert "先使用可用的文件工具完成实际工作" not in prompt
+
+
 def test_prompt_uses_profile_system_prompt_for_reviewer(tmp_path) -> None:
     claude_root = tmp_path / ".claude" / "agents" / "reviewer"
     claude_root.mkdir(parents=True)

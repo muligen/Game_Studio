@@ -12,7 +12,7 @@ from studio.storage.workspace import StudioWorkspace
 
 @pytest.fixture
 def client():
-    with patch("studio.api.main.WorkflowPoller"):
+    with patch("studio.api.main.DeliveryTaskPoller"):
         from studio.api.main import create_app
         app = create_app()
         return TestClient(app)
