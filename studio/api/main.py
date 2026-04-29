@@ -25,6 +25,7 @@ from studio.api.websocket import get_websocket_manager
 from studio.runtime import pool, process_registry
 from studio.runtime.delivery_task_poller import DeliveryTaskPoller
 from studio.runtime.poller import WorkflowPoller
+from studio.storage.kickoff_service import KickoffService
 
 
 @asynccontextmanager
@@ -33,6 +34,7 @@ async def _default_lifespan(app: FastAPI):
     workspace_path = Path(".studio-data")
     workflow_poller = WorkflowPoller(workspace_path=workspace_path)
     delivery_task_poller = DeliveryTaskPoller(workspace_path=workspace_path)
+    KickoffService(workspace_path, project_root=Path("."), recover_stuck=True)
 
     workflow_task = asyncio.create_task(workflow_poller.start())
     delivery_task = asyncio.create_task(delivery_task_poller.start())

@@ -82,6 +82,15 @@ def test_delivery_planner_payload_parses_valid_json() -> None:
     assert payload.decision_gate.items[0].question == "Which art style?"
 
 
+def test_delivery_planner_payload_accepts_owner_agent_aliases() -> None:
+    data = _valid_payload_dict()
+    data["tasks"][0]["owner_agent"] = "moderator"  # type: ignore[index]
+
+    payload = DeliveryPlannerPayload.model_validate(data)
+
+    assert payload.tasks[0].owner_agent == "moderator"
+
+
 def test_delivery_planner_payload_rejects_extra_fields() -> None:
     data = _valid_payload_dict()
     data["unexpected_field"] = "nope"  # type: ignore[typeddict-unknown-key]

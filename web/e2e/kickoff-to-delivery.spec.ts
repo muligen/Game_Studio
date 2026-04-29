@@ -1,9 +1,8 @@
-import { expect, type Locator, test } from '@playwright/test'
+import { expect, type Locator, type Page, test } from '@playwright/test'
 import { fetchDeliveryBoard, fetchTranscript } from './helpers/api'
 import {
   extractLabeledValue,
   kickoffDeliveryButton,
-  kickoffTranscriptButton,
   uniqueRequirementTitle,
   waitForClarifyDialog,
 } from './helpers/selectors'
@@ -49,8 +48,14 @@ async function hasSuggestedDesignAttendee(dialog: Locator): Promise<boolean> {
   return suggestedAttendees.getByText('design', { exact: true }).isVisible().catch(() => false)
 }
 
+async function waitForMeetingDetail(page: Page): Promise<Locator> {
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByText(/Meeting Running|Meeting Complete|Delivery Ready/)).toBeVisible({ timeout: 120000 })
+  return dialog
+}
+
 test('real MVP clarify -> kickoff -> delivery flow produces transcript and board artifacts', async ({ page }, testInfo) => {
-  test.setTimeout(10 * 60 * 1000)
+  test.setTimeout(16 * 60 * 1000)
 
   const workspace = `.e2e-workspaces/kickoff-to-delivery-${Date.now()}`
   const uiApiBaseUrl = process.env.E2E_UI_API_URL
@@ -89,7 +94,7 @@ test('real MVP clarify -> kickoff -> delivery flow produces transcript and board
     await createDialog.getByPlaceholder('Describe the product you want to build.').fill(requirementTitle)
     await createDialog.getByRole('button', { name: 'Create' }).click()
 
-    await expect(page.getByRole('heading', { name: requirementTitle, exact: true })).toBeVisible()
+    await expect(page.getByText(requirementTitle, { exact: true })).toBeVisible()
   } else {
     requirementTitle = 'existing-mvp'
   }
@@ -100,7 +105,7 @@ test('real MVP clarify -> kickoff -> delivery flow produces transcript and board
   await waitForClarifyDialog(page)
 
   const clarificationDialog = page.getByRole('dialog')
-  const kickoffButton = clarificationDialog.getByRole('button', { name: 'Start Kickoff Meeting' })
+  const kickoffButton = clarificationDialog.getByRole('button', { name: 'Start Meeting' })
   const messageInput = clarificationDialog.getByPlaceholder('Describe the MVP feature...')
   const sendButton = clarificationDialog.getByRole('button', { name: 'Send' })
 
@@ -127,14 +132,14 @@ test('real MVP clarify -> kickoff -> delivery flow produces transcript and board
   ).toBeVisible()
   await kickoffButton.click()
 
-  await expect(clarificationDialog.getByText(/Kickoff Running|Generating Delivery Plan|Kickoff Complete/)).toBeVisible()
-  await expect(clarificationDialog.getByText(/Kickoff Complete/)).toBeVisible({ timeout: 360000 })
+  const meetingDialog = await waitForMeetingDetail(page)
+  await expect(meetingDialog.getByText(/Meeting Complete|Delivery Ready/)).toBeVisible({ timeout: 12 * 60 * 1000 })
 
-  meetingId = await extractLabeledValue(clarificationDialog, 'Meeting ID')
-  projectId = await extractLabeledValue(clarificationDialog, 'Project ID')
+  meetingId = await extractLabeledValue(meetingDialog, 'Meeting ID')
+  projectId = await extractLabeledValue(meetingDialog, 'Project ID')
 
-  await expect(kickoffTranscriptButton(page)).toBeVisible()
-  await kickoffTranscriptButton(page).click()
+  await expect(meetingDialog.getByRole('button', { name: 'View Meeting Transcript' })).toBeVisible()
+  await meetingDialog.getByRole('button', { name: 'View Meeting Transcript' }).click()
 
   const transcriptDialog = page.getByRole('dialog', { name: 'Meeting Transcript' })
   await expect(transcriptDialog.getByRole('heading', { name: 'Meeting Transcript' })).toBeVisible({
@@ -159,6 +164,12 @@ test('real MVP clarify -> kickoff -> delivery flow produces transcript and board
   await transcriptDialog.getByRole('button', { name: 'Close' }).click()
   await expect(transcriptDialog).not.toBeVisible()
 
+  if (await meetingDialog.getByRole('button', { name: 'Generate Delivery' }).isVisible().catch(() => false)) {
+    await meetingDialog.getByRole('button', { name: 'Generate Delivery' }).click()
+    await expect(meetingDialog.getByText('Delivery Ready')).toBeVisible({ timeout: 120000 })
+  }
+
+  await expect(kickoffDeliveryButton(page)).toBeVisible()
   await kickoffDeliveryButton(page).click()
   await expect(page.getByRole('heading', { name: 'Delivery Board' })).toBeVisible({ timeout: 120000 })
 

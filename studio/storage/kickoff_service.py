@@ -26,7 +26,13 @@ _DELIVERY_PLANNING_ATTEMPTS = 2
 
 
 class KickoffService:
-    def __init__(self, workspace_root: Path, project_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        workspace_root: Path,
+        project_root: Path | None = None,
+        *,
+        recover_stuck: bool = False,
+    ) -> None:
         self._ws = StudioWorkspace(workspace_root)
         self._ws.ensure_layout()
         self._workspace_root = workspace_root
@@ -34,7 +40,8 @@ class KickoffService:
             workspace_root.parent if workspace_root.name == ".studio-data" else None
         )
         self._running_tasks: dict[str, asyncio.Task] = {}
-        self._recover_stuck_tasks()
+        if recover_stuck:
+            self._recover_stuck_tasks()
 
     def _recover_stuck_tasks(self) -> None:
         """Mark any running kickoff tasks as failed (orphaned by server restart)."""

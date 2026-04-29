@@ -10,7 +10,7 @@ export async function waitForClarifyDialog(page: Page): Promise<void> {
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText('MVP Brief Preview')).toBeVisible()
-  await expect(dialog.getByRole('button', { name: 'Start Kickoff Meeting' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Start Meeting' })).toBeVisible()
 }
 
 export async function extractLabeledValue(scope: QueryRoot, label: string): Promise<string> {

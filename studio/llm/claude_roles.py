@@ -169,7 +169,25 @@ class DeliveryPlannerTaskItem(BaseModel):
 
     title: str
     description: str
-    owner_agent: Literal["design", "dev", "qa", "art", "reviewer", "quality"]
+    owner_agent: Literal[
+        "design",
+        "dev",
+        "qa",
+        "art",
+        "reviewer",
+        "quality",
+        "moderator",
+        "moderator_agent",
+        "product_manager",
+        "pm",
+        "manager",
+        "design_agent",
+        "dev_agent",
+        "qa_agent",
+        "art_agent",
+        "reviewer_agent",
+        "quality_agent",
+    ]
     depends_on: list[str]
     acceptance_criteria: list[str]
     source_evidence: list[str]
@@ -259,7 +277,7 @@ _ROLE_PROMPTS: dict[str, str] = {
         "根据已完成的会议纪要、需求上下文和可选的kickoff决策门决议，"
         "产出包含任务和决策门的交付计划。\n"
         "仅返回JSON，包含：\n"
-        "- tasks：列表，每项包含 {title, description, owner_agent（可选值：design, dev, qa, art, reviewer, quality）, "
+        "- tasks：列表，每项包含 {title, description, owner_agent（优先使用：design, dev, qa, art, reviewer, quality）, "
         "depends_on（其他任务标题的列表）, acceptance_criteria, source_evidence}\n"
         "- decision_gate：{items: [{question, context, options, source_evidence}]} "
         "针对需要用户决策的未解决冲突。如无冲突则 items 为空。\n"
@@ -387,7 +405,28 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
                     "properties": {
                         "title": {"type": "string"},
                         "description": {"type": "string"},
-                        "owner_agent": {"type": "string", "enum": ["design", "dev", "qa", "art", "reviewer", "quality"]},
+                        "owner_agent": {
+                            "type": "string",
+                            "enum": [
+                                "design",
+                                "dev",
+                                "qa",
+                                "art",
+                                "reviewer",
+                                "quality",
+                                "moderator",
+                                "moderator_agent",
+                                "product_manager",
+                                "pm",
+                                "manager",
+                                "design_agent",
+                                "dev_agent",
+                                "qa_agent",
+                                "art_agent",
+                                "reviewer_agent",
+                                "quality_agent",
+                            ],
+                        },
                         "depends_on": {"type": "array", "items": {"type": "string"}},
                         "acceptance_criteria": {"type": "array", "items": {"type": "string"}},
                         "source_evidence": {"type": "array", "items": {"type": "string"}},

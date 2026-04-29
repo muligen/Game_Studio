@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from studio.llm import ClaudeRoleError
+from studio.schemas.kickoff_task import KickoffTask
 from studio.schemas.requirement import RequirementCard
 from studio.storage.workspace import StudioWorkspace
 
@@ -372,6 +373,28 @@ def test_kickoff_task_poll_completes_and_generates_delivery_plan(client, workspa
     assert "moderator_minutes" in poll_data["completed_nodes"]
     assert poll_data["progress_events"]
     delivery_service.generate_plan.assert_called_once()
+
+
+def test_kickoff_task_poll_does_not_recover_active_running_task(client, workspace):
+    ws = StudioWorkspace(Path(workspace) / ".studio-data")
+    ws.kickoff_tasks.save(
+        KickoffTask(
+            id="kickoff_running",
+            session_id="clar_req_001",
+            requirement_id="req_001",
+            workspace=workspace,
+            project_id="proj_001",
+            status="running",
+            current_node="moderator_prepare",
+        )
+    )
+
+    response = client.get(f"/api/clarifications/kickoff-tasks/kickoff_running?workspace={workspace}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "running"
+    assert data["error"] is None
 
 
 def test_kickoff_task_retries_transient_delivery_plan_failure(client, workspace):
