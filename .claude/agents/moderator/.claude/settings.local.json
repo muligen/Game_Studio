@@ -1,8 +1,14 @@
 {
   "permissions": {
     "allow": [
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)"
+    ],
+    "deny": [
       "Bash(*)",
-      "Edit(*)"
+      "Edit(*)",
+      "Write(*)"
     ]
   },
   "env": {

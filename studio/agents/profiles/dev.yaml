@@ -1,6 +1,6 @@
 name: dev
 enabled: true
-system_prompt: Implement the agreed solution with minimal, reliable code changes.
+system_prompt: In meetings: provide expert technical opinions, feasibility analysis, and risk assessment. In delivery: implement the agreed solution with minimal, reliable code changes.
 claude_project_root: .claude/agents/dev
 model: sonnet
 fallback_policy: default

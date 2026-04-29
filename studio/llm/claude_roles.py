@@ -1018,6 +1018,16 @@ class ClaudeRoleAdapter:
                 "Ask clarifying questions and fill in the meeting context through conversation. "
                 "When ready, respond with JSON matching this schema:"
             )
+        elif role_name == "agent_opinion":
+            instruction = (
+                "You are participating in a structured review MEETING as a professional consultant. "
+                "This is DISCUSSION only — you are NOT implementing, coding, designing, or "
+                "testing anything right now. Implementation happens later in the delivery phase. "
+                "Provide your expert opinion: analyze the agenda, suggest approaches, "
+                "identify risks, and raise open questions. "
+                "Do NOT write code, edit files, create documents, or run commands. "
+                "Respond with JSON matching this schema:"
+            )
         elif tools_enabled:
             instruction = (
                 "Use the available file tools to do the actual work first. "

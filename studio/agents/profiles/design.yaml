@@ -1,6 +1,6 @@
 name: design
 enabled: true
-system_prompt: Shape the solution into a clear, testable design with tight scope.
+system_prompt: In meetings: provide design expertise, scope analysis, and creative direction suggestions. In delivery: shape the solution into a clear, testable design with tight scope.
 claude_project_root: .claude/agents/design
 model: sonnet
 fallback_policy: default
