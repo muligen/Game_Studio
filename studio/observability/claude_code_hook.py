@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,9 +15,6 @@ _FALSEY = {"0", "false", "no", "off", ""}
 class HookResult:
     exit_code: int
     message: str
-
-
-Runner = Callable[..., subprocess.CompletedProcess[str]]
 
 
 def _is_truthy(value: str | None, *, default: bool = False) -> bool:
@@ -62,22 +58,6 @@ def normalize_env(environ: Mapping[str, str]) -> dict[str, str]:
     return env
 
 
-def _default_hook_project(environ: Mapping[str, str]) -> Path:
-    explicit = environ.get("CC_LANGFUSE_HOOK_PROJECT")
-    if explicit:
-        return Path(explicit)
-    home = environ.get("HOME") or environ.get("USERPROFILE")
-    if home:
-        return Path(home) / ".claude" / "hooks" / "langfuse-claudecode"
-    return Path.home() / ".claude" / "hooks" / "langfuse-claudecode"
-
-
-def build_upstream_command(environ: Mapping[str, str]) -> list[str]:
-    project = _default_hook_project(environ)
-    script = project / "langfuse_hook.py"
-    return ["uv", "run", "--project", str(project), "python", str(script)]
-
-
 def _credentials_present(environ: Mapping[str, str]) -> bool:
     return bool(environ.get("LANGFUSE_PUBLIC_KEY") and environ.get("LANGFUSE_SECRET_KEY"))
 
@@ -86,37 +66,23 @@ def run_hook(
     *,
     stdin_text: str,
     environ: Mapping[str, str] | None = None,
-    runner: Runner = subprocess.run,
 ) -> HookResult:
     env = normalize_env(environ or os.environ)
+
     if not _is_truthy(env.get("TRACE_TO_LANGFUSE"), default=False):
         return HookResult(0, "Langfuse tracing disabled")
     if not _credentials_present(env):
         return HookResult(0, "Langfuse credentials missing")
 
-    command = build_upstream_command(env)
-    hard_fail = _is_truthy(env.get("CC_LANGFUSE_HARD_FAIL"), default=False)
     try:
-        completed = runner(
-            command,
-            input=stdin_text,
-            text=True,
-            env=env,
-            capture_output=True,
-        )
+        from studio.observability.langfuse_tracer import process_transcript
+        message = process_transcript(stdin_text, environ=env)
+        return HookResult(0, message)
     except Exception as exc:
+        hard_fail = _is_truthy(env.get("CC_LANGFUSE_HARD_FAIL"), default=False)
         if hard_fail:
             return HookResult(1, f"Langfuse hook failed: {exc}")
         return HookResult(0, f"Langfuse hook failed open: {exc}")
-
-    if completed.returncode != 0:
-        stderr = getattr(completed, "stderr", "") or ""
-        message = stderr.strip() or f"upstream hook exited {completed.returncode}"
-        if hard_fail:
-            return HookResult(completed.returncode, message)
-        return HookResult(0, f"Langfuse hook failed open: {message}")
-
-    return HookResult(0, "Langfuse hook delegated")
 
 
 def main() -> int:

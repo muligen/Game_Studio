@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from studio.observability.claude_code_hook import (
     HookResult,
     agent_role_from_project_dir,
-    build_upstream_command,
     normalize_env,
     run_hook,
 )
@@ -57,27 +57,10 @@ def test_normalize_env_preserves_explicit_environment(tmp_path: Path) -> None:
     assert env["CC_LANGFUSE_AGENT_ROLE"] == "dev"
 
 
-def test_build_upstream_command_uses_global_hook_project() -> None:
-    env = {
-        "USERPROFILE": "C:/Users/XSJ",
-        "CC_LANGFUSE_HOOK_PROJECT": "C:/Users/XSJ/.claude/hooks/langfuse-claudecode",
-    }
-
-    command = build_upstream_command(env)
-
-    assert command[:3] == ["uv", "run", "--project"]
-    assert Path(command[3]) == Path("C:/Users/XSJ/.claude/hooks/langfuse-claudecode")
-    assert command[4] == "python"
-    assert Path(command[5]) == Path(
-        "C:/Users/XSJ/.claude/hooks/langfuse-claudecode/langfuse_hook.py"
-    )
-
-
 def test_run_hook_exits_zero_when_disabled() -> None:
     result = run_hook(
         stdin_text=json.dumps({"session_id": "s1"}),
         environ={"TRACE_TO_LANGFUSE": "false"},
-        runner=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("runner called")),
     )
 
     assert result == HookResult(exit_code=0, message="Langfuse tracing disabled")
@@ -87,54 +70,53 @@ def test_run_hook_exits_zero_when_credentials_missing() -> None:
     result = run_hook(
         stdin_text=json.dumps({"session_id": "s1"}),
         environ={"TRACE_TO_LANGFUSE": "true"},
-        runner=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("runner called")),
     )
 
     assert result.exit_code == 0
     assert result.message == "Langfuse credentials missing"
 
 
-def test_run_hook_delegates_payload_to_upstream(tmp_path: Path) -> None:
-    calls: list[dict[str, object]] = []
-    project = tmp_path / "langfuse-claudecode"
-    project.mkdir()
-    script = project / "langfuse_hook.py"
-    script.write_text("print('hook')\n", encoding="utf-8")
-
-    def fake_runner(command, *, input, text, env, capture_output):
-        calls.append(
-            {
-                "command": command,
-                "input": input,
-                "text": text,
-                "env": env,
-                "capture_output": capture_output,
-            }
+def test_run_hook_calls_process_transcript_with_payload(tmp_path: Path) -> None:
+    with patch(
+        "studio.observability.langfuse_tracer.process_transcript",
+        return_value="Processed 2 turns",
+    ) as mock_process:
+        result = run_hook(
+            stdin_text='{"session_id":"s1","transcript_path":"/tmp/t.jsonl"}',
+            environ={
+                "TRACE_TO_LANGFUSE": "true",
+                "LANGFUSE_PUBLIC_KEY": "pk",
+                "LANGFUSE_SECRET_KEY": "sk",
+                "LANGFUSE_BASE_URL": "https://cloud.langfuse.com",
+                "CLAUDE_PROJECT_DIR": str(tmp_path / ".claude" / "agents" / "design"),
+            },
         )
 
-        class Completed:
-            returncode = 0
-            stderr = ""
+        assert result == HookResult(exit_code=0, message="Processed 2 turns")
+        mock_process.assert_called_once()
+        call_args = mock_process.call_args
+        assert call_args[0][0] == '{"session_id":"s1","transcript_path":"/tmp/t.jsonl"}'
+        delegated_env = call_args[1]["environ"]
+        assert delegated_env["CC_LANGFUSE_AGENT_ROLE"] == "design"
 
-        return Completed()
 
-    result = run_hook(
-        stdin_text='{"session_id":"s1"}',
-        environ={
-            "TRACE_TO_LANGFUSE": "true",
-            "LANGFUSE_PUBLIC_KEY": "pk",
-            "LANGFUSE_SECRET_KEY": "sk",
-            "LANGFUSE_BASE_URL": "https://cloud.langfuse.com",
-            "CC_LANGFUSE_HOOK_PROJECT": str(project),
-            "CLAUDE_PROJECT_DIR": str(tmp_path / ".claude" / "agents" / "design"),
-        },
-        runner=fake_runner,
-    )
+def test_run_hook_fails_open_on_exception() -> None:
+    with patch(
+        "studio.observability.langfuse_tracer.process_transcript",
+        side_effect=RuntimeError("mock error"),
+    ):
+        result = run_hook(
+            stdin_text='{"session_id":"s1"}',
+            environ={
+                "TRACE_TO_LANGFUSE": "true",
+                "LANGFUSE_PUBLIC_KEY": "pk",
+                "LANGFUSE_SECRET_KEY": "sk",
+                "LANGFUSE_BASE_URL": "https://cloud.langfuse.com",
+            },
+        )
 
-    assert result == HookResult(exit_code=0, message="Langfuse hook delegated")
-    assert calls[0]["input"] == '{"session_id":"s1"}'
-    delegated_env = calls[0]["env"]
-    assert delegated_env["CC_LANGFUSE_AGENT_ROLE"] == "design"
+        assert result.exit_code == 0
+        assert "fail" in result.message.lower()
 
 
 def test_shared_hook_script_exists_and_uses_wrapper() -> None:
