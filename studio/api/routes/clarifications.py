@@ -236,6 +236,27 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
     if session.status == "completed":
         raise HTTPException(status_code=400, detail="Session already completed")
 
+    # If kickoff already in progress, return existing task instead of creating a duplicate
+    if session.status == "kickoff_started" and session.kickoff_task_id:
+        ws_root = resolve_workspace_root(workspace)
+        service = KickoffService(ws_root, project_root=resolve_project_root(workspace))
+        try:
+            existing_task = service.get_task(session.kickoff_task_id)
+            if existing_task.status in ("pending", "running"):
+                return {
+                    "task_id": existing_task.id,
+                    "project_id": existing_task.project_id,
+                    "status": "kickoff_started",
+                }
+            # Task is failed/completed — reset session and allow retry
+            session = session.model_copy(update={
+                "status": "failed",
+                "updated_at": datetime.now(UTC).isoformat(),
+            })
+            store.clarifications.save(session)
+        except FileNotFoundError:
+            pass  # Task file missing, allow retry
+
     if not session.meeting_context or not session.readiness or not session.readiness.ready:
         missing = session.readiness.missing_fields if session.readiness else ["unknown"]
         raise HTTPException(status_code=400, detail=f"Session not ready for kickoff. Missing: {', '.join(missing)}")
