@@ -504,7 +504,7 @@ def test_subprocess_parser_validates_json_stdout(monkeypatch: pytest.MonkeyPatch
     )
     calls: dict[str, object] = {}
     monkeypatch.setattr(
-        "studio.llm.claude_worker.subprocess.run",
+        "studio.llm.claude_worker.process_registry.run",
         lambda *args, **kwargs: calls.update({"args": args, "kwargs": kwargs}) or SimpleNamespace(
             returncode=0,
             stdout=json.dumps(
@@ -523,6 +523,7 @@ def test_subprocess_parser_validates_json_stdout(monkeypatch: pytest.MonkeyPatch
     assert payload.genre == "cozy strategy"
     assert calls["kwargs"]["cwd"] == claude_root
     assert str(Path.cwd()) in calls["kwargs"]["env"]["PYTHONPATH"]
+    assert calls["kwargs"]["purpose"] == "claude_worker"
 
 
 def test_worker_module_runs_via_python_m(tmp_path: Path) -> None:

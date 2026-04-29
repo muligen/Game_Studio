@@ -15,6 +15,7 @@ from claude_agent_sdk.types import ResultMessage
 import yaml
 
 from studio.observability import LangfuseTelemetry
+from studio.runtime import process_registry
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -299,7 +300,7 @@ class ClaudeWorkerAdapter:
             "--prompt",
             prompt,
         ]
-        proc = subprocess.run(
+        proc = process_registry.run(
             cmd,
             cwd=self._claude_project_root(),
             capture_output=True,
@@ -307,6 +308,7 @@ class ClaudeWorkerAdapter:
             encoding="utf-8",
             env=self._subprocess_env(),
             timeout=300,
+            purpose="claude_worker",
         )
         if proc.returncode != 0:
             message = proc.stderr.strip() or proc.stdout.strip() or "claude_subprocess_failed"

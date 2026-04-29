@@ -40,7 +40,7 @@ def test_subprocess_payload_path_passes_session_id(monkeypatch, tmp_path: Path) 
             stderr="",
         )
 
-    monkeypatch.setattr(cr_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(cr_module.process_registry, "run", fake_run)
 
     adapter = ClaudeRoleAdapter(
         session_id="sess-123",
@@ -71,7 +71,7 @@ def test_chat_subprocess_path_passes_session_id(monkeypatch, tmp_path: Path) -> 
             stderr="",
         )
 
-    monkeypatch.setattr(cr_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(cr_module.process_registry, "run", fake_run)
 
     adapter = ClaudeRoleAdapter(
         session_id="sess-123",

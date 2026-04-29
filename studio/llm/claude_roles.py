@@ -15,6 +15,7 @@ from claude_agent_sdk.types import AssistantMessage, ResultMessage
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from studio.observability import LangfuseTelemetry
+from studio.runtime import process_registry
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
@@ -931,7 +932,7 @@ class ClaudeRoleAdapter:
         elif self.session_id is not None:
             cmd.extend(["--session-id", self.session_id])
         try:
-            proc = subprocess.run(
+            proc = process_registry.run(
                 cmd,
                 cwd=self._claude_project_root(),
                 input=json.dumps(context, ensure_ascii=False),
@@ -941,6 +942,7 @@ class ClaudeRoleAdapter:
                 errors="replace",
                 env=self._subprocess_env(),
                 timeout=self.timeout_seconds,
+                purpose=f"claude_role:{role_name}",
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc
@@ -981,7 +983,7 @@ class ClaudeRoleAdapter:
         elif self.session_id is not None:
             cmd.extend(["--session-id", self.session_id])
         try:
-            proc = subprocess.run(
+            proc = process_registry.run(
                 cmd,
                 cwd=self._claude_project_root(),
                 input=prompt,
@@ -991,6 +993,7 @@ class ClaudeRoleAdapter:
                 errors="replace",
                 env=self._subprocess_env(),
                 timeout=self.timeout_seconds,
+                purpose="claude_role:chat",
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ClaudeRoleError(str(exc) or "claude_subprocess_failed") from exc

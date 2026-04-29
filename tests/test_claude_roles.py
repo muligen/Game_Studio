@@ -22,6 +22,7 @@ from studio.llm import (
     parse_role_payload,
 )
 from studio.llm import claude_roles as claude_roles_module
+from studio.runtime import process_registry
 
 
 def _profile(*, name: str, system_prompt: str, claude_project_root) -> AgentProfile:
@@ -564,7 +565,7 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
             stderr="",
         )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(process_registry, "run", fake_run)
 
     payload = adapter._generate_payload_via_subprocess(
         "reviewer",
@@ -583,6 +584,7 @@ def test_subprocess_fallback_sends_context_via_stdin(monkeypatch, tmp_path) -> N
     assert calls["kwargs"]["cwd"] == claude_root
     assert str(tmp_path) in calls["kwargs"]["env"]["PYTHONPATH"]
     assert calls["kwargs"]["input"] == '{"feature": "photo mode"}'
+    assert calls["kwargs"]["purpose"] == "claude_role:reviewer"
 
 
 def test_subprocess_fallback_uses_configured_timeout(monkeypatch, tmp_path) -> None:
@@ -608,7 +610,7 @@ def test_subprocess_fallback_uses_configured_timeout(monkeypatch, tmp_path) -> N
             stderr="",
         )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(process_registry, "run", fake_run)
 
     adapter._generate_payload_via_subprocess(
         "reviewer",
@@ -641,7 +643,7 @@ def test_subprocess_fallback_replaces_invalid_output_bytes(monkeypatch, tmp_path
             stderr="",
         )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(process_registry, "run", fake_run)
 
     payload = adapter._generate_payload_via_subprocess(
         "reviewer",
@@ -673,7 +675,7 @@ def test_subprocess_fallback_rejects_missing_stdout(monkeypatch, tmp_path) -> No
             stderr=None,
         )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(process_registry, "run", fake_run)
 
     with pytest.raises(ClaudeRoleError, match="missing_claude_result"):
         adapter._generate_payload_via_subprocess(
@@ -719,7 +721,7 @@ def test_subprocess_fallback_wraps_transport_errors(monkeypatch, tmp_path) -> No
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise OSError("spawn failed")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(process_registry, "run", fake_run)
 
     with pytest.raises(ClaudeRoleError, match="spawn failed"):
         adapter._generate_payload_via_subprocess(
@@ -744,7 +746,7 @@ def test_subprocess_fallback_wraps_timeout_errors(monkeypatch, tmp_path) -> None
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=300)
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(process_registry, "run", fake_run)
 
     with pytest.raises(ClaudeRoleError, match="300"):
         adapter._generate_payload_via_subprocess(
@@ -760,7 +762,7 @@ def test_subprocess_fallback_rejects_unsupported_roles_before_spawn(monkeypatch,
     def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise AssertionError("subprocess should not run")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(process_registry, "run", fake_run)
 
     with pytest.raises(ClaudeRoleError, match="unsupported_role:planner"):
         adapter._generate_payload_via_subprocess(
