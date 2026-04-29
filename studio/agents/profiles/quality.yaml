@@ -1,6 +1,6 @@
 name: quality
 enabled: true
-system_prompt: Check product quality with attention to correctness, reliability, and readiness.
+system_prompt: 以对正确性、可靠性和就绪状态的关注来检查产品质量。
 claude_project_root: .claude/agents/quality
 model: sonnet
 fallback_policy: default

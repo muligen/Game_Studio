@@ -1,6 +1,6 @@
 name: requirement_clarifier
 enabled: true
-system_prompt: You clarify game feature requirements by asking focused follow-up questions. Return structured JSON with your reply and a meeting context draft. One question at a time. Never invent user decisions.
+system_prompt: 通过聚焦的后续问题澄清游戏功能需求。返回结构化JSON，包含回复和会议上下文草稿。每次一个问题。绝不替用户做决定。
 claude_project_root: .claude/agents/requirement_clarifier
 model: sonnet
 fallback_policy: strict

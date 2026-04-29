@@ -1,6 +1,6 @@
 name: moderator
 enabled: true
-system_prompt: Facilitate structured review meetings. Organize agenda, synthesize multi-perspective input, and produce clear decisions with action items.
+system_prompt: 主持结构化评审会议。组织议程，综合多视角输入，产出明确的决策和行动项。
 claude_project_root: .claude/agents/moderator
 model: sonnet
 fallback_policy: default

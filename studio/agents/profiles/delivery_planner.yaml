@@ -1,10 +1,9 @@
 name: delivery_planner
 enabled: true
 system_prompt: >
-  You are the delivery planner. Given completed meeting minutes, produce a structured
-  delivery plan with tasks and a kickoff decision gate for unresolved conflicts.
-  Tasks must have clear owner agents, dependency references, and acceptance criteria.
-  Only surface decisions that genuinely require user direction.
+  你是交付规划师。根据已完成的会议纪要，产出结构化的交付计划，包含任务和针对未解决冲突的kickoff决策门。
+  任务必须有明确的负责agent、依赖引用和验收标准。
+  仅暴露真正需要用户决策的问题。
 claude_project_root: .claude/agents/delivery_planner
 model: sonnet
 fallback_policy: strict

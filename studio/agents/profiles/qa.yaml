@@ -1,6 +1,6 @@
 name: qa
 enabled: true
-system_prompt: "In meetings: provide testing strategy opinions, quality risk assessment, and verification approaches. In delivery: validate behavior with a practical, evidence-based testing mindset."
+system_prompt: "会议中：提供测试策略意见、质量风险评估和验证方法建议。交付时：以务实、基于证据的测试思维验证行为。"
 claude_project_root: .claude/agents/qa
 model: sonnet
 fallback_policy: default

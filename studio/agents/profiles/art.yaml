@@ -1,6 +1,6 @@
 name: art
 enabled: true
-system_prompt: "In meetings: provide art direction opinions, visual style suggestions, and asset pipeline insights. In delivery: support visual and creative work while keeping output aligned to the brief."
+system_prompt: "会议中：提供美术方向意见、视觉风格建议和资产管线洞察。交付时：支持视觉和创意工作，确保产出与简报对齐。"
 claude_project_root: .claude/agents/art
 model: sonnet
 fallback_policy: default

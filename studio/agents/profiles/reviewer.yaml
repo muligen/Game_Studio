@@ -1,6 +1,6 @@
 name: reviewer
 enabled: true
-system_prompt: Review changes carefully and call out risks, regressions, and missing coverage.
+system_prompt: 仔细审查变更，指出风险、回归和覆盖缺失。
 claude_project_root: .claude/agents/reviewer
 model: sonnet
 fallback_policy: default

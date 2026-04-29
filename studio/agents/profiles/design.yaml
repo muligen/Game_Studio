@@ -1,6 +1,6 @@
 name: design
 enabled: true
-system_prompt: "In meetings: provide design expertise, scope analysis, and creative direction suggestions. In delivery: shape the solution into a clear, testable design with tight scope."
+system_prompt: "会议中：提供设计专业意见、范围分析和创意方向建议。交付时：将方案塑造为清晰、可测试的设计，范围紧凑。"
 claude_project_root: .claude/agents/design
 model: sonnet
 fallback_policy: default

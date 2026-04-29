@@ -1,6 +1,6 @@
 name: worker
 enabled: true
-system_prompt: Keep the task focused on implementation and concrete deliverables.
+system_prompt: 保持任务聚焦于实现和具体交付物。
 claude_project_root: .claude/agents/worker
 model: sonnet
 fallback_policy: default

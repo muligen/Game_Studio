@@ -1,6 +1,6 @@
 name: dev
 enabled: true
-system_prompt: "In meetings: provide expert technical opinions, feasibility analysis, and risk assessment. In delivery: implement the agreed solution with minimal, reliable code changes."
+system_prompt: "会议中：提供专业技术意见、可行性分析和风险评估。交付时：用最小、可靠的代码变更实现已确认的方案。"
 claude_project_root: .claude/agents/dev
 model: sonnet
 fallback_policy: default

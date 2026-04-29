@@ -223,63 +223,62 @@ _ROLE_PAYLOAD_MODELS: dict[str, type[BaseModel]] = {
 
 _ROLE_PROMPTS: dict[str, str] = {
     "moderator_prepare": (
-        "You are the meeting moderator.\n"
-        "Analyze the user's intent and the requirement context.\n"
-        "Return only JSON with agenda (list of discussion topics), "
-        "attendees (subset of: design, art, dev, qa), "
-        "and focus_questions (specific questions for the meeting).\n"
+        "你是会议主持人。\n"
+        "分析用户意图和需求上下文。\n"
+        "仅返回JSON，包含 agenda（讨论议题列表）、"
+        "attendees（参会者，可选子集：design, art, dev, qa）、"
+        "以及 focus_questions（会议的具体讨论问题）。\n"
     ),
     "moderator_summary": (
-        "You are the meeting moderator.\n"
-        "Given structured opinions from multiple agents, synthesize the results.\n"
-        "Return only JSON with consensus_points, conflict_points, "
-        "and conflict_resolution_needed (conflicts requiring supplementary discussion).\n"
+        "你是会议主持人。\n"
+        "根据多位agent的结构化意见，综合结果。\n"
+        "仅返回JSON，包含 consensus_points（共识点）、conflict_points（冲突点）、"
+        "以及 conflict_resolution_needed（需要补充讨论的冲突）。\n"
     ),
     "moderator_discussion": (
-        "You are the meeting moderator.\n"
-        "Given unresolved conflicts from the meeting, produce supplementary discussion notes.\n"
-        "Return only JSON with supplementary (a mapping from conflict to next-step guidance) "
-        "and unresolved_conflicts (items that still require a human decision).\n"
+        "你是会议主持人。\n"
+        "根据会议中未解决的冲突，产出补充讨论记录。\n"
+        "仅返回JSON，包含 supplementary（从冲突到下一步指导的映射）"
+        "和 unresolved_conflicts（仍需人工决策的事项）。\n"
     ),
     "moderator_minutes": (
-        "You are the meeting moderator.\n"
-        "Given all meeting context (agenda, opinions, consensus, conflicts, supplementary discussion), "
-        "produce the final meeting minutes.\n"
-        "Return only JSON with title, summary, decisions, action_items, "
-        "and pending_user_decisions (items requiring human approval).\n"
+        "你是会议主持人。\n"
+        "根据所有会议上下文（议程、意见、共识、冲突、补充讨论），"
+        "产出最终会议纪要。\n"
+        "仅返回JSON，包含 title、summary、decisions、action_items、"
+        "以及 pending_user_decisions（需要人工批准的事项）。\n"
     ),
     "agent_opinion": (
-        "You are providing a professional opinion in a structured review meeting.\n"
-        "Analyze the agenda and user intent from your professional perspective.\n"
-        "Return only JSON with summary, proposals (concrete suggestions), "
-        "risks (potential issues), and open_questions (items needing clarification).\n"
+        "你正在结构化评审会议中提供专业意见。\n"
+        "从你的专业视角分析议程和用户意图。\n"
+        "仅返回JSON，包含 summary（摘要）、proposals（具体建议）、"
+        "risks（潜在问题）、以及 open_questions（需要澄清的事项）。\n"
     ),
     "delivery_planner": (
-        "You are the delivery planner.\n"
-        "Given meeting minutes, requirement context, and optional kickoff gate resolutions, "
-        "produce a delivery plan with tasks and a decision gate.\n"
-        "Return only JSON with:\n"
-        "- tasks: list of {title, description, owner_agent (one of: design, dev, qa, art, reviewer, quality), "
-        "depends_on (list of other task titles), acceptance_criteria, source_evidence}\n"
-        "- decision_gate: {items: [{question, context, options, source_evidence}]} "
-        "for unresolved conflicts requiring user direction. Empty items if no conflicts.\n"
+        "你是交付规划师。\n"
+        "根据已完成的会议纪要、需求上下文和可选的kickoff决策门决议，"
+        "产出包含任务和决策门的交付计划。\n"
+        "仅返回JSON，包含：\n"
+        "- tasks：列表，每项包含 {title, description, owner_agent（可选值：design, dev, qa, art, reviewer, quality）, "
+        "depends_on（其他任务标题的列表）, acceptance_criteria, source_evidence}\n"
+        "- decision_gate：{items: [{question, context, options, source_evidence}]} "
+        "针对需要用户决策的未解决冲突。如无冲突则 items 为空。\n"
     ),
     "requirement_clarifier": (
-        "You are a requirement clarification agent for game development.\n"
-        "Your only job is to ask clarifying questions and document requirements. "
-        "You NEVER write code, edit files, or implement features.\n"
-        "Analyze the user's description and conversation history.\n"
-        "If baseline_context is provided, it contains 'product_evolution': a chronological "
-        "list of all previous requirements (MVP and completed change requests), each with "
-        "title, kind, summary, goals, acceptance_criteria, and status. "
-        "Use this to understand the full product history and ensure the new change is "
-        "consistent with everything that has been built so far. "
-        "Refer to specific previous iterations when asking clarifying questions.\n"
-        "Return only JSON with:\n"
-        "- reply: one concise follow-up question or confirmation\n"
-        "- meeting_context: object with summary, goals, constraints, open_questions, "
-        "acceptance_criteria, risks, references, validated_attendees (subset of: design, art, dev, qa)\n"
-        "- readiness: object with ready (bool), missing_fields (list), notes (list)\n"
+        "你是游戏开发的需求澄清agent。\n"
+        "你唯一的工作是提出澄清性问题并记录需求。"
+        "你绝不写代码、编辑文件或实现功能。\n"
+        "分析用户的描述和对话历史。\n"
+        "如果提供了 baseline_context，其中包含 'product_evolution'："
+        "所有之前需求（MVP和已完成的变更请求）的按时间排列的列表，每项包含 "
+        "title、kind、summary、goals、acceptance_criteria 和 status。"
+        "利用这些信息理解完整的产品历史，确保新的变更与之前已构建的所有内容一致。"
+        "在提出澄清性问题时引用之前的迭代。\n"
+        "仅返回JSON，包含：\n"
+        "- reply：一个简洁的后续问题或确认\n"
+        "- meeting_context：对象，包含 summary、goals、constraints、open_questions、"
+        "acceptance_criteria、risks、references、validated_attendees（可选子集：design, art, dev, qa）\n"
+        "- readiness：对象，包含 ready（布尔值）、missing_fields（列表）、notes（列表）\n"
     ),
 }
 
@@ -1013,28 +1012,27 @@ class ClaudeRoleAdapter:
         tools_enabled = self.load_config().mode == "tools_enabled"
         if role_name == "requirement_clarifier":
             instruction = (
-                "You are a conversation-only agent. You may read project files for context "
-                "but you must NOT write, edit, or create any files. "
-                "Ask clarifying questions and fill in the meeting context through conversation. "
-                "When ready, respond with JSON matching this schema:"
+                "你是一个纯对话agent。你可以阅读项目文件以了解上下文，"
+                "但绝不能编写、编辑或创建任何文件。"
+                "通过对话提出澄清问题并填写会议上下文。"
+                "准备就绪后，以符合此schema的JSON格式回复："
             )
         elif role_name == "agent_opinion":
             instruction = (
-                "You are participating in a structured review MEETING as a professional consultant. "
-                "This is DISCUSSION only — you are NOT implementing, coding, designing, or "
-                "testing anything right now. Implementation happens later in the delivery phase. "
-                "Provide your expert opinion: analyze the agenda, suggest approaches, "
-                "identify risks, and raise open questions. "
-                "Do NOT write code, edit files, create documents, or run commands. "
-                "Respond with JSON matching this schema:"
+                "你正在以专业顾问身份参加一场结构化评审会议。"
+                "仅限讨论——你现在不是在做实现、写代码、做设计或测试任何事情。"
+                "实现阶段在后续交付阶段进行。"
+                "提供你的专家意见：分析议程、建议方法、识别风险、提出待解决问题。"
+                "不要编写代码、编辑文件、创建文档或运行命令。"
+                "以符合此schema的JSON格式回复："
             )
         elif tools_enabled:
             instruction = (
-                "Use the available file tools to do the actual work first. "
-                "After completing your work, respond with JSON matching this schema:"
+                "先使用可用的文件工具完成实际工作。"
+                "完成工作后，以符合此schema的JSON格式回复："
             )
         else:
-            instruction = "Return only JSON matching this schema:"
+            instruction = "仅返回符合此schema的JSON："
 
         return "\n".join(
             [
