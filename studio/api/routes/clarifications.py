@@ -256,6 +256,12 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
         meeting_context=session.meeting_context.model_dump(),
     )
 
+    session = session.model_copy(update={
+        "kickoff_task_id": task.id,
+        "updated_at": datetime.now(UTC).isoformat(),
+    })
+    store.clarifications.save(session)
+
     return {
         "task_id": task.id,
         "project_id": task.project_id,

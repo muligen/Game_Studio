@@ -96,8 +96,14 @@ export function RequirementClarificationDialog({
     mutationFn: () => clarificationsApi.start(workspace, requirementId),
     onSuccess: (data) => {
       setSession(data.session)
-      if (data.session.status === 'completed' || data.session.status === 'kickoff_started') {
+      if (data.session.status === 'completed') {
         setKickoffUi({ phase: 'already_completed' })
+      } else if (data.session.status === 'kickoff_started' && data.session.kickoff_task_id) {
+        setKickoffUi({
+          phase: 'kickoff_running',
+          taskId: data.session.kickoff_task_id,
+          startTime: Date.now(),
+        })
       }
     },
   })
@@ -203,7 +209,7 @@ export function RequirementClarificationDialog({
     sendMutation.mutate(message.trim())
   }
 
-  const sessionCompleted = session?.status === 'completed' || session?.status === 'kickoff_started'
+  const sessionCompleted = session?.status === 'completed'
   const canKickoff = session?.readiness?.ready && !kickoffMutation.isPending && !sessionCompleted
   const ctx = session?.meeting_context ?? null
   const uiLocked = kickoffUi.phase !== 'idle'

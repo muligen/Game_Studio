@@ -49,5 +49,6 @@ class RequirementClarificationSession(BaseModel):
     meeting_context: MeetingContextDraft | None = None
     readiness: ReadinessCheck | None = None
     project_id: str | None = None
+    kickoff_task_id: str | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

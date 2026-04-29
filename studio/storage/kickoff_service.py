@@ -34,6 +34,18 @@ class KickoffService:
             workspace_root.parent if workspace_root.name == ".studio-data" else None
         )
         self._running_tasks: dict[str, asyncio.Task] = {}
+        self._recover_stuck_tasks()
+
+    def _recover_stuck_tasks(self) -> None:
+        """Mark any running kickoff tasks as failed (orphaned by server restart)."""
+        for task in self._ws.kickoff_tasks.list_all():
+            if task.status == "running":
+                logger.warning("Recovering stuck kickoff task %s", task.id)
+                updated = task.model_copy(update={
+                    "status": "failed",
+                    "error": "Server restarted while task was running.",
+                })
+                self._ws.kickoff_tasks.save(updated)
 
     def start_kickoff(
         self,

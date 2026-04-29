@@ -401,6 +401,7 @@ export interface ClarificationSession {
   meeting_context: MeetingContextDraft | null
   readiness: ReadinessCheck | null
   project_id: string | null
+  kickoff_task_id: string | null
   created_at: string
   updated_at: string
 }
