@@ -1,10 +1,19 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ProductWorkbenchHeader } from '@/components/board/ProductWorkbenchHeader'
 import { CreateRequirementDialog } from '@/components/common/CreateRequirementDialog'
+import { KickoffDetailDialog } from '@/components/common/KickoffDetailDialog'
+import { MeetingGraphProgress } from '@/components/common/MeetingGraphProgress'
 import { RequirementClarificationDialog } from '@/components/common/RequirementClarificationDialog'
-import { requirementsApi, type DeliverySummary } from '@/lib/api'
+import {
+  clarificationsApi,
+  requirementsApi,
+  type ClarificationSession,
+  type DeliverySummary,
+  type KickoffTaskStatus,
+  type RequirementCard,
+} from '@/lib/api'
 import { useWorkspace } from '@/lib/workspace'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import {
@@ -51,6 +60,12 @@ export function RequirementsBoard() {
   const queryClient = useQueryClient()
   const { connected, subscribe } = useWebSocket()
   const [clarifyReq, setClarifyReq] = useState<{ id: string; title: string } | null>(null)
+  const [kickoffReq, setKickoffReq] = useState<{
+    id: string
+    title: string
+    sessionId: string | null
+    taskId: string | null
+  } | null>(null)
   const [showCreate, setShowCreate] = useState(false)
 
   const { data: requirements, isLoading, error } = useQuery({
@@ -183,32 +198,20 @@ export function RequirementsBoard() {
                           <div className="flex flex-col items-end gap-2 shrink-0">
                             {phase === 'active' ? (
                               <>
-                                {req.status === 'draft' || req.status === 'designing' ? (
-                                  <button
-                                    className="text-sm text-blue-600 hover:underline"
-                                    onClick={() =>
-                                      setClarifyReq({ id: req.id, title: req.title })
-                                    }
-                                  >
-                                    {kind === 'product_mvp' ? 'Clarify MVP' : 'Clarify Change'}
-                                  </button>
-                                ) : req.status === 'pending_user_review' ? (
-                                  <button
-                                    className="text-sm text-blue-600 hover:underline"
-                                    onClick={() =>
-                                      setClarifyReq({ id: req.id, title: req.title })
-                                    }
-                                  >
-                                    Start Kickoff
-                                  </button>
-                                ) : (
-                                  <Link
-                                    to={`/delivery?requirement_id=${req.id}`}
-                                    className="text-sm text-blue-600 hover:underline"
-                                  >
-                                    View Delivery
-                                  </Link>
-                                )}
+                                <ActiveIterationActions
+                                  workspace={workspace}
+                                  requirement={req}
+                                  requirementKind={kind}
+                                  onClarify={() => setClarifyReq({ id: req.id, title: req.title })}
+                                  onViewMeeting={(session, task) =>
+                                    setKickoffReq({
+                                      id: req.id,
+                                      title: req.title,
+                                      sessionId: session?.id ?? null,
+                                      taskId: task?.id ?? session?.kickoff_task_id ?? null,
+                                    })
+                                  }
+                                />
                                 <DeliverySummaryLoader
                                   workspace={workspace}
                                   requirementId={req.id}
@@ -275,9 +278,207 @@ export function RequirementsBoard() {
           requirementKind={workbench.iterations.find(it => it.requirement.id === clarifyReq.id)?.kind || 'product_mvp'}
           open={!!clarifyReq}
           onOpenChange={(open) => { if (!open) setClarifyReq(null) }}
+          onKickoffStarted={(session, response) => {
+            setKickoffReq({
+              id: clarifyReq.id,
+              title: clarifyReq.title,
+              sessionId: session.id,
+              taskId: response.task_id,
+            })
+          }}
+        />
+      )}
+
+      {kickoffReq && (
+        <KickoffDetailDialog
+          workspace={workspace}
+          requirementId={kickoffReq.id}
+          requirementTitle={kickoffReq.title}
+          sessionId={kickoffReq.sessionId}
+          kickoffTaskId={kickoffReq.taskId}
+          open={!!kickoffReq}
+          onOpenChange={(open) => { if (!open) setKickoffReq(null) }}
+          onEditClarification={() => {
+            setClarifyReq({ id: kickoffReq.id, title: kickoffReq.title })
+            setKickoffReq(null)
+          }}
         />
       )}
     </div>
+  )
+}
+
+function ActiveIterationActions({
+  workspace,
+  requirement,
+  requirementKind,
+  onClarify,
+  onViewMeeting,
+}: {
+  workspace: string
+  requirement: RequirementCard
+  requirementKind: string
+  onClarify: () => void
+  onViewMeeting: (session: ClarificationSession | null, task: KickoffTaskStatus | null) => void
+}) {
+  const queryClient = useQueryClient()
+  const sessionQuery = useQuery({
+    queryKey: ['clarification-session', workspace, requirement.id],
+    queryFn: () => clarificationsApi.getSession(workspace, requirement.id),
+    refetchInterval: 5000,
+  })
+  const session = sessionQuery.data?.session ?? null
+  const taskId = session?.kickoff_task_id ?? null
+  const taskQuery = useQuery({
+    queryKey: ['kickoff-task', workspace, taskId],
+    queryFn: () => clarificationsApi.getKickoffTask(workspace, taskId!),
+    enabled: Boolean(taskId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'pending' || status === 'running' ? 2000 : 8000
+    },
+  })
+  const task = taskQuery.data ?? null
+
+  const kickoffMutation = useMutation({
+    mutationFn: () => {
+      if (!session) throw new Error('Clarification session is missing.')
+      return clarificationsApi.kickoff(workspace, requirement.id, session.id)
+    },
+    onSuccess: (response) => {
+      queryClient.invalidateQueries({ queryKey: ['clarification-session', workspace, requirement.id] })
+      onViewMeeting(session, {
+        id: response.task_id,
+        session_id: session?.id ?? '',
+        requirement_id: requirement.id,
+        workspace,
+        project_id: response.project_id,
+        status: 'pending',
+        error: null,
+        meeting_result: null,
+        current_node: 'queued',
+        completed_nodes: [],
+        active_agents: [],
+        progress_events: [],
+        started_at: null,
+        updated_at: null,
+      })
+    },
+  })
+
+  const sessionStatus = session?.status
+  const taskStatus = task?.status
+  const isKickoffRunning =
+    sessionStatus === 'kickoff_started' && (!taskStatus || taskStatus === 'pending' || taskStatus === 'running')
+  const isKickoffFailed = Boolean(taskId && taskStatus === 'failed' && !task?.meeting_result)
+  const isDeliveryFailed = Boolean(taskId && taskStatus === 'failed' && task?.meeting_result)
+  const isKickoffComplete = sessionStatus === 'completed' || taskStatus === 'completed' || Boolean(task?.meeting_result)
+  const canStartKickoff =
+    Boolean(session?.readiness?.ready) &&
+    !kickoffMutation.isPending &&
+    !isKickoffRunning &&
+    !isKickoffComplete
+
+  if (isKickoffRunning) {
+    return (
+      <div className="w-72 space-y-2 text-right">
+        <button
+          className="text-sm text-blue-600 hover:underline"
+          onClick={() => onViewMeeting(session, task)}
+        >
+          View Meeting
+        </button>
+        <MeetingGraphProgress task={task} phase="kickoff_running" compact />
+      </div>
+    )
+  }
+
+  if (isKickoffFailed || isDeliveryFailed) {
+    return (
+      <div className="w-72 space-y-2 text-right">
+        <div className="flex justify-end gap-3">
+          {isKickoffFailed && (
+            <button
+              className="text-sm text-blue-600 hover:underline disabled:text-slate-400"
+              disabled={!canStartKickoff}
+              onClick={() => kickoffMutation.mutate()}
+            >
+              Retry Kickoff
+            </button>
+          )}
+          {isKickoffFailed && (
+            <button
+              className="text-sm text-blue-600 hover:underline"
+              onClick={onClarify}
+            >
+              Edit Clarification
+            </button>
+          )}
+          <button
+            className="text-sm text-blue-600 hover:underline"
+            onClick={() => onViewMeeting(session, task)}
+          >
+            View Meeting
+          </button>
+        </div>
+        <MeetingGraphProgress
+          task={task}
+          phase={isDeliveryFailed ? 'delivery_failed' : 'kickoff_failed'}
+          compact
+        />
+      </div>
+    )
+  }
+
+  if (isKickoffComplete) {
+    return (
+      <div className="w-72 space-y-2 text-right">
+        <div className="flex justify-end gap-3">
+          <button
+            className="text-sm text-blue-600 hover:underline"
+            onClick={() => onViewMeeting(session, task)}
+          >
+            View Meeting
+          </button>
+          <Link
+            to={`/delivery?requirement_id=${requirement.id}`}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            View Delivery
+          </Link>
+        </div>
+        <MeetingGraphProgress task={task} phase="delivery_ready" compact />
+      </div>
+    )
+  }
+
+  if (canStartKickoff || requirement.status === 'pending_user_review') {
+    return (
+      <button
+        className="text-sm text-blue-600 hover:underline disabled:text-slate-400"
+        disabled={!canStartKickoff}
+        onClick={() => kickoffMutation.mutate()}
+      >
+        {kickoffMutation.isPending ? 'Starting...' : 'Start Kickoff'}
+      </button>
+    )
+  }
+
+  if (requirement.status === 'draft' || requirement.status === 'designing' || sessionStatus === 'failed') {
+    return (
+      <button className="text-sm text-blue-600 hover:underline" onClick={onClarify}>
+        {requirementKind === 'product_mvp' ? 'Continue Clarifying MVP' : 'Continue Clarifying Change'}
+      </button>
+    )
+  }
+
+  return (
+    <Link
+      to={`/delivery?requirement_id=${requirement.id}`}
+      className="text-sm text-blue-600 hover:underline"
+    >
+      View Delivery
+    </Link>
   )
 }
 

@@ -6,6 +6,7 @@ import pytest
 from studio.runtime.graph import build_meeting_graph
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.runtime import NodeDecision, NodeResult
+from studio.schemas.kickoff_task import KickoffTask
 from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
@@ -795,3 +796,125 @@ def test_meeting_graph_persists_transcript_events_from_moderator_and_agents(
         "risks": [],
         "open_questions": [],
     }
+
+
+def test_meeting_graph_records_kickoff_progress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace_root = _make_workspace(tmp_path)
+    workspace = StudioWorkspace(workspace_root)
+    workspace.kickoff_tasks.save(
+        KickoffTask(
+            id="kickoff_progress",
+            session_id="clar_req_001",
+            requirement_id="req_001",
+            workspace=str(tmp_path),
+            project_id="proj_001",
+        )
+    )
+
+    class FakeModeratorAgent:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
+            pass
+
+        def prepare(
+            self,
+            state,
+            *,
+            meeting_context: dict[str, object] | None = None,
+        ) -> NodeResult:
+            return _meeting_node_result(
+                {
+                    "moderator_prepare": {
+                        "agenda": ["Discuss scope"],
+                        "attendees": ["design"],
+                        "focus_questions": [],
+                    }
+                }
+            )
+
+        def summarize(
+            self,
+            state,
+            *,
+            opinions: dict[str, dict[str, object]],
+            meeting_context: dict[str, object] | None = None,
+        ) -> NodeResult:
+            return _meeting_node_result(
+                {
+                    "moderator_summary": {
+                        "consensus_points": [],
+                        "conflict_points": [],
+                        "conflict_resolution_needed": False,
+                    }
+                }
+            )
+
+        def minutes(self, state, *, all_context: dict[str, object]) -> NodeResult:
+            return _meeting_node_result(
+                {
+                    "moderator_minutes": {
+                        "title": "Meeting Notes",
+                        "summary": "Summary",
+                        "decisions": [],
+                        "action_items": [],
+                        "pending_user_decisions": [],
+                    }
+                }
+            )
+
+    class FakeParticipantAgent:
+        def __init__(
+            self,
+            project_root: Path | None = None,
+            session_id: str | None = None,
+            resume_session: bool = False,
+        ) -> None:
+            pass
+
+        def run(self, state) -> NodeResult:
+            role = str(state.goal["role"])
+            return _meeting_node_result(
+                {
+                    f"{role}_report": {
+                        "summary": f"{role} summary",
+                        "proposals": [],
+                        "risks": [],
+                        "open_questions": [],
+                    }
+                }
+            )
+
+    monkeypatch.setattr("studio.agents.moderator.ModeratorAgent", FakeModeratorAgent)
+    _install_fake_participants(monkeypatch, FakeParticipantAgent)
+    SessionRegistry(workspace_root).create_all("proj_001", "req_001", ["moderator", "design"])
+
+    graph = build_meeting_graph()
+    graph.invoke(
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(_REPO_ROOT),
+            "requirement_id": "req_001",
+            "user_intent": "Design a puzzle game",
+            "project_id": "proj_001",
+            "meeting_context": {"validated_attendees": ["design"]},
+            "_kickoff_task_id": "kickoff_progress",
+        }
+    )
+
+    task = StudioWorkspace(workspace_root).kickoff_tasks.get("kickoff_progress")
+    assert task.current_node == "moderator_minutes"
+    assert task.completed_nodes == [
+        "moderator_prepare",
+        "agent_opinion",
+        "moderator_summarize",
+        "moderator_minutes",
+    ]
+    assert [
+        event["node_name"]
+        for event in task.progress_events
+        if event["status"] == "completed"
+    ] == task.completed_nodes

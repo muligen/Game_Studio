@@ -51,6 +51,20 @@ def test_start_returns_existing_session(client, workspace):
     assert r1.json()["session"]["id"] == r2.json()["session"]["id"]
 
 
+def test_get_session_state_returns_existing_session_without_creating(client, workspace):
+    missing = client.get(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    assert missing.status_code == 200
+    assert missing.json()["session"] is None
+
+    created = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+    session_id = created.json()["session"]["id"]
+
+    found = client.get(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+
+    assert found.status_code == 200
+    assert found.json()["session"]["id"] == session_id
+
+
 def test_start_returns_completed_session_instead_of_overwriting_history(client, workspace):
     start = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
     session_id = start.json()["session"]["id"]
@@ -354,6 +368,9 @@ def test_kickoff_task_poll_completes_and_generates_delivery_plan(client, workspa
     assert poll_data is not None
     assert poll_data["status"] == "completed"
     assert poll_data["meeting_result"]["meeting_id"] == "meeting_002"
+    assert poll_data["current_node"] == "delivery_plan"
+    assert "moderator_minutes" in poll_data["completed_nodes"]
+    assert poll_data["progress_events"]
     delivery_service.generate_plan.assert_called_once()
 
 

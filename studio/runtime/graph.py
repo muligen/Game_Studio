@@ -634,6 +634,7 @@ class _MeetingState(TypedDict, total=False):
     minutes: dict[str, object]
     meeting_context: dict[str, object]
     transcript_events: Annotated[list[dict[str, object]], operator.add]
+    _kickoff_task_id: str
 
 
 def build_meeting_graph():
@@ -654,6 +655,44 @@ def build_meeting_graph():
 
     _DEFAULT_ATTENDEES = ["design", "dev", "qa"]
     lf_telemetry = LangfuseTelemetry.from_project_root(Path.cwd())
+
+    def _record_kickoff_progress(
+        state: _MeetingState,
+        *,
+        node_name: str,
+        agent_role: str,
+        status: str = "completed",
+    ) -> None:
+        task_id = state.get("_kickoff_task_id")
+        workspace_root = state.get("workspace_root")
+        if not task_id or not workspace_root:
+            return
+        from datetime import UTC, datetime
+
+        try:
+            workspace = StudioWorkspace(Path(str(workspace_root)))
+            task = workspace.kickoff_tasks.get(str(task_id))
+        except (FileNotFoundError, ValueError, OSError):
+            return
+
+        now = datetime.now(UTC).isoformat()
+        completed_nodes = list(task.completed_nodes)
+        if status == "completed" and node_name not in completed_nodes:
+            completed_nodes.append(node_name)
+        event: dict[str, object] = {
+            "node_name": node_name,
+            "agent_role": agent_role,
+            "status": status,
+            "created_at": now,
+        }
+        updated = task.model_copy(update={
+            "current_node": node_name,
+            "completed_nodes": completed_nodes,
+            "active_agents": [agent_role] if status == "running" else [],
+            "progress_events": [*task.progress_events, event],
+            "updated_at": now,
+        })
+        workspace.kickoff_tasks.save(updated)
 
     def _filter_attendees(raw_attendees: object, meeting_context: dict[str, object] | None) -> list[str]:
         validated = meeting_context.get("validated_attendees") if isinstance(meeting_context, dict) else None
@@ -710,6 +749,12 @@ def build_meeting_graph():
             task_id=f"meeting-prepare-{requirement_id}",
             goal={"prompt": intent, "requirement_id": requirement_id},
         )
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_prepare",
+            agent_role="moderator",
+            status="running",
+        )
         with lf_telemetry.node_span(
             name="moderator_prepare",
             metadata={
@@ -731,6 +776,11 @@ def build_meeting_graph():
         raw_attendees = prep.get("attendees", list(_DEFAULT_ATTENDEES))
         filtered = _filter_attendees(raw_attendees, meeting_context)
         span.update(output={"attendees": filtered, "agenda_count": len(prep.get("agenda", []))})
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_prepare",
+            agent_role="moderator",
+        )
 
         return {
             "node_name": "moderator_prepare",
@@ -770,6 +820,12 @@ def build_meeting_graph():
             run_id=_new_run_id(),
             task_id=f"meeting-{target_role}",
             goal=goal,
+        )
+        _record_kickoff_progress(
+            state,
+            node_name="agent_opinion",
+            agent_role=target_role,
+            status="running",
         )
         with lf_telemetry.node_span(
             name="agent_opinion",
@@ -814,6 +870,11 @@ def build_meeting_graph():
                 for q in report.get("acceptance_criteria", report.get("open_questions", []))
             ],
         }
+        _record_kickoff_progress(
+            state,
+            node_name="agent_opinion",
+            agent_role=target_role,
+        )
 
         return {
             "opinions": {target_role: opinion},
@@ -838,6 +899,12 @@ def build_meeting_graph():
             task_id=f"meeting-summarize-{requirement_id}",
             goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
         )
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_summarize",
+            agent_role="moderator",
+            status="running",
+        )
         with lf_telemetry.node_span(
             name="moderator_summarize",
             metadata={
@@ -860,6 +927,11 @@ def build_meeting_graph():
             node_name="moderator_summarize",
             agent_role="moderator",
             agent=moderator,
+        )
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_summarize",
+            agent_role="moderator",
         )
 
         return {
@@ -889,6 +961,12 @@ def build_meeting_graph():
             task_id=f"meeting-discussion-{requirement_id}",
             goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
         )
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_discussion",
+            agent_role="moderator",
+            status="running",
+        )
         with lf_telemetry.node_span(
             name="moderator_discussion",
             metadata={
@@ -911,6 +989,11 @@ def build_meeting_graph():
             node_name="moderator_discussion",
             agent_role="moderator",
             agent=moderator,
+        )
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_discussion",
+            agent_role="moderator",
         )
 
         return {
@@ -939,6 +1022,12 @@ def build_meeting_graph():
             run_id=_new_run_id(),
             task_id=f"meeting-minutes-{requirement_id}",
             goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
+        )
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_minutes",
+            agent_role="moderator",
+            status="running",
         )
         all_context: dict[str, object] = {
             "agenda": state.get("agenda", []),
@@ -1026,6 +1115,11 @@ def build_meeting_graph():
                 project_id=str(state.get("project_id", "")) or None,
                 events=transcript_events,
             )
+        _record_kickoff_progress(
+            state,
+            node_name="moderator_minutes",
+            agent_role="moderator",
+        )
 
         return {
             "node_name": "moderator_minutes",

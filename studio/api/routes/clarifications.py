@@ -116,6 +116,19 @@ async def start_or_get_session(workspace: str, req_id: str):
     return {"session": saved.model_dump()}
 
 
+@router.get("/requirements/{req_id}/session")
+async def get_session_state(workspace: str, req_id: str):
+    store = _get_workspace(workspace)
+    store.ensure_layout()
+    try:
+        store.requirements.get(req_id)
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail="Requirement not found")
+
+    existing = _find_existing_session(store, req_id)
+    return {"session": existing.model_dump() if existing else None}
+
+
 @router.post("/requirements/{req_id}/messages")
 async def send_message(workspace: str, req_id: str, request: SendMessageRequest):
     if not request.message.strip():

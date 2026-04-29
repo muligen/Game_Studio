@@ -65,6 +65,8 @@ class KickoffService:
             workspace=workspace,
             project_id=project_id,
             status="pending",
+            current_node="queued",
+            updated_at=now,
         )
         self._ws.kickoff_tasks.save(task)
 
@@ -96,7 +98,8 @@ class KickoffService:
         project_id: str,
         meeting_context: dict,
     ) -> None:
-        self._update_task(task_id, status="running")
+        self._record_progress(task_id, node_name="moderator_prepare", status="running", agent_role="moderator")
+        self._update_task(task_id, status="running", started_at=datetime.now(UTC).isoformat())
 
         try:
             graph = build_meeting_graph()
@@ -108,10 +111,19 @@ class KickoffService:
                     "user_intent": f"Kickoff: {meeting_context.get('summary', '')}",
                     "project_id": project_id,
                     "meeting_context": meeting_context,
+                    "_kickoff_task_id": task_id,
                 }
             )
 
             minutes = result.get("minutes", {})
+            result_node = str(result.get("node_name", "") or "")
+            if result_node:
+                self._record_progress(
+                    task_id,
+                    node_name=result_node,
+                    status="completed",
+                    agent_role="moderator" if result_node.startswith("moderator_") else None,
+                )
             meeting_id = minutes.get("id", "")
 
             meeting_result = {
@@ -133,10 +145,22 @@ class KickoffService:
             }
 
             if meeting_id:
+                self._record_progress(
+                    task_id,
+                    node_name="delivery_plan",
+                    status="running",
+                    agent_role="delivery_planner",
+                )
                 await asyncio.to_thread(
                     self._generate_delivery_plan_with_retry,
                     meeting_id,
                     project_id,
+                )
+                self._record_progress(
+                    task_id,
+                    node_name="delivery_plan",
+                    status="completed",
+                    agent_role="delivery_planner",
                 )
 
             self._update_task(
@@ -203,7 +227,37 @@ class KickoffService:
 
     def _update_task(self, task_id: str, **kwargs) -> None:
         task = self._ws.kickoff_tasks.get(task_id)
+        kwargs.setdefault("updated_at", datetime.now(UTC).isoformat())
         updated = task.model_copy(update=kwargs)
+        self._ws.kickoff_tasks.save(updated)
+
+    def _record_progress(
+        self,
+        task_id: str,
+        *,
+        node_name: str,
+        status: str,
+        agent_role: str | None = None,
+    ) -> None:
+        task = self._ws.kickoff_tasks.get(task_id)
+        now = datetime.now(UTC).isoformat()
+        completed = list(task.completed_nodes)
+        if status == "completed" and node_name not in completed:
+            completed.append(node_name)
+        event: dict[str, object] = {
+            "node_name": node_name,
+            "status": status,
+            "created_at": now,
+        }
+        if agent_role:
+            event["agent_role"] = agent_role
+        updated = task.model_copy(update={
+            "current_node": node_name,
+            "completed_nodes": completed,
+            "active_agents": [agent_role] if status == "running" and agent_role else [],
+            "progress_events": [*task.progress_events, event],
+            "updated_at": now,
+        })
         self._ws.kickoff_tasks.save(updated)
 
     def _generate_delivery_plan_with_retry(self, meeting_id: str, project_id: str) -> None:

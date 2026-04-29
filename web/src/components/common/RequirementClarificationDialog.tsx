@@ -8,6 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { MeetingGraphProgress } from '@/components/common/MeetingGraphProgress'
 import { MeetingTranscriptDialog } from '@/components/common/MeetingTranscriptDialog'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -15,6 +16,7 @@ import {
   clarificationsApi,
   deliveryApi,
   type ClarificationSession,
+  type KickoffTaskStatus,
   type KickoffMeetingResult,
   type KickoffResponse,
   type MeetingContextDraft,
@@ -28,6 +30,7 @@ interface Props {
   requirementKind: RequirementKind
   open: boolean
   onOpenChange: (open: boolean) => void
+  onKickoffStarted?: (session: ClarificationSession, response: KickoffResponse) => void
 }
 
 const MODE_CONFIG: Record<RequirementKind, {
@@ -83,11 +86,13 @@ export function RequirementClarificationDialog({
   requirementKind,
   open,
   onOpenChange,
+  onKickoffStarted,
 }: Props) {
   const navigate = useNavigate()
   const [message, setMessage] = useState('')
   const [session, setSession] = useState<ClarificationSession | null>(null)
   const [kickoffUi, setKickoffUi] = useState<KickoffUiState>({ phase: 'idle' })
+  const [kickoffTask, setKickoffTask] = useState<KickoffTaskStatus | null>(null)
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const config = MODE_CONFIG[requirementKind]
@@ -99,11 +104,12 @@ export function RequirementClarificationDialog({
       if (data.session.status === 'completed') {
         setKickoffUi({ phase: 'already_completed' })
       } else if (data.session.status === 'kickoff_started' && data.session.kickoff_task_id) {
-        setKickoffUi({
-          phase: 'kickoff_running',
-          taskId: data.session.kickoff_task_id,
-          startTime: Date.now(),
+        onKickoffStarted?.(data.session, {
+          task_id: data.session.kickoff_task_id,
+          project_id: data.session.project_id || '',
+          status: 'kickoff_started',
         })
+        onOpenChange(false)
       }
     },
   })
@@ -121,11 +127,11 @@ export function RequirementClarificationDialog({
     mutationFn: () =>
       clarificationsApi.kickoff(workspace, requirementId, session!.id),
     onSuccess: (response: KickoffResponse) => {
-      setKickoffUi({
-        phase: 'kickoff_running',
-        taskId: response.task_id,
-        startTime: Date.now(),
-      })
+      setKickoffTask(null)
+      if (session) {
+        onKickoffStarted?.(session, response)
+      }
+      onOpenChange(false)
     },
     onError: (error) => {
       setKickoffUi({
@@ -148,6 +154,7 @@ export function RequirementClarificationDialog({
     const poll = async () => {
       try {
         const task = await clarificationsApi.getKickoffTask(workspace, taskId)
+        setKickoffTask(task)
 
         if (task.status === 'completed' && task.meeting_result) {
           const result = task.meeting_result
@@ -194,6 +201,7 @@ export function RequirementClarificationDialog({
     if (open && !session) startMutation.mutate()
     if (!open) {
       setKickoffUi({ phase: 'idle' })
+      setKickoffTask(null)
       setMessage('')
       setTranscriptOpen(false)
     }
@@ -210,7 +218,11 @@ export function RequirementClarificationDialog({
   }
 
   const sessionCompleted = session?.status === 'completed'
-  const canKickoff = session?.readiness?.ready && !kickoffMutation.isPending && !sessionCompleted
+  const canKickoff =
+    session?.readiness?.ready &&
+    !kickoffMutation.isPending &&
+    !sessionCompleted &&
+    session?.status !== 'kickoff_started'
   const ctx = session?.meeting_context ?? null
   const uiLocked = kickoffUi.phase !== 'idle'
   const kickoffResult =
@@ -336,6 +348,11 @@ export function RequirementClarificationDialog({
             </div>
           )}
 
+          <MeetingGraphProgress
+            task={kickoffTask}
+            phase={kickoffUi.phase}
+          />
+
           {kickoffUi.phase === 'delivery_failed' && (
             <p className="text-sm text-red-600">{kickoffUi.error}</p>
           )}
@@ -387,9 +404,20 @@ export function RequirementClarificationDialog({
               </Button>
             )}
             {kickoffUi.phase === 'kickoff_failed' && (
-              <Button variant="outline" onClick={() => setKickoffUi({ phase: 'idle' })}>
-                Back To Clarification
-              </Button>
+              <>
+                <Button onClick={() => kickoffMutation.mutate()}>
+                  Retry Kickoff
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    kickoffMutation.reset()
+                    setKickoffUi({ phase: 'idle' })
+                  }}
+                >
+                  Edit Clarification
+                </Button>
+              </>
             )}
           </div>
         </div>

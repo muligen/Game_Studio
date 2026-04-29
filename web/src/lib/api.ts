@@ -431,6 +431,17 @@ export interface KickoffTaskStatus {
   status: 'pending' | 'running' | 'completed' | 'failed'
   error: string | null
   meeting_result: KickoffMeetingResult | null
+  current_node: string | null
+  completed_nodes: string[]
+  active_agents: string[]
+  progress_events: Array<{
+    node_name: string
+    status: string
+    agent_role?: string | null
+    created_at?: string | null
+  }>
+  started_at: string | null
+  updated_at: string | null
 }
 
 export interface KickoffMeetingResult {
@@ -486,6 +497,11 @@ export interface MeetingTranscript {
 
 // Clarifications API
 export const clarificationsApi = {
+  getSession: (workspace: string, requirementId: string): Promise<{ session: ClarificationSession | null }> =>
+    apiRequest(`/clarifications/requirements/${requirementId}/session`, 'get', {
+      params: { workspace },
+    }) as Promise<{ session: ClarificationSession | null }>,
+
   start: (workspace: string, requirementId: string): Promise<{ session: ClarificationSession }> =>
     apiRequest(`/clarifications/requirements/${requirementId}/session`, 'post', {
       params: { workspace },
