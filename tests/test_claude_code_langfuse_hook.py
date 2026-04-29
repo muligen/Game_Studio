@@ -158,6 +158,22 @@ AGENT_NAMES = [
     "worker",
 ]
 
+EXPECTED_AGENT_PERMISSIONS = {
+    "art": {"allow": ["Bash(*)", "Edit(*)"]},
+    "delivery_planner": {"allow": ["Bash(*)", "Edit(*)"]},
+    "design": {"allow": ["Bash(*)", "Edit(*)"]},
+    "dev": {"allow": ["Bash(*)", "Edit(*)"]},
+    "moderator": {"allow": ["Bash(*)", "Edit(*)"]},
+    "qa": {"allow": ["Bash(*)", "Edit(*)"]},
+    "quality": {"allow": ["Bash(*)", "Edit(*)"]},
+    "requirement_clarifier": {
+        "allow": ["Read(*)", "Glob(*)", "Grep(*)"],
+        "deny": ["Bash(*)", "Edit(*)", "Write(*)"],
+    },
+    "reviewer": {"allow": ["Bash(*)", "Edit(*)"]},
+    "worker": {"allow": ["Bash(*)", "Edit(*)"]},
+}
+
 
 def test_all_agent_settings_have_langfuse_stop_hook() -> None:
     expected_command = 'uv run python "../../hooks/langfuse_hook.py"'
@@ -178,4 +194,4 @@ def test_all_agent_settings_preserve_permissions() -> None:
         path = Path(".claude") / "agents" / agent_name / ".claude" / "settings.local.json"
         data = json.loads(path.read_text(encoding="utf-8"))
 
-        assert data["permissions"]["allow"] == ["Bash(*)", "Edit(*)"]
+        assert data["permissions"] == EXPECTED_AGENT_PERMISSIONS[agent_name]
