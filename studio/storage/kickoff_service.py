@@ -12,7 +12,7 @@ from pathlib import Path
 
 from studio.api.websocket import broadcast_entity_changed
 from studio.llm import ClaudeRoleError
-from studio.runtime.graph import build_meeting_graph
+from studio.runtime.graph import build_delivery_graph, build_meeting_graph
 from studio.schemas.clarification import RequirementClarificationSession
 from studio.schemas.kickoff_task import KickoffTask
 from studio.storage.delivery_plan_service import DeliveryPlanService
@@ -275,10 +275,19 @@ class KickoffService:
         last_delivery_error: Exception | None = None
         for _ in range(_DELIVERY_PLANNING_ATTEMPTS):
             try:
-                delivery_service.generate_plan(
+                result = delivery_service.generate_plan(
                     meeting_id=meeting_id,
                     project_id=project_id,
                 )
+                plan = result["plan"] if isinstance(result, dict) else None
+                if plan is not None and plan.status == "active":
+                    build_delivery_graph().invoke(
+                        {
+                            "workspace_root": str(self._workspace_root),
+                            "project_root": str(self._project_root) if self._project_root else "",
+                            "plan_id": plan.id,
+                        }
+                    )
                 return
             except (ValueError, FileNotFoundError, ClaudeRoleError) as exc:
                 last_delivery_error = exc

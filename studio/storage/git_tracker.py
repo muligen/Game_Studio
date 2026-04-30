@@ -6,6 +6,7 @@ and commits them with descriptive messages.
 from __future__ import annotations
 
 import logging
+import hashlib
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -93,11 +94,23 @@ class GitTracker:
             pass
 
     def capture_state(self) -> dict[str, str]:
-        self._git_init_if_needed()
+        """Capture a content hash snapshot of the project directory.
 
-        rel = f"projects/{self.project_id}"
-        self._git_add_untracked(rel)
-        return self._git_ls_files(rel)
+        Delivery projects live under ``projects/``, which is intentionally
+        ignored by the repository.  Git index based tracking cannot see those
+        files, so this snapshot is filesystem based and independent of git.
+        """
+        self.ensure_project_dir()
+        state: dict[str, str] = {}
+        for path in sorted(self.project_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(self.project_dir).as_posix()
+            try:
+                state[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                logger.debug("Skipping unreadable project file %s", path)
+        return state
 
     def detect_changes(self, pre_state: dict[str, str]) -> GitDiffResult:
         post_state = self.capture_state()
@@ -118,7 +131,7 @@ class GitTracker:
 
     def add_and_commit(self, message: str) -> str:
         rel = f"projects/{self.project_id}"
-        self._run_git("add", "--", rel)
+        self._run_git("add", "-f", "--", rel)
 
         try:
             proc = self._run_git("commit", "-m", message, "--", rel)

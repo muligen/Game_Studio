@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import operator
+import logging
+import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
@@ -18,6 +21,8 @@ from studio.runtime.llm_logs import LlmRunLogger
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.runtime import PlanState, RuntimeState
 from studio.storage.workspace import StudioWorkspace
+
+logger = logging.getLogger(__name__)
 
 
 def _merge_telemetry(
@@ -431,6 +436,353 @@ def build_design_graph():
     graph.add_edge(START, "design")
     graph.add_edge("design", END)
     return graph.compile()
+
+
+class _DeliveryState(TypedDict, total=False):
+    workspace_root: str
+    project_root: str
+    plan_id: str
+    runner_status: str
+    executed_task_ids: list[str]
+    failed_task_ids: list[str]
+    context_warnings: list[str]
+
+
+def build_delivery_graph():
+    from studio.storage.delivery_plan_service import DeliveryPlanService
+    from studio.storage.git_tracker import GitDiffResult, GitTracker
+
+    dispatcher = RuntimeDispatcher()
+    lf_telemetry = LangfuseTelemetry.from_project_root(Path.cwd())
+
+    def _project_dir(project_root: Path, project_id: str) -> Path:
+        return project_root / "projects" / project_id
+
+    def _project_files(project_dir: Path) -> list[str]:
+        if not project_dir.exists():
+            return []
+        return sorted(
+            path.relative_to(project_dir).as_posix()
+            for path in project_dir.rglob("*")
+            if path.is_file()
+        )
+
+    def _read_artifact_excerpt(project_dir: Path, rel_path: str) -> dict[str, str]:
+        path = project_dir / rel_path
+        suffix = path.suffix.lower()
+        if suffix not in {".md", ".txt", ".json", ".ts", ".tsx", ".js", ".jsx", ".html", ".css"}:
+            return {"path": rel_path, "excerpt": ""}
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return {"path": rel_path, "excerpt": ""}
+        return {"path": rel_path, "excerpt": text[:3000]}
+
+    def _resolved_decisions(ws: StudioWorkspace, plan: Any) -> list[dict[str, str]]:
+        if not plan.decision_gate_id:
+            return []
+        gate = ws.decision_gates.get(plan.decision_gate_id)
+        if gate.status != "resolved":
+            return []
+        return [
+            {
+                "id": item.id,
+                "question": item.question,
+                "resolution": str(item.resolution or ""),
+            }
+            for item in gate.items
+            if item.resolution
+        ]
+
+    def _task_context(
+        *,
+        ws: StudioWorkspace,
+        plan: Any,
+        task: Any,
+        project_root: Path,
+        tracker: GitTracker,
+    ) -> tuple[dict[str, object], list[str], list[str], list[str]]:
+        meeting = ws.meetings.get(task.meeting_id)
+        requirement = ws.requirements.get(task.requirement_id)
+        project_dir = _project_dir(project_root, task.project_id)
+        decisions = _resolved_decisions(ws, plan)
+        dependency_results: list[dict[str, object]] = []
+        dependency_artifact_files: list[str] = []
+        artifact_excerpts: list[dict[str, str]] = []
+        warnings: list[str] = []
+
+        for dep_id in task.depends_on_task_ids:
+            dep = ws.delivery_tasks.get(dep_id)
+            if not dep.execution_result_id:
+                warnings.append(f"dependency {dep.title} has no execution result")
+                continue
+            try:
+                result = ws.execution_results.get(dep.execution_result_id)
+            except FileNotFoundError:
+                warnings.append(f"dependency {dep.title} result file is missing")
+                continue
+            payload = {
+                "task_id": dep.id,
+                "title": dep.title,
+                "agent": result.agent,
+                "summary": result.summary,
+                "changed_files": list(result.changed_files),
+                "output_artifact_ids": list(result.output_artifact_ids),
+                "tests_or_checks": list(result.tests_or_checks),
+                "follow_up_notes": list(result.follow_up_notes),
+            }
+            dependency_results.append(payload)
+            files = list(dict.fromkeys([*result.output_artifact_ids, *result.changed_files]))
+            if not files:
+                warnings.append(f"dependency {dep.title} produced no files")
+            for rel_path in files:
+                if rel_path not in dependency_artifact_files:
+                    dependency_artifact_files.append(rel_path)
+                    artifact_excerpts.append(_read_artifact_excerpt(project_dir, rel_path))
+
+        context = {
+            "prompt": "\n\n".join(
+                [
+                    "Delivery task is approved and ready for autonomous execution.",
+                    "Do not ask the user questions and do not call AskQuestion.",
+                    "Use available tools directly. If anything is ambiguous, make the smallest reasonable assumption and record it in follow_ups.",
+                    f"Task: {task.title}",
+                    task.description,
+                ]
+            ),
+            "delivery_execution": True,
+            "task_id": task.id,
+            "task_title": task.title,
+            "task_description": task.description,
+            "owner_agent": task.owner_agent,
+            "acceptance_criteria": list(task.acceptance_criteria),
+            "project_dir": str(tracker.project_dir),
+            "requirement": requirement.model_dump(mode="json"),
+            "meeting": meeting.model_dump(mode="json"),
+            "meeting_decisions": list(meeting.decisions),
+            "meeting_consensus": list(meeting.consensus_points),
+            "resolved_decisions": decisions,
+            "dependency_results": dependency_results,
+            "dependency_artifact_files": dependency_artifact_files,
+            "dependency_artifact_excerpts": artifact_excerpts,
+            "project_files": _project_files(project_dir),
+            "context_warnings": warnings,
+        }
+        return (
+            context,
+            [str(item["id"]) for item in decisions],
+            [str(item["task_id"]) for item in dependency_results],
+            warnings,
+        )
+
+    def _run_one_task(
+        *,
+        workspace_root: Path,
+        project_root: Path,
+        task_id: str,
+    ) -> dict[str, object]:
+        service = DeliveryPlanService(workspace_root, project_root=project_root)
+        ws = service._ws
+        task = ws.delivery_tasks.get(task_id)
+        started_task = service.start_task(task_id)
+        plan = ws.delivery_plans.get(started_task.plan_id)
+        tracker = GitTracker(repo_root=project_root, project_id=started_task.project_id)
+        tracker.ensure_project_dir()
+        pre_state: dict[str, str] = {}
+        try:
+            pre_state = tracker.capture_state()
+        except Exception:
+            logger.warning("Failed to capture pre-execution state for %s", started_task.id)
+
+        goal, decision_used, dependency_used, context_warnings = _task_context(
+            ws=ws,
+            plan=plan,
+            task=started_task,
+            project_root=project_root,
+            tracker=tracker,
+        )
+        runtime_state = RuntimeState(
+            project_id=started_task.project_id,
+            run_id=f"delivery-{plan.id}",
+            task_id=started_task.id,
+            goal=goal,
+        )
+
+        with lf_telemetry.node_span(
+            name=f"delivery:{started_task.owner_agent}",
+            metadata={
+                "graph": "studio_delivery_workflow",
+                "plan_id": plan.id,
+                "task_id": started_task.id,
+                "node_name": "delivery_task",
+                "agent_role": started_task.owner_agent,
+            },
+            input={"goal": goal},
+        ) as span:
+            agent = dispatcher.get(started_task.owner_agent)
+            result = agent.run(runtime_state)
+            llm_entry = _consume_agent_llm_log(agent)
+            if llm_entry is not None:
+                _append_llm_log_entry(
+                    LlmRunLogger(workspace_root / "logs"),
+                    run_id=f"delivery-{plan.id}",
+                    node_name=started_task.id,
+                    entry=llm_entry,
+                    telemetry_metadata=lf_telemetry.current_metadata(),
+                )
+
+            diff = GitDiffResult(changed_files=[])
+            try:
+                diff = tracker.detect_changes(pre_state)
+                if diff.has_changes:
+                    try:
+                        tracker.add_and_commit(
+                            f"Task {started_task.id}: {started_task.title}\n\nAgent: {started_task.owner_agent}"
+                        )
+                    except Exception:
+                        logger.debug("Skipping git commit for delivery task %s", started_task.id, exc_info=True)
+            except Exception:
+                logger.warning("Failed to detect project changes for task %s", started_task.id)
+
+            changed_files = [change.path for change in diff.changed_files]
+            summary = f"{started_task.owner_agent} completed: {started_task.title}"
+            checks: list[str] = []
+            follow_ups: list[str] = []
+            telemetry = result.state_patch.get("telemetry", {}) if result else {}
+            if isinstance(telemetry, dict):
+                report_key = next(
+                    (key for key in telemetry if str(key).endswith("_report") or str(key).endswith("_brief")),
+                    None,
+                )
+                report = telemetry.get(report_key, {}) if report_key else {}
+                if isinstance(report, dict):
+                    summary = str(report.get("summary") or summary)
+                    checks = [str(item) for item in report.get("checks", [])]
+                    follow_ups = [str(item) for item in report.get("follow_ups", [])]
+            if result and result.trace.get("fallback_used"):
+                context_warnings.append("agent used fallback output")
+
+            completed = service.complete_task(
+                task_id=started_task.id,
+                summary=summary,
+                output_artifact_ids=changed_files,
+                changed_files=changed_files,
+                tests_or_checks=checks,
+                follow_up_notes=follow_ups,
+                dependency_context_used=dependency_used,
+                decision_context_used=decision_used,
+                context_warnings=context_warnings,
+            )
+            span.update(
+                metadata={"changed_file_count": len(changed_files)},
+                output={"task_id": started_task.id, "changed_files": changed_files},
+            )
+        return {
+            "task_id": started_task.id,
+            "changed_files": changed_files,
+            "execution_result": completed["execution_result"].model_dump(mode="json"),
+            "context_warnings": context_warnings,
+        }
+
+    def prepare_context_node(state: _DeliveryState) -> dict[str, object]:
+        workspace_root = Path(_require_state_str(state, "workspace_root"))
+        plan_id = _require_state_str(state, "plan_id")
+        project_root_raw = state.get("project_root")
+        project_root = Path(str(project_root_raw)) if project_root_raw else workspace_root.parent
+        ws = StudioWorkspace(workspace_root)
+        ws.ensure_layout()
+        plan = ws.delivery_plans.get(plan_id)
+        if plan.status == "awaiting_user_decision":
+            return {**state, "runner_status": "waiting_for_decision"}
+        return {
+            **state,
+            "workspace_root": str(workspace_root),
+            "project_root": str(project_root),
+            "runner_status": "running",
+            "executed_task_ids": [],
+            "failed_task_ids": [],
+            "context_warnings": [],
+        }
+
+    def run_delivery_node(state: _DeliveryState) -> dict[str, object]:
+        if state.get("runner_status") == "waiting_for_decision":
+            return dict(state)
+        workspace_root = Path(_require_state_str(state, "workspace_root"))
+        project_root = Path(_require_state_str(state, "project_root"))
+        plan_id = _require_state_str(state, "plan_id")
+        executed = list(state.get("executed_task_ids", []))
+        failed: list[str] = []
+        all_warnings = list(state.get("context_warnings", []))
+
+        while True:
+            ws = StudioWorkspace(workspace_root)
+            plan = ws.delivery_plans.get(plan_id)
+            tasks = [ws.delivery_tasks.get(task_id) for task_id in plan.task_ids]
+            ready = [task for task in tasks if task.status == "ready"]
+            if not ready:
+                incomplete = [task for task in tasks if task.status != "done"]
+                if incomplete:
+                    return {
+                        **state,
+                        "runner_status": "failed",
+                        "executed_task_ids": executed,
+                        "failed_task_ids": [task.id for task in incomplete],
+                        "context_warnings": [*all_warnings, "delivery graph stalled with incomplete tasks"],
+                    }
+                return {
+                    **state,
+                    "runner_status": "completed",
+                    "executed_task_ids": executed,
+                    "failed_task_ids": failed,
+                    "context_warnings": all_warnings,
+                }
+
+            max_workers = max(1, min(len(ready), int(os.environ.get("GAME_STUDIO_DELIVERY_GRAPH_WORKERS", "3"))))
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="delivery-graph") as executor:
+                futures = {
+                    executor.submit(
+                        _run_one_task,
+                        workspace_root=workspace_root,
+                        project_root=project_root,
+                        task_id=task.id,
+                    ): task.id
+                    for task in ready
+                }
+                for future in as_completed(futures):
+                    task_id = futures[future]
+                    try:
+                        result = future.result()
+                    except Exception:
+                        logger.exception("Delivery graph task %s failed", task_id)
+                        failed.append(task_id)
+                    else:
+                        executed.append(str(result["task_id"]))
+                        all_warnings.extend(str(item) for item in result.get("context_warnings", []))
+            if failed:
+                return {
+                    **state,
+                    "runner_status": "failed",
+                    "executed_task_ids": executed,
+                    "failed_task_ids": failed,
+                    "context_warnings": all_warnings,
+                }
+
+    def finalize_delivery_node(state: _DeliveryState) -> dict[str, object]:
+        if state.get("runner_status") != "completed":
+            return dict(state)
+        return dict(state)
+
+    graph = StateGraph(_DeliveryState)
+    graph.add_node("prepare_context", prepare_context_node)
+    graph.add_node("run_task", run_delivery_node)
+    graph.add_node("finalize_delivery", finalize_delivery_node)
+    graph.add_edge(START, "prepare_context")
+    graph.add_edge("prepare_context", "run_task")
+    graph.add_edge("run_task", "finalize_delivery")
+    graph.add_edge("finalize_delivery", END)
+    return graph.compile()
+
+
 class _MeetingState(TypedDict, total=False):
     workspace_root: str
     project_root: str

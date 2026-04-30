@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -23,7 +22,6 @@ from studio.api.routes import (
 )
 from studio.api.websocket import get_websocket_manager
 from studio.runtime import pool, process_registry
-from studio.runtime.delivery_task_poller import DeliveryTaskPoller
 from studio.storage.kickoff_service import KickoffService
 
 
@@ -31,21 +29,9 @@ from studio.storage.kickoff_service import KickoffService
 async def _default_lifespan(app: FastAPI):
     """Start background services needed for the delivery workflow."""
     workspace_path = Path(".studio-data")
-    delivery_task_poller = DeliveryTaskPoller(workspace_path=workspace_path)
     KickoffService(workspace_path, project_root=Path("."), recover_stuck=True)
 
-    delivery_task = asyncio.create_task(delivery_task_poller.start())
-
     yield
-
-    await delivery_task_poller.stop()
-
-    delivery_task.cancel()
-
-    try:
-        await delivery_task
-    except asyncio.CancelledError:
-        pass
 
     process_registry.kill_all(reason="server_shutdown")
     pool.shutdown(wait=False)

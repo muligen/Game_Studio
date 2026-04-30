@@ -40,7 +40,7 @@ def test_langgraph_studio_adapter_exposes_workflow_graphs(tmp_path: Path) -> Non
     module = import_module("studio.langgraph_app")
     assert hasattr(module, "design_graph")
     assert hasattr(module, "meeting_graph")
-    assert not hasattr(module, "delivery_graph")
+    assert hasattr(module, "delivery_graph")
 
     default_result = module.graph.invoke({"prompt": "Design a simple 2D game concept"})
     helper_result = module.build_langgraph_dev_runtime().invoke(

@@ -281,6 +281,38 @@ def test_meeting_phase_prompt_uses_opinion_guardrails_for_concrete_roles(tmp_pat
     assert "先使用可用的文件工具完成实际工作" not in prompt
 
 
+def test_delivery_execution_prompt_forbids_questions_and_requires_autonomous_work(tmp_path) -> None:
+    (tmp_path / ".env").write_text(
+        "GAME_STUDIO_CLAUDE_ENABLED=true\nGAME_STUDIO_CLAUDE_MODE=tools_enabled\n",
+        encoding="utf-8",
+    )
+    claude_root = tmp_path / ".claude" / "agents" / "dev"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="dev",
+            system_prompt="Dev profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+
+    prompt = adapter.debug_prompt(
+        "dev",
+        {
+            "goal": {
+                "delivery_execution": True,
+                "prompt": "Implement snake",
+                "project_dir": str(tmp_path / "projects" / "proj_001"),
+            }
+        },
+    )
+
+    assert "Do not ask the user questions" in prompt
+    assert "Do not call AskQuestion" in prompt
+    assert "make the smallest reasonable assumption" in prompt
+
+
 def test_prompt_uses_profile_system_prompt_for_reviewer(tmp_path) -> None:
     claude_root = tmp_path / ".claude" / "agents" / "reviewer"
     claude_root.mkdir(parents=True)

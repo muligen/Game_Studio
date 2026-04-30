@@ -104,6 +104,9 @@ class TaskExecutionResult(BaseModel):
     changed_files: list[str] = Field(default_factory=list)
     tests_or_checks: list[str] = Field(default_factory=list)
     follow_up_notes: list[str] = Field(default_factory=list)
+    dependency_context_used: list[str] = Field(default_factory=list)
+    decision_context_used: list[str] = Field(default_factory=list)
+    context_warnings: list[str] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 

@@ -193,6 +193,11 @@ def run_demo(
     prompt: str = typer.Option(..., "--prompt", "-p", help="Goal prompt for the demo graph"),
     require_approval: bool = typer.Option(False, "--require-approval", help="Pause with a human gate in output"),
 ) -> None:
+    from studio.llm.claude_roles import ClaudeRoleConfig
+    from studio.llm.claude_worker import ClaudeWorkerAdapter, ClaudeWorkerConfig
+
+    ClaudeRoleAdapter.load_config = lambda self: ClaudeRoleConfig(False, "text", None, None, None)  # type: ignore[method-assign]
+    ClaudeWorkerAdapter.load_config = lambda self: ClaudeWorkerConfig(False, "text", None, None, None)  # type: ignore[method-assign]
     runtime = build_demo_runtime(workspace)
     result = _normalize_demo_result(runtime.invoke({"prompt": prompt}))
     if require_approval:

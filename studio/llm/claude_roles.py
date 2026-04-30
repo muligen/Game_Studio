@@ -1060,6 +1060,8 @@ class ClaudeRoleAdapter:
 
         tools_enabled = self.load_config().mode == "tools_enabled"
         opinion_phase = _is_meeting_opinion_context(context)
+        goal = context.get("goal")
+        delivery_execution = isinstance(goal, dict) and bool(goal.get("delivery_execution"))
         if role_name == "requirement_clarifier":
             instruction = (
                 "你是一个纯对话agent。你可以阅读项目文件以了解上下文，"
@@ -1075,6 +1077,14 @@ class ClaudeRoleAdapter:
                 "提供你的专家意见：分析议程、建议方法、识别风险、提出待解决问题。"
                 "不要编写代码、编辑文件、创建文档或运行命令。"
                 "以符合此schema的JSON格式回复："
+            )
+        elif tools_enabled and delivery_execution:
+            instruction = (
+                "Delivery execution mode. The task has already been clarified, approved, and assigned.\n"
+                "Do not ask the user questions. Do not call AskQuestion.\n"
+                "Use available tools directly to complete the task in project_dir.\n"
+                "If anything is ambiguous, make the smallest reasonable assumption and record it in follow_ups.\n"
+                "After completing the work, reply with JSON matching this schema:\n"
             )
         elif tools_enabled:
             instruction = (

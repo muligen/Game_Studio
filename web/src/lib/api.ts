@@ -344,8 +344,28 @@ export interface DeliveryTask {
     task_acceptance_notes: string[]
   } | null
   decision_resolution_version: number | null
+  context_warnings?: string[]
+  dependency_summaries?: string[]
   created_at: string
   updated_at: string
+}
+
+export interface TaskExecutionResult {
+  id: string
+  task_id: string
+  plan_id: string
+  project_id: string
+  agent: string
+  session_id: string
+  summary: string
+  output_artifact_ids: string[]
+  changed_files: string[]
+  tests_or_checks: string[]
+  follow_up_notes: string[]
+  dependency_context_used: string[]
+  decision_context_used: string[]
+  context_warnings: string[]
+  created_at: string
 }
 
 export interface GateItem {
@@ -456,6 +476,7 @@ export interface DeliveryBoard {
   plans: DeliveryPlan[]
   tasks: DeliveryTask[]
   decision_gates: KickoffDecisionGate[]
+  runner_status?: 'idle' | 'running' | 'waiting_for_decision' | 'failed' | 'completed'
 }
 
 export interface MeetingTranscriptEntry {

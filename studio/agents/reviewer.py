@@ -33,6 +33,16 @@ class ReviewerAgent:
         }
         state_patch: dict[str, object] = {"plan": {"current_node": "reviewer"}}
 
+        if "title" not in artifact_payload:
+            decision = self._fallback_decision(artifact_payload)
+            trace["decision"] = decision.value
+            trace["fallback_reason"] = "missing_artifact_title"
+            return NodeResult(
+                decision=decision,
+                state_patch=state_patch,
+                trace=trace,
+            )
+
         llm_context = {"artifact_payload": artifact_payload}
         try:
             payload = self._claude_runner.generate(

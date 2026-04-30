@@ -3,13 +3,14 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.llm import ClaudeRoleError
+from studio.runtime.graph import build_delivery_graph
 from studio.storage.delivery_plan_service import DeliveryPlanService
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ class CompleteTaskRequest(BaseModel):
     changed_files: list[str] = []
     tests_or_checks: list[str] = []
     follow_up_notes: list[str] = []
+    dependency_context_used: list[str] = []
+    decision_context_used: list[str] = []
+    context_warnings: list[str] = []
 
 
 def _get_service(workspace: str) -> DeliveryPlanService:
@@ -59,11 +63,26 @@ def _get_service(workspace: str) -> DeliveryPlanService:
     )
 
 
+def run_delivery_plan(workspace_root: Path, project_root: Path, plan_id: str) -> None:
+    """Run an active delivery plan through the LangGraph delivery runner."""
+    try:
+        build_delivery_graph().invoke(
+            {
+                "workspace_root": str(workspace_root),
+                "project_root": str(project_root),
+                "plan_id": plan_id,
+            }
+        )
+    except Exception:
+        logger.exception("Delivery runner failed for plan %s", plan_id)
+
+
 @router.post("/meetings/{meeting_id}/delivery-plan")
 async def generate_delivery_plan(
     meeting_id: str,
     workspace: str,
     request: GeneratePlanRequest,
+    background_tasks: BackgroundTasks,
 ) -> dict:
     """Generate a delivery plan from a completed meeting."""
     try:
@@ -96,6 +115,13 @@ async def generate_delivery_plan(
         entity_id=result["plan"].id,
         action="created",
     )
+    if result["plan"].status == "active":
+        background_tasks.add_task(
+            run_delivery_plan,
+            resolve_workspace_root(workspace),
+            resolve_project_root(workspace),
+            result["plan"].id,
+        )
     return {
         "plan": result["plan"].model_dump(),
         "tasks": [t.model_dump() for t in result["tasks"]],
@@ -115,6 +141,7 @@ async def list_delivery_board(
         "plans": [p.model_dump() for p in result["plans"]],
         "tasks": [t.model_dump() for t in result["tasks"]],
         "decision_gates": [g.model_dump() for g in result["decision_gates"]],
+        "runner_status": result.get("runner_status", "idle"),
     }
 
 
@@ -123,6 +150,7 @@ async def resolve_decision_gate(
     gate_id: str,
     workspace: str,
     request: ResolveGateRequest,
+    background_tasks: BackgroundTasks,
 ) -> dict:
     """Resolve a kickoff decision gate."""
     service = _get_service(workspace)
@@ -142,6 +170,13 @@ async def resolve_decision_gate(
         entity_id=result["gate"].id,
         action="updated",
     )
+    if result["plan"].status == "active":
+        background_tasks.add_task(
+            run_delivery_plan,
+            resolve_workspace_root(workspace),
+            resolve_project_root(workspace),
+            result["plan"].id,
+        )
     return {"gate": result["gate"].model_dump(), "plan": result["plan"].model_dump()}
 
 
@@ -186,6 +221,9 @@ async def complete_delivery_task(
             changed_files=request.changed_files,
             tests_or_checks=request.tests_or_checks,
             follow_up_notes=request.follow_up_notes,
+            dependency_context_used=request.dependency_context_used,
+            decision_context_used=request.decision_context_used,
+            context_warnings=request.context_warnings,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found")

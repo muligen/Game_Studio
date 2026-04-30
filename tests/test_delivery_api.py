@@ -130,6 +130,33 @@ class TestGenerateDeliveryPlan:
         assert data["decision_gate"] is None
 
     @staticmethod
+    def test_active_plan_generation_starts_delivery_runner(
+        client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_meeting(workspace, "meet_001")
+        calls: list[tuple[Path, Path, str]] = []
+
+        def _fake_run_delivery_plan(workspace_root: Path, project_root: Path, plan_id: str) -> None:
+            calls.append((workspace_root, project_root, plan_id))
+
+        monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", _fake_run_delivery_plan)
+
+        resp = client.post(
+            "/api/meetings/meet_001/delivery-plan",
+            params={"workspace": str(workspace)},
+            json={"project_id": "proj_001"},
+        )
+
+        assert resp.status_code == 200
+        assert calls == [
+            (
+                resolve_workspace_root(str(workspace)),
+                resolve_project_root(str(workspace)),
+                resp.json()["plan"]["id"],
+            )
+        ]
+
+    @staticmethod
     def test_404_missing_meeting(client: TestClient, workspace: Path, planner: FakePlanner) -> None:
         resp = client.post(
             "/api/meetings/nonexistent/delivery-plan",
@@ -224,6 +251,43 @@ class TestResolveGate:
         data = resolve_resp.json()
         assert data["gate"]["status"] == "resolved"
         assert data["plan"]["status"] == "active"
+
+    @staticmethod
+    def test_resolving_gate_starts_delivery_runner(
+        client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_meeting(workspace, "meet_001")
+        planner.payload = _planner_payload(
+            gate_items=[
+                {
+                    "id": "q1",
+                    "question": "Which framework?",
+                    "context": "Need to decide",
+                    "options": ["React", "Vue"],
+                },
+            ],
+        )
+        calls: list[str] = []
+
+        def _fake_run_delivery_plan(workspace_root: Path, project_root: Path, plan_id: str) -> None:
+            calls.append(plan_id)
+
+        monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", _fake_run_delivery_plan)
+        gen_resp = client.post(
+            "/api/meetings/meet_001/delivery-plan",
+            params={"workspace": str(workspace)},
+            json={"project_id": "proj_001"},
+        )
+        gate_id = gen_resp.json()["decision_gate"]["id"]
+
+        resolve_resp = client.post(
+            f"/api/kickoff-decision-gates/{gate_id}/resolve",
+            params={"workspace": str(workspace)},
+            json={"resolutions": {"q1": "React"}},
+        )
+
+        assert resolve_resp.status_code == 200
+        assert calls == [resolve_resp.json()["plan"]["id"]]
 
 
 class TestStartTask:

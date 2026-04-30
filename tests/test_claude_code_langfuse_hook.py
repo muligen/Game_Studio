@@ -141,21 +141,21 @@ AGENT_NAMES = [
 ]
 
 EXPECTED_AGENT_PERMISSIONS = {
-    "art": {"allow": ["Bash(*)", "Edit(*)"]},
+    "art": {"allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "LS(*)", "MultiEdit(*)"]},
     "delivery_planner": {"allow": ["Bash(*)", "Edit(*)"]},
-    "design": {"allow": ["Bash(*)", "Edit(*)"]},
-    "dev": {"allow": ["Bash(*)", "Edit(*)"]},
+    "design": {"allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "LS(*)", "MultiEdit(*)"]},
+    "dev": {"allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "LS(*)", "MultiEdit(*)"]},
     "moderator": {
         "allow": ["Read(*)", "Glob(*)", "Grep(*)"],
         "deny": ["Bash(*)", "Edit(*)", "Write(*)"],
     },
-    "qa": {"allow": ["Bash(*)", "Edit(*)"]},
-    "quality": {"allow": ["Bash(*)", "Edit(*)"]},
+    "qa": {"allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "LS(*)", "MultiEdit(*)"]},
+    "quality": {"allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "LS(*)", "MultiEdit(*)"]},
     "requirement_clarifier": {
         "allow": ["Read(*)", "Glob(*)", "Grep(*)"],
         "deny": ["Bash(*)", "Edit(*)", "Write(*)"],
     },
-    "reviewer": {"allow": ["Bash(*)", "Edit(*)"]},
+    "reviewer": {"allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "LS(*)", "MultiEdit(*)"]},
     "worker": {"allow": ["Bash(*)", "Edit(*)"]},
 }
 

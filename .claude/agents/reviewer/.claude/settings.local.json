@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(*)",
-      "Edit(*)"
+      "Edit(*)",
+      "Write(*)",
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "LS(*)",
+      "MultiEdit(*)"
     ]
   },
   "env": {

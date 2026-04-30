@@ -306,6 +306,9 @@ class DeliveryPlanService:
         changed_files: list[str] | None = None,
         tests_or_checks: list[str] | None = None,
         follow_up_notes: list[str] | None = None,
+        dependency_context_used: list[str] | None = None,
+        decision_context_used: list[str] | None = None,
+        context_warnings: list[str] | None = None,
     ) -> dict:
         task = self._ws.delivery_tasks.get(task_id)
         if task.status != "in_progress":
@@ -326,6 +329,9 @@ class DeliveryPlanService:
             changed_files=changed_files or [],
             tests_or_checks=tests_or_checks or [],
             follow_up_notes=follow_up_notes or [],
+            dependency_context_used=dependency_context_used or [],
+            decision_context_used=decision_context_used or [],
+            context_warnings=context_warnings or [],
         )
         self._ws.execution_results.save(exec_result)
 
@@ -380,7 +386,32 @@ class DeliveryPlanService:
             tasks = [task for task in tasks if task.plan_id in plan_ids]
             gates = [gate for gate in gates if gate.plan_id in plan_ids]
 
-        return {"plans": plans, "tasks": tasks, "decision_gates": gates}
+        return {
+            "plans": plans,
+            "tasks": tasks,
+            "decision_gates": gates,
+            "runner_status": self._runner_status(plans, tasks, gates),
+        }
+
+    @staticmethod
+    def _runner_status(
+        plans: list[DeliveryPlan],
+        tasks: list[DeliveryTask],
+        gates: list[KickoffDecisionGate],
+    ) -> str:
+        if not plans:
+            return "idle"
+        if any(gate.status == "open" for gate in gates):
+            return "waiting_for_decision"
+        if any(plan.status == "completed" for plan in plans) and all(
+            task.status == "done" for task in tasks
+        ):
+            return "completed"
+        if any(task.status == "in_progress" for task in tasks):
+            return "running"
+        if any(plan.status == "active" for plan in plans):
+            return "running"
+        return "idle"
 
     @staticmethod
     def _gate_item_id(item: dict[str, object], index: int) -> str:
