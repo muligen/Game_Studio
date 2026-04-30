@@ -177,3 +177,30 @@ def test_delivery_graph_runs_dependency_batches_and_injects_context(
     assert ws.execution_results.get("result_task_art").changed_files == ["art/ART_GUIDE.md"]
     assert ws.execution_results.get("result_task_dev").changed_files == ["game/index.html"]
 
+
+def test_delivery_graph_workspace_stub_agents_record_context(tmp_path: Path) -> None:
+    from studio.runtime.graph import build_delivery_graph
+
+    workspace_root = tmp_path / ".studio-data"
+    project_root = tmp_path
+    workspace_root.mkdir(parents=True)
+    (workspace_root / "e2e_stub_delivery_agents").write_text("true", encoding="utf-8")
+    plan_id = _seed_delivery_plan(workspace_root)
+
+    result = build_delivery_graph().invoke(
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(project_root),
+            "plan_id": plan_id,
+        }
+    )
+
+    ws = StudioWorkspace(workspace_root)
+    project_dir = project_root / "projects" / "proj_001"
+    dev_context = (project_dir / "debug" / "dev-context.json").read_text(encoding="utf-8")
+
+    assert result["runner_status"] == "completed"
+    assert ws.delivery_tasks.get("task_art").status == "done"
+    assert ws.delivery_tasks.get("task_dev").status == "done"
+    assert "art/ART_GUIDE.md" in dev_context
+    assert "pixel" in dev_context

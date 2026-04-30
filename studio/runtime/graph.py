@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import operator
+import json
 import logging
+import operator
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -455,6 +456,44 @@ def build_delivery_graph():
     dispatcher = RuntimeDispatcher()
     lf_telemetry = LangfuseTelemetry.from_project_root(Path.cwd())
 
+    class _WorkspaceStubAgent:
+        def __init__(self, role: str) -> None:
+            self.role = role
+
+        def run(self, state: RuntimeState, **kwargs: object):
+            from studio.schemas.runtime import NodeDecision, NodeResult
+
+            project_dir = Path(str(state.goal["project_dir"]))
+            debug_dir = project_dir / "debug"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            (debug_dir / f"{self.role}-context.json").write_text(
+                json.dumps(state.goal, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            if self.role == "art":
+                art_guide = project_dir / "art" / "ART_GUIDE.md"
+                art_guide.parent.mkdir(parents=True, exist_ok=True)
+                art_guide.write_text("# Art Guide\n\nUse Pixel art for the Snake MVP.\n", encoding="utf-8")
+            elif self.role == "dev":
+                index = project_dir / "game" / "index.html"
+                index.parent.mkdir(parents=True, exist_ok=True)
+                index.write_text("<!doctype html><canvas data-style=\"pixel\"></canvas>\n", encoding="utf-8")
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={
+                    "plan": {"current_node": self.role},
+                    "telemetry": {
+                        f"{self.role}_report": {
+                            "summary": f"{self.role} stub completed",
+                            "changes": [],
+                            "checks": ["stub execution"],
+                            "follow_ups": [],
+                        }
+                    },
+                },
+                trace={"node": self.role, "llm_provider": "stub", "fallback_used": False},
+            )
+
     def _project_dir(project_root: Path, project_id: str) -> Path:
         return project_root / "projects" / project_id
 
@@ -619,7 +658,11 @@ def build_delivery_graph():
             },
             input={"goal": goal},
         ) as span:
-            agent = dispatcher.get(started_task.owner_agent)
+            # E2E-only hook: lets Playwright assert context sharing without real LLM calls.
+            if (workspace_root / "e2e_stub_delivery_agents").exists():
+                agent = _WorkspaceStubAgent(started_task.owner_agent)
+            else:
+                agent = dispatcher.get(started_task.owner_agent)
             result = agent.run(runtime_state)
             llm_entry = _consume_agent_llm_log(agent)
             if llm_entry is not None:

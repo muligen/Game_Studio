@@ -208,6 +208,8 @@ export interface paths {
     post: operations["complete_delivery_task_api_delivery_tasks__task_id__complete_post"];
   };
   "/api/clarifications/requirements/{req_id}/session": {
+    /** Get Session State */
+    get: operations["get_session_state_api_clarifications_requirements__req_id__session_get"];
     /** Start Or Get Session */
     post: operations["start_or_get_session_api_clarifications_requirements__req_id__session_post"];
   };
@@ -422,6 +424,21 @@ export interface components {
        * @default []
        */
       follow_up_notes?: string[];
+      /**
+       * Dependency Context Used
+       * @default []
+       */
+      dependency_context_used?: string[];
+      /**
+       * Decision Context Used
+       * @default []
+       */
+      decision_context_used?: string[];
+      /**
+       * Context Warnings
+       * @default []
+       */
+      context_warnings?: string[];
     };
     /**
      * CreateBugRequest
@@ -1587,6 +1604,31 @@ export interface operations {
           "application/json": {
             [key: string]: unknown;
           };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Get Session State */
+  get_session_state_api_clarifications_requirements__req_id__session_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        req_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": unknown;
         };
       };
       /** @description Validation Error */
