@@ -405,6 +405,8 @@ class DeliveryPlanService:
         return (
             normalized.startswith("STAKEHOLDER_DECISION")
             or normalized.startswith("USER_DECISION")
+            or normalized.startswith("DECISION:")
+            or normalized.startswith("DECISION_")
             or normalized.startswith("DECISION_GATE")
         )
 

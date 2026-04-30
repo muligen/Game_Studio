@@ -279,6 +279,8 @@ _ROLE_PROMPTS: dict[str, str] = {
         "仅返回JSON，包含：\n"
         "- tasks：列表，每项包含 {title, description, owner_agent（优先使用：design, dev, qa, art, reviewer, quality）, "
         "depends_on（其他任务标题的列表）, acceptance_criteria, source_evidence}\n"
+        "  如果任务依赖用户决策，不要把决策写成普通任务标题；请在 decision_gate.items 中创建对应问题，"
+        "并在 depends_on 中使用 DECISION_GATE:<gate_item_id> 作为占位依赖。\n"
         "- decision_gate：{items: [{question, context, options, source_evidence}]} "
         "针对需要用户决策的未解决冲突。如无冲突则 items 为空。\n"
     ),

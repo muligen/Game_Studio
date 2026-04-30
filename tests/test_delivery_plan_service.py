@@ -342,6 +342,39 @@ class TestGeneratePlan:
         assert result["tasks"][0].status == "preview"
 
     @staticmethod
+    def test_ignores_decision_colon_dependency_when_gate_exists(
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose retro style"])
+        _requirement(tmp_path)
+        planner.payload = {
+            "tasks": [
+                {
+                    "title": "Implement retro visual style",
+                    "description": "Apply the selected retro style reference.",
+                    "owner_agent": "design",
+                    "depends_on": ["DECISION: retro_style_reference"],
+                    "acceptance_criteria": ["Visual style matches the selected reference."],
+                },
+            ],
+            "decision_gate": {
+                "items": [
+                    {
+                        "id": "retro_style_reference",
+                        "question": "Which retro arcade style should the MVP use?",
+                        "context": "Meeting raised visual style ambiguity.",
+                        "options": ["Game Boy", "NES", "CRT"],
+                    },
+                ],
+            },
+        }
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["tasks"][0].depends_on_task_ids == []
+        assert result["tasks"][0].status == "preview"
+
+    @staticmethod
     def test_generates_gate_item_ids_when_planner_omits_them(
         svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
     ) -> None:
