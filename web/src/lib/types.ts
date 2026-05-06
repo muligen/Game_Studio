@@ -200,12 +200,33 @@ export interface paths {
      */
     post: operations["start_delivery_task_api_delivery_tasks__task_id__start_post"];
   };
+  "/api/delivery-tasks/{task_id}/retry": {
+    /**
+     * Retry Delivery Task
+     * @description Reset a failed delivery task so the delivery runner can execute it again.
+     */
+    post: operations["retry_delivery_task_api_delivery_tasks__task_id__retry_post"];
+  };
   "/api/delivery-tasks/{task_id}/complete": {
     /**
      * Complete Delivery Task
      * @description Complete a delivery task, persisting execution results and releasing the lease.
      */
     post: operations["complete_delivery_task_api_delivery_tasks__task_id__complete_post"];
+  };
+  "/api/delivery-tasks/{task_id}/events": {
+    /**
+     * Get Delivery Task Events
+     * @description Return chronological task events for a delivery task.
+     */
+    get: operations["get_delivery_task_events_api_delivery_tasks__task_id__events_get"];
+  };
+  "/api/delivery-tasks/{task_id}/session": {
+    /**
+     * Get Delivery Task Session
+     * @description Return Claude session messages attached to a delivery task.
+     */
+    get: operations["get_delivery_task_session_api_delivery_tasks__task_id__session_get"];
   };
   "/api/clarifications/requirements/{req_id}/session": {
     /** Get Session State */
@@ -1580,6 +1601,36 @@ export interface operations {
     };
   };
   /**
+   * Retry Delivery Task
+   * @description Reset a failed delivery task so the delivery runner can execute it again.
+   */
+  retry_delivery_task_api_delivery_tasks__task_id__retry_post: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        task_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
    * Complete Delivery Task
    * @description Complete a delivery task, persisting execution results and releasing the lease.
    */
@@ -1595,6 +1646,66 @@ export interface operations {
     requestBody: {
       content: {
         "application/json": components["schemas"]["CompleteTaskRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Delivery Task Events
+   * @description Return chronological task events for a delivery task.
+   */
+  get_delivery_task_events_api_delivery_tasks__task_id__events_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        task_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /**
+   * Get Delivery Task Session
+   * @description Return Claude session messages attached to a delivery task.
+   */
+  get_delivery_task_session_api_delivery_tasks__task_id__session_get: {
+    parameters: {
+      query: {
+        workspace: string;
+      };
+      path: {
+        task_id: string;
       };
     };
     responses: {
