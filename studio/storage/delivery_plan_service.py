@@ -15,6 +15,7 @@ from studio.schemas.delivery import (
     KickoffDecisionGate,
     TaskExecutionResult,
 )
+from studio.schemas.delivery_events import DeliveryTaskEvent
 from studio.storage.session_lease import SessionLeaseManager
 from studio.storage.workspace import StudioWorkspace
 
@@ -463,6 +464,32 @@ class DeliveryPlanService:
         )
         self._ws.delivery_tasks.save(retried)
         return retried
+
+    def record_task_event(
+        self,
+        task_id: str,
+        event_type: str,
+        *,
+        message: str,
+        metadata: dict[str, object] | None = None,
+    ) -> DeliveryTaskEvent:
+        task = self._ws.delivery_tasks.get(task_id)
+        event_count = len([
+            event for event in self._ws.delivery_task_events.list_all()
+            if event.task_id == task_id
+        ])
+        event = DeliveryTaskEvent(
+            id=f"evt_{task_id}_{event_count + 1:04d}",
+            task_id=task.id,
+            plan_id=task.plan_id,
+            requirement_id=task.requirement_id,
+            project_id=task.project_id,
+            agent=task.owner_agent,
+            event_type=event_type,
+            message=message,
+            metadata=metadata or {},
+        )
+        return self._ws.delivery_task_events.save(event)
 
     def list_board(self, requirement_id: str | None = None) -> dict:
         plans = self._ws.delivery_plans.list_all()
