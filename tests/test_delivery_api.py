@@ -449,3 +449,51 @@ class TestRetryTask:
         assert resp.status_code == 200
         events = ws.delivery_task_events.list_all()
         assert any(event.task_id == task_id and event.event_type == "task_retried" for event in events)
+
+
+def test_get_delivery_task_events_returns_events(
+    client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_meeting(workspace, "meet_001")
+    monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", lambda *a, **kw: None)
+    gen_resp = client.post(
+        "/api/meetings/meet_001/delivery-plan",
+        params={"workspace": str(workspace)},
+        json={"project_id": "proj_001"},
+    )
+    task_id = gen_resp.json()["tasks"][0]["id"]
+    service = DeliveryPlanService(workspace / ".studio-data", project_root=workspace)
+    service.record_task_event(task_id, "task_started", message="started")
+
+    resp = client.get(f"/api/delivery-tasks/{task_id}/events", params={"workspace": str(workspace)})
+
+    assert resp.status_code == 200
+    assert resp.json()["events"][0]["event_type"] == "task_started"
+
+
+def test_get_delivery_task_session_returns_agent_messages(
+    client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_meeting(workspace, "meet_001")
+    monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", lambda *a, **kw: None)
+    gen_resp = client.post(
+        "/api/meetings/meet_001/delivery-plan",
+        params={"workspace": str(workspace)},
+        json={"project_id": "proj_001"},
+    )
+    task = gen_resp.json()["tasks"][0]
+    _seed_session(workspace, project_id="proj_001", agent=task["owner_agent"])
+
+    class _Message:
+        type = "assistant"
+        uuid = "msg_001"
+        message = {"content": [{"type": "text", "text": "I implemented the task."}]}
+
+    monkeypatch.setattr("studio.api.routes.delivery.sdk_get_session_messages", lambda *args, **kwargs: [_Message()])
+
+    resp = client.get(f"/api/delivery-tasks/{task['id']}/session", params={"workspace": str(workspace)})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["task_id"] == task["id"]
+    assert data["messages"][0]["content"] == "I implemented the task."

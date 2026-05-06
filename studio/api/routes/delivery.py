@@ -6,6 +6,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
+from claude_agent_sdk import get_session_messages as sdk_get_session_messages
+
+from studio.agents.profile_loader import AgentProfileLoader
 from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.llm import ClaudeRoleError
@@ -264,3 +267,91 @@ async def complete_delivery_task(
         "task": result["task"].model_dump(),
         "execution_result": result["execution_result"].model_dump(),
     }
+
+
+@router.get("/delivery-tasks/{task_id}/events")
+async def get_delivery_task_events(
+    task_id: str,
+    workspace: str,
+) -> dict:
+    """Return chronological task events for a delivery task."""
+    service = _get_service(workspace)
+    try:
+        service._ws.delivery_tasks.get(task_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found")
+    events = [
+        event for event in service._ws.delivery_task_events.list_all()
+        if event.task_id == task_id
+    ]
+    events.sort(key=lambda event: event.created_at)
+    return {"events": [event.model_dump() for event in events]}
+
+
+@router.get("/delivery-tasks/{task_id}/session")
+async def get_delivery_task_session(
+    task_id: str,
+    workspace: str,
+) -> dict:
+    """Return Claude session messages attached to a delivery task."""
+    service = _get_service(workspace)
+    try:
+        task = service._ws.delivery_tasks.get(task_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    try:
+        session = service._ws.sessions.get(f"{task.project_id}_{task.owner_agent}")
+    except FileNotFoundError:
+        return {
+            "task_id": task.id,
+            "project_id": task.project_id,
+            "agent": task.owner_agent,
+            "session_id": None,
+            "messages": [],
+        }
+
+    profile = AgentProfileLoader().load(task.owner_agent)
+    project_root = resolve_project_root(workspace)
+    claude_root = profile.claude_project_root
+    if not claude_root.is_absolute():
+        claude_root = (project_root / claude_root).resolve()
+
+    try:
+        sdk_messages = sdk_get_session_messages(
+            session.session_id,
+            directory=str(claude_root),
+        )
+    except Exception:
+        sdk_messages = []
+
+    return {
+        "task_id": task.id,
+        "project_id": task.project_id,
+        "agent": task.owner_agent,
+        "session_id": session.session_id,
+        "messages": [_delivery_session_message(msg) for msg in sdk_messages],
+    }
+
+
+def _delivery_session_message(msg: object) -> dict[str, object]:
+    message = getattr(msg, "message", {})
+    return {
+        "role": str(getattr(msg, "type", "")),
+        "content": _extract_content_text(message),
+        "uuid": str(getattr(msg, "uuid", "")),
+        "blocks": message.get("content", []) if isinstance(message, dict) and isinstance(message.get("content"), list) else [],
+    }
+
+
+def _extract_content_text(message: object) -> str:
+    content = message.get("content", "") if isinstance(message, dict) else ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                texts.append(block.get("text", ""))
+        return "\n".join(texts)
+    return ""
