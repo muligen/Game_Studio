@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
-  <!-- Snake Body Segment -->
-  <rect x="2" y="2" width="36" height="36" rx="4" fill="#66BB6A" stroke="#388E3C" stroke-width="2"/>
-
-  <!-- Subtle inner detail for pixel-art effect -->
-  <rect x="10" y="10" width="20" height="20" rx="2" fill="#81C784" opacity="0.5"/>
-</svg>
