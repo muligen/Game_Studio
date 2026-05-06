@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Get API base URL from environment variable or use default
-const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:8000';
+const apiBaseUrl = process.env.API_BASE_URL || 'http://127.0.0.1:8000';
 const openApiUrl = `${apiBaseUrl}/openapi.json`;
 const projectRoot = path.join(__dirname, '..');
 const outputPath = path.join(projectRoot, 'src', 'lib', 'types.ts');
