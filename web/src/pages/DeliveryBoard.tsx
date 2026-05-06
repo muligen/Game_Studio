@@ -3,8 +3,9 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useWorkspace } from '@/lib/workspace'
 import { deliveryApi } from '@/lib/api'
-import type { KickoffDecisionGate } from '@/lib/api'
+import type { DeliveryTask, KickoffDecisionGate } from '@/lib/api'
 import { DeliveryTaskCard } from '@/components/board/DeliveryTaskCard'
+import { DeliveryTaskDetailDrawer } from '@/components/board/DeliveryTaskDetailDrawer'
 import { KickoffDecisionGateCard } from '@/components/board/KickoffDecisionGateCard'
 import { KickoffDecisionDialog } from '@/components/common/KickoffDecisionDialog'
 import { PoolStatusBar } from '@/components/common/PoolStatusBar'
@@ -27,6 +28,7 @@ export function DeliveryBoard() {
   const [searchParams] = useSearchParams()
   const requirementId = searchParams.get('requirement_id') || undefined
   const [resolveGate, setResolveGate] = useState<KickoffDecisionGate | null>(null)
+  const [selectedTask, setSelectedTask] = useState<DeliveryTask | null>(null)
 
   const { data: board, isLoading, error } = useQuery({
     queryKey: ['delivery-board', workspace, requirementId],
@@ -121,6 +123,7 @@ export function DeliveryBoard() {
                       <DeliveryTaskCard
                         key={task.id}
                         task={task}
+                        onClick={() => setSelectedTask(task)}
                         onStart={
                           task.status === 'ready'
                             ? () => startMutation.mutate(task.id)
@@ -146,6 +149,12 @@ export function DeliveryBoard() {
           onOpenChange={(open) => { if (!open) setResolveGate(null) }}
         />
       )}
+      <DeliveryTaskDetailDrawer
+        task={selectedTask}
+        workspace={workspace}
+        open={Boolean(selectedTask)}
+        onOpenChange={(open) => { if (!open) setSelectedTask(null) }}
+      />
     </div>
   )
 }

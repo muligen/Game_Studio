@@ -6,6 +6,7 @@ interface DeliveryTaskCardProps {
   task: DeliveryTask
   onStart?: () => void
   onRetry?: () => void
+  onClick?: () => void
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -28,12 +29,15 @@ const AGENT_COLORS: Record<string, string> = {
   quality: 'bg-teal-200',
 }
 
-export function DeliveryTaskCard({ task, onStart, onRetry }: DeliveryTaskCardProps) {
+export function DeliveryTaskCard({ task, onStart, onRetry, onClick }: DeliveryTaskCardProps) {
   const canStart = task.status === 'ready' && onStart
   const canRetry = task.status === 'failed' && onRetry
 
   return (
-    <Card className="p-4 hover:shadow-md transition-shadow">
+    <Card
+      className="p-4 hover:shadow-md transition-shadow cursor-pointer"
+      onClick={onClick}
+    >
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs text-muted-foreground">{task.id}</span>
         <Badge className={AGENT_COLORS[task.owner_agent] || 'bg-gray-200'}>
