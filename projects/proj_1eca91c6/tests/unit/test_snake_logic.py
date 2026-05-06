@@ -369,7 +369,11 @@ class TestSnakeGameLogic:
 
     @pytest.mark.asyncio
     async def test_self_collision(self, logic):
-        """Test self-collision detection."""
+        """Test self-collision detection.
+
+        The snake body (excluding tail) is checked for collision.
+        Create a scenario where new head position hits a body segment.
+        """
         config = {"grid_size": 10, "enable_self_collision": True}
         session_id = "test_self_collision"
 
@@ -378,25 +382,21 @@ class TestSnakeGameLogic:
         # Manually create self-collision scenario
         game_data = logic._sessions[session_id]
 
-        # Create a snake that will collide with itself (U-turn pattern)
-        # The head at (5,5) moving LEFT will hit (3,5) which is part of the body
+        # Create a scenario where snake coils back on itself
+        # Head moving UP from (5,5) will hit (5,4) which is in the body
         game_data.snake = [
-            Position(5, 5),  # Head - will move LEFT
-            Position(6, 5),  # Body segment
-            Position(7, 5),  # Body segment
-            Position(7, 6),
-            Position(7, 7),
-            Position(6, 7),
-            Position(5, 7),
-            Position(4, 7),
-            Position(3, 7),
-            Position(3, 6),
-            Position(3, 5),  # Body segment - head will hit here when moving LEFT
+            Position(5, 5),  # Head - moving UP
+            Position(5, 6),  # Body
+            Position(6, 6),  # Body
+            Position(6, 5),  # Body
+            Position(6, 4),  # Body
+            Position(5, 4),  # Body - will be hit by new head at (5,4)
+            Position(4, 4),  # Tail (will move, excluded from check)
         ]
-        game_data.direction = Direction.LEFT
-        game_data.next_direction = Direction.LEFT
+        game_data.direction = Direction.UP
+        game_data.next_direction = Direction.UP
 
-        # Move should cause collision
+        # Move should cause collision - new head (5,4) hits body segment at (5,4)
         result = await logic.process_action(session_id, {"type": "move"})
         assert result["game_over"] is True
         assert result["game_over_reason"] == "self_collision"
