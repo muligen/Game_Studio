@@ -494,9 +494,6 @@ def build_delivery_graph():
                 trace={"node": self.role, "llm_provider": "stub", "fallback_used": False},
             )
 
-    def _project_dir(project_root: Path, project_id: str) -> Path:
-        return project_root / "projects" / project_id
-
     def _project_files(project_dir: Path) -> list[str]:
         if not project_dir.exists():
             return []
@@ -538,12 +535,11 @@ def build_delivery_graph():
         ws: StudioWorkspace,
         plan: Any,
         task: Any,
-        project_root: Path,
         tracker: GitTracker,
     ) -> tuple[dict[str, object], list[str], list[str], list[str]]:
         meeting = ws.meetings.get(task.meeting_id)
         requirement = ws.requirements.get(task.requirement_id)
-        project_dir = _project_dir(project_root, task.project_id)
+        project_dir = tracker.project_dir
         decisions = _resolved_decisions(ws, plan)
         dependency_results: list[dict[str, object]] = []
         dependency_artifact_files: list[str] = []
@@ -637,7 +633,6 @@ def build_delivery_graph():
             ws=ws,
             plan=plan,
             task=started_task,
-            project_root=project_root,
             tracker=tracker,
         )
         runtime_state = RuntimeState(

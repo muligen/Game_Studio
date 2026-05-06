@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import hashlib
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,11 +49,24 @@ class GitTracker:
     """Tracks file changes in a project directory using git."""
 
     def __init__(self, repo_root: Path, project_id: str) -> None:
-        self.repo_root = repo_root.resolve()
+        self.studio_root = repo_root.resolve()
+        self.repo_root = self._resolve_projects_root(self.studio_root)
         self.project_id = project_id
-        self.project_dir = self.repo_root / "projects" / project_id
+        self.project_dir = self.repo_root / project_id
+
+    @staticmethod
+    def _resolve_projects_root(studio_root: Path) -> Path:
+        configured = os.environ.get("GAME_STUDIO_PROJECTS_ROOT")
+        if configured:
+            path = Path(configured)
+            if not path.is_absolute():
+                path = studio_root / path
+            return path.resolve()
+        return (studio_root.parent / "GS_projects").resolve()
 
     def ensure_project_dir(self) -> Path:
+        self.repo_root.mkdir(parents=True, exist_ok=True)
+        self._git_init_if_needed()
         self.project_dir.mkdir(parents=True, exist_ok=True)
         return self.project_dir
 
@@ -66,9 +80,32 @@ class GitTracker:
         )
 
     def _git_init_if_needed(self) -> None:
+        self.repo_root.mkdir(parents=True, exist_ok=True)
         if not (self.repo_root / ".git").exists():
             self._run_git("init")
             logger.info("Initialized git repo at %s", self.repo_root)
+        self._ensure_commit_identity()
+        self._configure_remote_if_needed()
+
+    def _ensure_commit_identity(self) -> None:
+        defaults = {
+            "user.name": "Game Studio",
+            "user.email": "game-studio@example.local",
+        }
+        for key, value in defaults.items():
+            try:
+                self._run_git("config", "--get", key)
+            except subprocess.CalledProcessError:
+                self._run_git("config", key, value)
+
+    def _configure_remote_if_needed(self) -> None:
+        remote_url = os.environ.get("GAME_STUDIO_PROJECTS_GIT_REMOTE")
+        if not remote_url:
+            return
+        try:
+            self._run_git("remote", "get-url", "origin")
+        except subprocess.CalledProcessError:
+            self._run_git("remote", "add", "origin", remote_url)
 
     def _git_ls_files(self, pathspec: str) -> dict[str, str]:
         try:
@@ -96,9 +133,9 @@ class GitTracker:
     def capture_state(self) -> dict[str, str]:
         """Capture a content hash snapshot of the project directory.
 
-        Delivery projects live under ``projects/``, which is intentionally
-        ignored by the repository.  Git index based tracking cannot see those
-        files, so this snapshot is filesystem based and independent of git.
+        Delivery projects can live outside the Game Studio repository. Git
+        index based tracking cannot see ignored files reliably, so this
+        snapshot is filesystem based and independent of git.
         """
         self.ensure_project_dir()
         state: dict[str, str] = {}
@@ -130,7 +167,8 @@ class GitTracker:
         return GitDiffResult(changed_files=changed)
 
     def add_and_commit(self, message: str) -> str:
-        rel = f"projects/{self.project_id}"
+        self._git_init_if_needed()
+        rel = self.project_id
         self._run_git("add", "-f", "--", rel)
 
         try:

@@ -1,6 +1,7 @@
 .superpowers/
 .claude/
 .worktrees/
+.e2e-workspaces/
 .merge-backups/
 __pycache__/
 .pytest_cache/

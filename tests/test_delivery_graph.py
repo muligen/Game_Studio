@@ -108,6 +108,8 @@ def test_delivery_graph_runs_dependency_batches_and_injects_context(
 
     workspace_root = tmp_path / ".studio-data"
     project_root = tmp_path
+    projects_root = tmp_path / "external-projects"
+    monkeypatch.setenv("GAME_STUDIO_PROJECTS_ROOT", str(projects_root))
     plan_id = _seed_delivery_plan(workspace_root)
     calls: list[tuple[str, dict[str, object]]] = []
 
@@ -176,6 +178,7 @@ def test_delivery_graph_runs_dependency_batches_and_injects_context(
     ]
     assert calls[1][1]["dependency_results"][0]["task_id"] == "task_art"
     assert "art/ART_GUIDE.md" in calls[1][1]["dependency_artifact_files"]
+    assert calls[0][1]["project_dir"] == str(projects_root / "proj_001")
     assert ws.execution_results.get("result_task_art").changed_files == ["art/ART_GUIDE.md"]
     assert ws.execution_results.get("result_task_dev").changed_files == ["game/index.html"]
 
@@ -198,7 +201,7 @@ def test_delivery_graph_workspace_stub_agents_record_context(tmp_path: Path) -> 
     )
 
     ws = StudioWorkspace(workspace_root)
-    project_dir = project_root / "projects" / "proj_001"
+    project_dir = project_root.parent / "GS_projects" / "proj_001"
     dev_context = (project_dir / "debug" / "dev-context.json").read_text(encoding="utf-8")
 
     assert result["runner_status"] == "completed"

@@ -14,7 +14,7 @@ function writeJson(root: string, collection: string, id: string, payload: unknow
 function seedExecutableDelivery(workspace: string) {
   const requirementId = 'req_context_delivery'
   const meetingId = 'meeting_context_delivery'
-  const projectId = 'proj_context_delivery'
+  const projectId = `proj_context_delivery_${Date.now()}`
   const planId = 'plan_context_delivery'
   const gateId = 'gate_context_delivery'
   mkdirSync(join(workspace, '.studio-data'), { recursive: true })
@@ -179,7 +179,7 @@ test('delivery runner gives downstream agents resolved decisions and dependency 
   const board = await waitForDoneTasks(seeded.requirementId, workspace)
   expect(board.tasks.map((task) => task.status)).toEqual(['done', 'done'])
 
-  const projectRoot = join(workspaceOnDisk, 'projects', seeded.projectId)
+  const projectRoot = join(workspaceOnDisk, '..', 'GS_projects', seeded.projectId)
   const artContextPath = join(projectRoot, 'debug', 'art-context.json')
   const devContextPath = join(projectRoot, 'debug', 'dev-context.json')
   expect(existsSync(artContextPath)).toBeTruthy()
