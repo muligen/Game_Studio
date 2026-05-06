@@ -15,6 +15,29 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _parse_dotenv(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key.startswith("export "):
+            key = key.removeprefix("export ").strip()
+        values[key] = value.strip().strip("'").strip('"')
+    return values
+
+
+def _config_value(studio_root: Path, key: str) -> str | None:
+    if key in os.environ:
+        return os.environ[key]
+    return _parse_dotenv(studio_root / ".env").get(key)
+
+
 @dataclass(frozen=True)
 class FileChange:
     path: str
@@ -56,7 +79,7 @@ class GitTracker:
 
     @staticmethod
     def _resolve_projects_root(studio_root: Path) -> Path:
-        configured = os.environ.get("GAME_STUDIO_PROJECTS_ROOT")
+        configured = _config_value(studio_root, "GAME_STUDIO_PROJECTS_ROOT")
         if configured:
             path = Path(configured)
             if not path.is_absolute():
@@ -99,7 +122,7 @@ class GitTracker:
                 self._run_git("config", key, value)
 
     def _configure_remote_if_needed(self) -> None:
-        remote_url = os.environ.get("GAME_STUDIO_PROJECTS_GIT_REMOTE")
+        remote_url = _config_value(self.studio_root, "GAME_STUDIO_PROJECTS_GIT_REMOTE")
         if not remote_url:
             return
         try:

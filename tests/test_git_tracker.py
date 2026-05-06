@@ -25,6 +25,29 @@ def test_git_tracker_uses_configured_projects_root(tmp_path: Path, monkeypatch) 
     assert tracker.project_dir == projects_root / "proj_001"
 
 
+def test_git_tracker_reads_projects_root_from_dotenv(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("GAME_STUDIO_PROJECTS_ROOT", raising=False)
+    projects_root = tmp_path / "dotenv-projects"
+    (tmp_path / ".env").write_text(f"GAME_STUDIO_PROJECTS_ROOT={projects_root}\n", encoding="utf-8")
+
+    tracker = GitTracker(repo_root=tmp_path, project_id="proj_001")
+
+    assert tracker.repo_root == projects_root
+    assert tracker.project_dir == projects_root / "proj_001"
+
+
+def test_git_tracker_process_env_overrides_dotenv(tmp_path: Path, monkeypatch) -> None:
+    dotenv_root = tmp_path / "dotenv-projects"
+    env_root = tmp_path / "env-projects"
+    (tmp_path / ".env").write_text(f"GAME_STUDIO_PROJECTS_ROOT={dotenv_root}\n", encoding="utf-8")
+    monkeypatch.setenv("GAME_STUDIO_PROJECTS_ROOT", str(env_root))
+
+    tracker = GitTracker(repo_root=tmp_path, project_id="proj_001")
+
+    assert tracker.repo_root == env_root
+    assert tracker.project_dir == env_root / "proj_001"
+
+
 def test_git_tracker_detects_files_under_configured_projects_dir(tmp_path: Path, monkeypatch) -> None:
     projects_root = tmp_path / "external-projects"
     monkeypatch.setenv("GAME_STUDIO_PROJECTS_ROOT", str(projects_root))
@@ -96,3 +119,25 @@ def test_git_tracker_adds_configured_remote_without_pushing(tmp_path: Path, monk
         text=True,
     )
     assert remote.stdout.strip() == "https://example.invalid/game-projects.git"
+
+
+def test_git_tracker_reads_remote_from_dotenv(tmp_path: Path, monkeypatch) -> None:
+    projects_root = tmp_path / "GS_projects"
+    monkeypatch.setenv("GAME_STUDIO_PROJECTS_ROOT", str(projects_root))
+    monkeypatch.delenv("GAME_STUDIO_PROJECTS_GIT_REMOTE", raising=False)
+    (tmp_path / ".env").write_text(
+        "GAME_STUDIO_PROJECTS_GIT_REMOTE=https://example.invalid/dotenv-projects.git\n",
+        encoding="utf-8",
+    )
+
+    tracker = GitTracker(repo_root=tmp_path, project_id="proj_001")
+    tracker.ensure_project_dir()
+
+    remote = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=projects_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert remote.stdout.strip() == "https://example.invalid/dotenv-projects.git"
