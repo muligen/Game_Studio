@@ -1,0 +1,44 @@
+{
+  "game_type": "snake",
+  "version": "1.0.0",
+  "default_config": {
+    "grid_size": 10,
+    "initial_speed": 500,
+    "speed_increment": 0,
+    "enable_walls": true,
+    "enable_self_collision": true,
+    "food_growth_rate": 1,
+    "max_score": null
+  },
+  "config_constraints": {
+    "grid_size": {
+      "type": "int",
+      "range": [5, 30]
+    },
+    "initial_speed": {
+      "type": "int",
+      "range": [100, 2000]
+    },
+    "speed_increment": {
+      "type": "float",
+      "range": [0, 0.5]
+    },
+    "enable_walls": {
+      "type": "bool"
+    },
+    "enable_self_collision": {
+      "type": "bool"
+    },
+    "food_growth_rate": {
+      "type": "int",
+      "range": [1, 5]
+    },
+    "max_score": {
+      "type": "int",
+      "min": 0
+    }
+  },
+  "runtime_modifiable": [
+    "initial_speed"
+  ]
+}

@@ -1,0 +1,54 @@
+/**
+ * GameControls Component Styles
+ */
+
+.game-controls {
+  display: flex;
+  align-items: center;
+}
+
+.button-group {
+  display: flex;
+  gap: var(--spacing-sm, 8px);
+}
+
+.btn-icon {
+  background: transparent;
+  border: 2px solid var(--color-border-green, #4CAF50);
+  border-radius: var(--radius-sm, 4px);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 150ms ease;
+  padding: 0;
+  color: var(--color-snake-head, #4CAF50);
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: rgba(76, 175, 80, 0.1);
+  border-color: var(--color-snake-body-1, #66BB6A);
+  transform: translateY(-1px);
+}
+
+.btn-icon:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-icon:focus-visible {
+  outline: 2px solid var(--color-text-gold, #FFD700);
+  outline-offset: 2px;
+}
+
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-icon {
+    transition: none;
+  }
+}
