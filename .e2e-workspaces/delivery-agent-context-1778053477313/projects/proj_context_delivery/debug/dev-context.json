@@ -1,0 +1,106 @@
+{
+  "prompt": "Delivery task is approved and ready for autonomous execution.\n\nDo not ask the user questions and do not call AskQuestion.\n\nUse available tools directly. If anything is ambiguous, make the smallest reasonable assumption and record it in follow_ups.\n\nTask: Implement UI from art guide\n\nUse the upstream art guide and confirmed style decision.",
+  "delivery_execution": true,
+  "task_id": "task_context_dev",
+  "task_title": "Implement UI from art guide",
+  "task_description": "Use the upstream art guide and confirmed style decision.",
+  "owner_agent": "dev",
+  "acceptance_criteria": [
+    "Dev receives art context"
+  ],
+  "project_dir": "F:\\projs\\Game_Studio\\.e2e-workspaces\\delivery-agent-context-1778053477313\\projects\\proj_context_delivery",
+  "requirement": {
+    "id": "req_context_delivery",
+    "title": "Snake MVP with shared context",
+    "kind": "product_mvp",
+    "type": "requirement",
+    "priority": "medium",
+    "status": "approved",
+    "owner": "design_agent",
+    "design_doc_id": null,
+    "balance_table_ids": [],
+    "bug_ids": [],
+    "notes": [],
+    "created_at": "2026-04-30T00:00:00+00:00"
+  },
+  "meeting": {
+    "id": "meeting_context_delivery",
+    "requirement_id": "req_context_delivery",
+    "title": "Snake Delivery Kickoff",
+    "agenda": [
+      "Build a small Snake MVP"
+    ],
+    "attendees": [
+      "art",
+      "dev"
+    ],
+    "opinions": [],
+    "consensus_points": [
+      "Use browser delivery",
+      "Keep scope small"
+    ],
+    "conflict_points": [],
+    "supplementary": {},
+    "decisions": [
+      "Use Canvas"
+    ],
+    "action_items": [],
+    "pending_user_decisions": [
+      "Choose visual style"
+    ],
+    "status": "completed"
+  },
+  "meeting_decisions": [
+    "Use Canvas"
+  ],
+  "meeting_consensus": [
+    "Use browser delivery",
+    "Keep scope small"
+  ],
+  "resolved_decisions": [
+    {
+      "id": "visual_style",
+      "question": "Choose the UI style",
+      "resolution": "Pixel art"
+    }
+  ],
+  "dependency_results": [
+    {
+      "task_id": "task_context_art",
+      "title": "Create pixel art guide",
+      "agent": "art",
+      "summary": "art stub completed",
+      "changed_files": [
+        "art/ART_GUIDE.md",
+        "debug/art-context.json"
+      ],
+      "output_artifact_ids": [
+        "art/ART_GUIDE.md",
+        "debug/art-context.json"
+      ],
+      "tests_or_checks": [
+        "stub execution"
+      ],
+      "follow_up_notes": []
+    }
+  ],
+  "dependency_artifact_files": [
+    "art/ART_GUIDE.md",
+    "debug/art-context.json"
+  ],
+  "dependency_artifact_excerpts": [
+    {
+      "path": "art/ART_GUIDE.md",
+      "excerpt": "# Art Guide\n\nUse Pixel art for the Snake MVP.\n"
+    },
+    {
+      "path": "debug/art-context.json",
+      "excerpt": "{\n  \"prompt\": \"Delivery task is approved and ready for autonomous execution.\\n\\nDo not ask the user questions and do not call AskQuestion.\\n\\nUse available tools directly. If anything is ambiguous, make the smallest reasonable assumption and record it in follow_ups.\\n\\nTask: Create pixel art guide\\n\\nWrite an art guide for the confirmed visual style.\",\n  \"delivery_execution\": true,\n  \"task_id\": \"task_context_art\",\n  \"task_title\": \"Create pixel art guide\",\n  \"task_description\": \"Write an art guide for the confirmed visual style.\",\n  \"owner_agent\": \"art\",\n  \"acceptance_criteria\": [\n    \"Art guide exists\"\n  ],\n  \"project_dir\": \"F:\\\\projs\\\\Game_Studio\\\\.e2e-workspaces\\\\delivery-agent-context-1778053477313\\\\projects\\\\proj_context_delivery\",\n  \"requirement\": {\n    \"id\": \"req_context_delivery\",\n    \"title\": \"Snake MVP with shared context\",\n    \"kind\": \"product_mvp\",\n    \"type\": \"requirement\",\n    \"priority\": \"medium\",\n    \"status\": \"approved\",\n    \"owner\": \"design_agent\",\n    \"design_doc_id\": null,\n    \"balance_table_ids\": [],\n    \"bug_ids\": [],\n    \"notes\": [],\n    \"created_at\": \"2026-04-30T00:00:00+00:00\"\n  },\n  \"meeting\": {\n    \"id\": \"meeting_context_delivery\",\n    \"requirement_id\": \"req_context_delivery\",\n    \"title\": \"Snake Delivery Kickoff\",\n    \"agenda\": [\n      \"Build a small Snake MVP\"\n    ],\n    \"attendees\": [\n      \"art\",\n      \"dev\"\n    ],\n    \"opinions\": [],\n    \"consensus_points\": [\n      \"Use browser delivery\",\n      \"Keep scope small\"\n    ],\n    \"conflict_points\": [],\n    \"supplementary\": {},\n    \"decisions\": [\n      \"Use Canvas\"\n    ],\n    \"action_items\": [],\n    \"pending_user_decisions\": [\n      \"Choose visual style\"\n    ],\n    \"status\": \"completed\"\n  },\n  \"meeting_decisions\": [\n    \"Use Canvas\"\n  ],\n  \"meeting_consensus\": [\n    \"Use browser delivery\",\n    \"Keep scope small\"\n  ],\n  \"resolved_decisions\": [\n    {\n      \"id\": \"visual_style\",\n      \"question\": \"Choose the UI style\",\n      \"resolution\": \"Pixel art\"\n    }\n  ],\n  \"dependency_results\": [],\n  \"dependency_artifact_files\": [],\n  \"dependency_artifact_excerpts\": [],\n  \"project_files\": [],\n  \"context_warnings\": []\n}"
+    }
+  ],
+  "project_files": [
+    "art/ART_GUIDE.md",
+    "debug/art-context.json"
+  ],
+  "context_warnings": []
+}
