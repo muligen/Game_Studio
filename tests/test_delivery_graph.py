@@ -330,3 +330,56 @@ def test_delivery_graph_marks_failed_task_and_releases_lease(
     assert lease.status == "released"
     assert execution_result.error_message == "claude crashed"
     assert execution_result.exception_type == "RuntimeError"
+
+
+def test_delivery_graph_records_task_events(tmp_path: Path, monkeypatch) -> None:
+    import studio.runtime.graph as graph_module
+
+    workspace_root = tmp_path / ".studio-data"
+    project_root = tmp_path
+    projects_root = tmp_path / "external-projects"
+    monkeypatch.setenv("GAME_STUDIO_PROJECTS_ROOT", str(projects_root))
+    plan_id = _seed_delivery_plan(workspace_root)
+
+    class _Agent:
+        def __init__(self, role: str) -> None:
+            self.role = role
+
+        def run(self, state, **kwargs):
+            project_dir = Path(str(state.goal["project_dir"]))
+            (project_dir / self.role).mkdir(parents=True, exist_ok=True)
+            (project_dir / self.role / "output.txt").write_text("done", encoding="utf-8")
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={"telemetry": {f"{self.role}_report": {"summary": f"{self.role} done"}}},
+                trace={"node": self.role, "fallback_used": False},
+            )
+
+    class _Dispatcher:
+        def get(self, node_name: str):
+            return _Agent(node_name)
+
+    def _submit_agent(agent_type, requirement_id, requirement_title, fn, /, *args, **kwargs):
+        future: Future[object] = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _Dispatcher)
+    graph_module.agent_pool = SimpleNamespace(submit_agent=_submit_agent)
+
+    graph_module.build_delivery_graph().invoke(
+        {"workspace_root": str(workspace_root), "project_root": str(project_root), "plan_id": plan_id}
+    )
+
+    events = StudioWorkspace(workspace_root).delivery_task_events.list_all()
+    event_types = [event.event_type for event in events if event.task_id == "task_art"]
+
+    assert "task_started" in event_types
+    assert "agent_session_attached" in event_types
+    assert "agent_invocation_started" in event_types
+    assert "agent_invocation_completed" in event_types
+    assert "file_changes_detected" in event_types
+    assert "task_completed" in event_types

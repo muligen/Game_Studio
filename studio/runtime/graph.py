@@ -622,6 +622,17 @@ def build_delivery_graph():
         task = ws.delivery_tasks.get(task_id)
         started_task = service.start_task(task_id)
         plan = ws.delivery_plans.get(started_task.plan_id)
+        service.record_task_event(
+            task_id, "task_started",
+            message=f"{started_task.owner_agent} started task {started_task.title}.",
+            metadata={"attempt_count": started_task.attempt_count},
+        )
+        _lease = service._lease_mgr.find(started_task.project_id, started_task.owner_agent)
+        service.record_task_event(
+            task_id, "agent_session_attached",
+            message=f"Session attached for {started_task.owner_agent}.",
+            metadata={"session_id": _lease.session_id if _lease else "unknown"},
+        )
         tracker = GitTracker(repo_root=project_root, project_id=started_task.project_id)
         tracker.ensure_project_dir()
         pre_state: dict[str, str] = {}
@@ -659,7 +670,17 @@ def build_delivery_graph():
                 agent = _WorkspaceStubAgent(started_task.owner_agent)
             else:
                 agent = dispatcher.get(started_task.owner_agent)
+            service.record_task_event(
+                task_id, "agent_invocation_started",
+                message=f"{started_task.owner_agent} invocation started.",
+                metadata={"session_id": _lease.session_id if _lease else "unknown"},
+            )
             result = agent.run(runtime_state)
+            service.record_task_event(
+                task_id, "agent_invocation_completed",
+                message=f"{started_task.owner_agent} invocation completed.",
+                metadata={"fallback_used": bool(result.trace.get("fallback_used", False)) if result else False},
+            )
             llm_entry = _consume_agent_llm_log(agent)
             if llm_entry is not None:
                 _append_llm_log_entry(
@@ -684,6 +705,12 @@ def build_delivery_graph():
                 logger.warning("Failed to detect project changes for task %s", started_task.id)
 
             changed_files = [change.path for change in diff.changed_files]
+            if changed_files:
+                service.record_task_event(
+                    task_id, "file_changes_detected",
+                    message=f"Detected {len(changed_files)} file change(s).",
+                    metadata={"changed_files": changed_files},
+                )
             summary = f"{started_task.owner_agent} completed: {started_task.title}"
             checks: list[str] = []
             follow_ups: list[str] = []
@@ -711,6 +738,11 @@ def build_delivery_graph():
                 dependency_context_used=dependency_used,
                 decision_context_used=decision_used,
                 context_warnings=context_warnings,
+            )
+            service.record_task_event(
+                task_id, "task_completed",
+                message=f"Task {started_task.title} completed.",
+                metadata={"changed_file_count": len(changed_files)},
             )
             span.update(
                 metadata={"changed_file_count": len(changed_files)},
@@ -802,6 +834,11 @@ def build_delivery_graph():
                         traceback_excerpt="".join(
                             traceback.format_exception(type(exc), exc, exc.__traceback__)
                         )[-4000:],
+                    )
+                    service.record_task_event(
+                        task_id, "task_failed",
+                        message=f"Task {task_id} failed: {str(exc) or exc.__class__.__name__}",
+                        metadata={"exception_type": exc.__class__.__name__},
                     )
                     record_error = getattr(agent_pool, "record_task_error", None)
                     if callable(record_error):

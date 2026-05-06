@@ -424,3 +424,28 @@ class TestRetryTask:
 
         assert retry_resp.status_code == 400
         assert "not failed" in retry_resp.json()["detail"]
+
+    @staticmethod
+    def test_retry_records_task_retried_event(
+        client: TestClient, workspace: Path, planner: FakePlanner,
+    ) -> None:
+        _seed_meeting(workspace, "meet_001")
+        gen_resp = client.post(
+            "/api/meetings/meet_001/delivery-plan",
+            params={"workspace": str(workspace)},
+            json={"project_id": "proj_001"},
+        )
+        task_id = gen_resp.json()["tasks"][0]["id"]
+        ws = StudioWorkspace(workspace / ".studio-data")
+        task = ws.delivery_tasks.get(task_id)
+        ws.delivery_tasks.save(task.model_copy(update={"status": "failed", "last_error": "boom"}))
+
+        resp = client.post(
+            f"/api/delivery-tasks/{task_id}/retry",
+            params={"workspace": str(workspace)},
+            json={},
+        )
+
+        assert resp.status_code == 200
+        events = ws.delivery_task_events.list_all()
+        assert any(event.task_id == task_id and event.event_type == "task_retried" for event in events)

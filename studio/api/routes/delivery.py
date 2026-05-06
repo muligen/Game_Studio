@@ -202,6 +202,12 @@ async def retry_delivery_task(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    service.record_task_event(
+        task_id, "task_retried",
+        message=f"Task {task_id} was reset for retry.",
+        metadata={"status": task.status},
+    )
+
     await broadcast_entity_changed(
         workspace=workspace,
         entity_type="delivery_task",
