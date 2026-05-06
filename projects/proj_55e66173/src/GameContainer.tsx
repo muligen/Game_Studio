@@ -204,13 +204,14 @@ export const GameContainer: React.FC<GameContainerProps> = ({
       // Update FPS
       frameCountRef.current++;
       if (currentTime - lastFpsUpdateRef.current >= 1000) {
-        dispatch({ type: 'UPDATE_FPS', payload: frameCountRef.current });
+        const currentFps = frameCountRef.current;
+        dispatch({ type: 'UPDATE_FPS', payload: currentFps });
         frameCountRef.current = 0;
         lastFpsUpdateRef.current = currentTime;
 
-        // Log warning if FPS is too low
-        if (frameCountRef.current < 30) {
-          console.warn(`Low FPS detected: ${frameCountRef.current}`);
+        // Log warning if FPS is too low (only in production)
+        if (process.env.NODE_ENV === 'production' && currentFps < 30) {
+          console.warn(`[Performance Monitor] Low FPS detected: ${currentFps}fps at ${new Date().toISOString()}`);
         }
       }
 
