@@ -293,7 +293,14 @@ class DeliveryPlanService:
             task_id=task_id,
             session_id=session.session_id,
         )
-        task = task.model_copy(update={"status": "in_progress"})
+        task = task.model_copy(
+            update={
+                "status": "in_progress",
+                "attempt_count": task.attempt_count + 1,
+                "last_error": None,
+                "last_failed_at": None,
+            }
+        )
         self._ws.delivery_tasks.save(task)
         return task
 
@@ -375,6 +382,88 @@ class DeliveryPlanService:
 
         return {"task": task, "execution_result": exec_result}
 
+    def fail_task(
+        self,
+        task_id: str,
+        *,
+        error_message: str,
+        exception_type: str | None = None,
+        traceback_excerpt: str | None = None,
+    ) -> dict:
+        task = self._ws.delivery_tasks.get(task_id)
+        if task.status not in {"ready", "in_progress"}:
+            raise ValueError(f"task {task_id} cannot fail from status={task.status}")
+
+        attempt = task.attempt_count or 1
+        result_id = f"result_{task_id}_attempt_{attempt}"
+        lease = self._lease_mgr.find(task.project_id, task.owner_agent)
+        session_id = lease.session_id if lease else "unavailable"
+        exec_result = TaskExecutionResult(
+            id=result_id,
+            task_id=task_id,
+            plan_id=task.plan_id,
+            project_id=task.project_id,
+            agent=task.owner_agent,
+            session_id=session_id,
+            summary=f"{task.owner_agent} failed: {task.title}",
+            follow_up_notes=["Retry the task after reviewing the error."],
+            context_warnings=["delivery task failed before completion"],
+            error_message=error_message,
+            exception_type=exception_type,
+            traceback_excerpt=traceback_excerpt,
+        )
+        self._ws.execution_results.save(exec_result)
+
+        now = datetime.now(UTC).isoformat()
+        task = task.model_copy(
+            update={
+                "status": "failed",
+                "execution_result_id": exec_result.id,
+                "last_error": error_message,
+                "last_failed_at": now,
+                "updated_at": now,
+            }
+        )
+        self._ws.delivery_tasks.save(task)
+
+        if lease is not None and lease.status == "held":
+            self._lease_mgr.release(task.project_id, task.owner_agent)
+
+        return {"task": task, "execution_result": exec_result}
+
+    def retry_task(self, task_id: str) -> DeliveryTask:
+        task = self._ws.delivery_tasks.get(task_id)
+        if task.status != "failed":
+            raise ValueError(f"task {task_id} is not failed (status={task.status})")
+
+        plan = self._ws.delivery_plans.get(task.plan_id)
+        if plan.status != "active":
+            raise ValueError(f"plan {plan.id} is not active (status={plan.status})")
+
+        for dep_id in task.depends_on_task_ids:
+            dep_task = self._ws.delivery_tasks.get(dep_id)
+            if dep_task.status != "done":
+                raise ValueError(
+                    f"dependency task {dep_id} is not done (status={dep_task.status})"
+                )
+
+        lease = self._lease_mgr.find(task.project_id, task.owner_agent)
+        if lease is not None and lease.status == "held":
+            self._lease_mgr.release(task.project_id, task.owner_agent)
+
+        retried = task.model_copy(
+            update={
+                "status": "ready",
+                "execution_result_id": None,
+                "output_artifact_ids": [],
+                "last_error": None,
+                "last_failed_at": None,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        self._ws.delivery_tasks.save(retried)
+        return retried
+
     def list_board(self, requirement_id: str | None = None) -> dict:
         plans = self._ws.delivery_plans.list_all()
         tasks = self._ws.delivery_tasks.list_all()
@@ -407,6 +496,8 @@ class DeliveryPlanService:
             task.status == "done" for task in tasks
         ):
             return "completed"
+        if any(task.status == "failed" for task in tasks):
+            return "failed"
         if any(task.status == "in_progress" for task in tasks):
             return "running"
         if any(plan.status == "active" for plan in plans):

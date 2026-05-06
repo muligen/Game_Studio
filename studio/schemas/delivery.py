@@ -13,7 +13,7 @@ DeliveryPlanStatus = Literal[
 ]
 
 DeliveryTaskStatus = Literal[
-    "preview", "blocked", "ready", "in_progress", "review", "done", "cancelled",
+    "preview", "blocked", "ready", "in_progress", "review", "done", "failed", "cancelled",
 ]
 
 GateStatus = Literal["open", "resolved", "cancelled"]
@@ -71,6 +71,9 @@ class DeliveryTask(BaseModel):
     acceptance_criteria: list[StrippedNonEmptyStr] = Field(default_factory=list)
     meeting_snapshot: MeetingSnapshot | None = None
     decision_resolution_version: int | None = None
+    attempt_count: int = 0
+    last_error: str | None = None
+    last_failed_at: str | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
@@ -107,6 +110,9 @@ class TaskExecutionResult(BaseModel):
     dependency_context_used: list[str] = Field(default_factory=list)
     decision_context_used: list[str] = Field(default_factory=list)
     context_warnings: list[str] = Field(default_factory=list)
+    error_message: str | None = None
+    exception_type: str | None = None
+    traceback_excerpt: str | None = None
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 

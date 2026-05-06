@@ -332,7 +332,7 @@ export interface DeliveryTask {
   title: string
   description: string
   owner_agent: string
-  status: 'preview' | 'blocked' | 'ready' | 'in_progress' | 'review' | 'done' | 'cancelled'
+  status: 'preview' | 'blocked' | 'ready' | 'in_progress' | 'review' | 'done' | 'failed' | 'cancelled'
   depends_on_task_ids: string[]
   execution_result_id: string | null
   output_artifact_ids: string[]
@@ -344,6 +344,9 @@ export interface DeliveryTask {
     task_acceptance_notes: string[]
   } | null
   decision_resolution_version: number | null
+  attempt_count: number
+  last_error: string | null
+  last_failed_at: string | null
   context_warnings?: string[]
   dependency_summaries?: string[]
   created_at: string
@@ -365,6 +368,9 @@ export interface TaskExecutionResult {
   dependency_context_used: string[]
   decision_context_used: string[]
   context_warnings: string[]
+  error_message: string | null
+  exception_type: string | null
+  traceback_excerpt: string | null
   created_at: string
 }
 
@@ -604,6 +610,15 @@ export const deliveryApi = {
     taskId: string,
   ): Promise<DeliveryTask> =>
     apiRequest(`/delivery-tasks/${taskId}/start`, 'post', {
+      params: { workspace },
+      body: {},
+    }) as Promise<DeliveryTask>,
+
+  retryTask: (
+    workspace: string,
+    taskId: string,
+  ): Promise<DeliveryTask> =>
+    apiRequest(`/delivery-tasks/${taskId}/retry`, 'post', {
       params: { workspace },
       body: {},
     }) as Promise<DeliveryTask>,

@@ -58,6 +58,14 @@ export function DeliveryBoard() {
     },
   })
 
+  const retryMutation = useMutation({
+    mutationFn: (taskId: string) => deliveryApi.retryTask(workspace, taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['delivery-board'] })
+      queryClient.invalidateQueries({ queryKey: ['pool-status'] })
+    },
+  })
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -116,6 +124,11 @@ export function DeliveryBoard() {
                         onStart={
                           task.status === 'ready'
                             ? () => startMutation.mutate(task.id)
+                            : undefined
+                        }
+                        onRetry={
+                          task.status === 'failed'
+                            ? () => retryMutation.mutate(task.id)
                             : undefined
                         }
                       />

@@ -364,3 +364,63 @@ class TestStartTask:
 
         assert start_resp.status_code == 400
         assert "no session found" in start_resp.json()["detail"]
+
+
+class TestRetryTask:
+    @staticmethod
+    def test_200_retries_failed_task(
+        client: TestClient, workspace: Path, planner: FakePlanner,
+    ) -> None:
+        _seed_meeting(workspace, "meet_001")
+        gen_resp = client.post(
+            "/api/meetings/meet_001/delivery-plan",
+            params={"workspace": str(workspace)},
+            json={"project_id": "proj_001"},
+        )
+        task_id = gen_resp.json()["tasks"][0]["id"]
+        ws = StudioWorkspace(workspace / ".studio-data")
+        task = ws.delivery_tasks.get(task_id)
+        ws.delivery_tasks.save(
+            task.model_copy(
+                update={
+                    "status": "failed",
+                    "last_error": "claude crashed",
+                    "attempt_count": 1,
+                    "execution_result_id": f"result_{task_id}_attempt_1",
+                }
+            )
+        )
+
+        retry_resp = client.post(
+            f"/api/delivery-tasks/{task_id}/retry",
+            params={"workspace": str(workspace)},
+            json={},
+        )
+
+        assert retry_resp.status_code == 200
+        retried = retry_resp.json()
+        assert retried["status"] == "ready"
+        assert retried["last_error"] is None
+        assert retried["attempt_count"] == 1
+        assert retried["execution_result_id"] is None
+
+    @staticmethod
+    def test_400_rejects_retry_for_non_failed_task(
+        client: TestClient, workspace: Path, planner: FakePlanner,
+    ) -> None:
+        _seed_meeting(workspace, "meet_001")
+        gen_resp = client.post(
+            "/api/meetings/meet_001/delivery-plan",
+            params={"workspace": str(workspace)},
+            json={"project_id": "proj_001"},
+        )
+        task_id = gen_resp.json()["tasks"][0]["id"]
+
+        retry_resp = client.post(
+            f"/api/delivery-tasks/{task_id}/retry",
+            params={"workspace": str(workspace)},
+            json={},
+        )
+
+        assert retry_resp.status_code == 400
+        assert "not failed" in retry_resp.json()["detail"]

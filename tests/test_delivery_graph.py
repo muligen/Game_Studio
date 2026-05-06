@@ -288,3 +288,45 @@ def test_delivery_graph_submits_agent_tasks_to_shared_pool(
         ("art", "req_001", "Write art guide"),
         ("dev", "req_001", "Implement game UI"),
     ]
+
+
+def test_delivery_graph_marks_failed_task_and_releases_lease(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from studio.runtime.graph import build_delivery_graph
+
+    workspace_root = tmp_path / ".studio-data"
+    project_root = tmp_path
+    plan_id = _seed_delivery_plan(workspace_root)
+
+    class _Agent:
+        def run(self, state, **kwargs):
+            raise RuntimeError("claude crashed")
+
+    class _Dispatcher:
+        def get(self, node_name: str):
+            return _Agent()
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _Dispatcher)
+
+    result = build_delivery_graph().invoke(
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(project_root),
+            "plan_id": plan_id,
+        }
+    )
+
+    ws = StudioWorkspace(workspace_root)
+    task = ws.delivery_tasks.get("task_art")
+    lease = ws.session_leases.get("proj_001_art")
+    execution_result = ws.execution_results.get(task.execution_result_id)
+
+    assert result["runner_status"] == "failed"
+    assert result["failed_task_ids"] == ["task_art"]
+    assert task.status == "failed"
+    assert task.last_error == "claude crashed"
+    assert task.attempt_count == 1
+    assert lease.status == "released"
+    assert execution_result.error_message == "claude crashed"
+    assert execution_result.exception_type == "RuntimeError"

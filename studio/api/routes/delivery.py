@@ -188,6 +188,35 @@ async def start_delivery_task(
     return task.model_dump()
 
 
+@router.post("/delivery-tasks/{task_id}/retry")
+async def retry_delivery_task(
+    task_id: str,
+    workspace: str,
+) -> dict:
+    """Reset a failed delivery task so the delivery runner can execute it again."""
+    service = _get_service(workspace)
+    try:
+        task = service.retry_task(task_id=task_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    await broadcast_entity_changed(
+        workspace=workspace,
+        entity_type="delivery_task",
+        entity_id=task.id,
+        action="updated",
+    )
+    submit_delivery_plan(
+        resolve_workspace_root(workspace),
+        resolve_project_root(workspace),
+        task.plan_id,
+        runner=run_delivery_plan,
+    )
+    return task.model_dump()
+
+
 @router.post("/delivery-tasks/{task_id}/complete")
 async def complete_delivery_task(
     task_id: str,

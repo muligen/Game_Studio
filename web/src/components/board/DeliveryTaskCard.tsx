@@ -5,6 +5,7 @@ import type { DeliveryTask } from '@/lib/api'
 interface DeliveryTaskCardProps {
   task: DeliveryTask
   onStart?: () => void
+  onRetry?: () => void
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -14,6 +15,7 @@ const STATUS_COLORS: Record<string, string> = {
   in_progress: 'bg-blue-100 text-blue-800',
   review: 'bg-yellow-100 text-yellow-800',
   done: 'bg-emerald-100 text-emerald-800',
+  failed: 'bg-red-100 text-red-800',
   cancelled: 'bg-gray-200 text-gray-600',
 }
 
@@ -26,8 +28,9 @@ const AGENT_COLORS: Record<string, string> = {
   quality: 'bg-teal-200',
 }
 
-export function DeliveryTaskCard({ task, onStart }: DeliveryTaskCardProps) {
+export function DeliveryTaskCard({ task, onStart, onRetry }: DeliveryTaskCardProps) {
   const canStart = task.status === 'ready' && onStart
+  const canRetry = task.status === 'failed' && onRetry
 
   return (
     <Card className="p-4 hover:shadow-md transition-shadow">
@@ -56,6 +59,15 @@ export function DeliveryTaskCard({ task, onStart }: DeliveryTaskCardProps) {
           ))}
         </div>
       )}
+      {task.status === 'failed' && task.last_error && (
+        <div className="mt-2 text-xs text-red-700 border-t pt-2">
+          <div className="font-medium">Failed</div>
+          <div className="line-clamp-3">{task.last_error}</div>
+          {task.attempt_count > 0 && (
+            <div className="mt-1 text-red-600">Attempt {task.attempt_count}</div>
+          )}
+        </div>
+      )}
       {task.status === 'done' && task.output_artifact_ids.length > 0 && (
         <div className="mt-2 text-xs text-muted-foreground border-t pt-2">
           <div className="font-medium text-emerald-700">
@@ -77,6 +89,14 @@ export function DeliveryTaskCard({ task, onStart }: DeliveryTaskCardProps) {
           onClick={(e) => { e.stopPropagation(); onStart() }}
         >
           Start Agent Work
+        </button>
+      )}
+      {canRetry && (
+        <button
+          className="mt-2 text-xs text-red-600 hover:underline"
+          onClick={(e) => { e.stopPropagation(); onRetry() }}
+        >
+          Retry Agent Work
         </button>
       )}
     </Card>

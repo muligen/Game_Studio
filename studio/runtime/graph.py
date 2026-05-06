@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import operator
+import traceback
 import uuid
 from concurrent.futures import as_completed
 from pathlib import Path
@@ -791,8 +792,33 @@ def build_delivery_graph():
                 task_id = futures[future]
                 try:
                     result = future.result()
-                except Exception:
+                except Exception as exc:
                     logger.exception("Delivery graph task %s failed", task_id)
+                    service = DeliveryPlanService(workspace_root, project_root=project_root)
+                    service.fail_task(
+                        task_id,
+                        error_message=str(exc) or exc.__class__.__name__,
+                        exception_type=exc.__class__.__name__,
+                        traceback_excerpt="".join(
+                            traceback.format_exception(type(exc), exc, exc.__traceback__)
+                        )[-4000:],
+                    )
+                    record_error = getattr(agent_pool, "record_task_error", None)
+                    if callable(record_error):
+                        failed_task = StudioWorkspace(workspace_root).delivery_tasks.get(task_id)
+                        record_error(
+                            task_id,
+                            failed_task.owner_agent,
+                            failed_task.requirement_id,
+                            "failed",
+                            str(exc) or exc.__class__.__name__,
+                            {
+                                "exception_type": exc.__class__.__name__,
+                                "traceback": "".join(
+                                    traceback.format_exception(type(exc), exc, exc.__traceback__)
+                                )[-4000:],
+                            },
+                        )
                     failed.append(task_id)
                 else:
                     executed.append(str(result["task_id"]))
