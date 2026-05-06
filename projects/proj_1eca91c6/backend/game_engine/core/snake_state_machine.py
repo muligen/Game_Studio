@@ -12,8 +12,8 @@ import operator
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
-from backend.game_engine.interfaces.game_state import GameState
-from backend.game_engine.core.snake_logic import SnakeGameLogic, SnakeGameData
+from ..interfaces.game_state import GameState
+from .snake_logic import SnakeGameLogic, SnakeGameData
 
 
 class SnakeStateMachineState(TypedDict):

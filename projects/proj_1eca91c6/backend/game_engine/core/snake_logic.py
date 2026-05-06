@@ -11,7 +11,7 @@ from enum import Enum
 from dataclasses import dataclass, field
 import copy
 
-from backend.game_engine.interfaces.game_logic import IGameLogic, ActionType
+from ..interfaces.game_logic import IGameLogic, ActionType
 
 
 class Direction(Enum):

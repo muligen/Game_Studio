@@ -5,14 +5,14 @@ This module contains concrete implementations of game logic
 for different game types in the Game Studio framework.
 """
 
-from backend.game_engine.core.snake_logic import (
+from .snake_logic import (
     Direction,
     Position,
     SnakeGameData,
     SnakeGameLogic,
     SnakeGameLogicFactory,
 )
-from backend.game_engine.core.snake_state_machine import (
+from .snake_state_machine import (
     SnakeGameStateMachine,
     SnakeStateMachineFactory,
     SnakeStateMachineState,
