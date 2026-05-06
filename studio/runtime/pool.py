@@ -63,6 +63,7 @@ def submit_agent(
 
     with _lock:
         _active_tasks[task_id] = task
+    _notify_status_changed()
 
     def _wrapped() -> Any:
         try:
@@ -99,11 +100,10 @@ def status() -> dict[str, Any]:
                 task_dict["running_duration_seconds"] = 0.0
             tasks.append(task_dict)
         errors = list(_recent_errors)
-    running = len(getattr(_pool, "_threads", set()))
     return {
         "max_workers": _max_workers,
-        "active_count": running,
-        "queued_count": max(0, tracked - running),
+        "active_count": min(tracked, _max_workers),
+        "queued_count": max(0, tracked - _max_workers),
         "idle": tracked == 0,
         "tasks": tasks,
         "recent_errors": errors,
@@ -145,7 +145,7 @@ def _notify_status_changed() -> None:
 
         from studio.api.websocket import broadcast_entity_changed
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
     except RuntimeError:
         return
 

@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import operator
-import os
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
@@ -19,6 +18,7 @@ from studio.observability import LangfuseTelemetry
 from studio.runtime.checkpoints import CheckpointManager
 from studio.runtime.dispatcher import RuntimeDispatcher
 from studio.runtime.llm_logs import LlmRunLogger
+from studio.runtime import pool as agent_pool
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.runtime import PlanState, RuntimeState
 from studio.storage.workspace import StudioWorkspace
@@ -780,27 +780,28 @@ def build_delivery_graph():
                     "context_warnings": all_warnings,
                 }
 
-            max_workers = max(1, min(len(ready), int(os.environ.get("GAME_STUDIO_DELIVERY_GRAPH_WORKERS", "3"))))
-            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="delivery-graph") as executor:
-                futures = {
-                    executor.submit(
-                        _run_one_task,
-                        workspace_root=workspace_root,
-                        project_root=project_root,
-                        task_id=task.id,
-                    ): task.id
-                    for task in ready
-                }
-                for future in as_completed(futures):
-                    task_id = futures[future]
-                    try:
-                        result = future.result()
-                    except Exception:
-                        logger.exception("Delivery graph task %s failed", task_id)
-                        failed.append(task_id)
-                    else:
-                        executed.append(str(result["task_id"]))
-                        all_warnings.extend(str(item) for item in result.get("context_warnings", []))
+            futures = {
+                agent_pool.submit_agent(
+                    task.owner_agent,
+                    task.requirement_id,
+                    task.title,
+                    _run_one_task,
+                    workspace_root=workspace_root,
+                    project_root=project_root,
+                    task_id=task.id,
+                ): task.id
+                for task in ready
+            }
+            for future in as_completed(futures):
+                task_id = futures[future]
+                try:
+                    result = future.result()
+                except Exception:
+                    logger.exception("Delivery graph task %s failed", task_id)
+                    failed.append(task_id)
+                else:
+                    executed.append(str(result["task_id"]))
+                    all_warnings.extend(str(item) for item in result.get("context_warnings", []))
             if failed:
                 return {
                     **state,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import Future
 from pathlib import Path
+from types import SimpleNamespace
 
 from studio.schemas.delivery import DeliveryPlan, DeliveryTask, GateItem, KickoffDecisionGate
 from studio.schemas.meeting import MeetingMinutes
@@ -204,3 +206,82 @@ def test_delivery_graph_workspace_stub_agents_record_context(tmp_path: Path) -> 
     assert ws.delivery_tasks.get("task_dev").status == "done"
     assert "art/ART_GUIDE.md" in dev_context
     assert "pixel" in dev_context
+
+
+def test_delivery_graph_submits_agent_tasks_to_shared_pool(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    import studio.runtime.graph as graph_module
+
+    workspace_root = tmp_path / ".studio-data"
+    project_root = tmp_path
+    plan_id = _seed_delivery_plan(workspace_root)
+    submitted: list[tuple[str, str, str]] = []
+
+    class _Agent:
+        def __init__(self, role: str) -> None:
+            self.role = role
+
+        def run(self, state, **kwargs):
+            project_dir = Path(str(state.goal["project_dir"]))
+            if self.role == "art":
+                (project_dir / "art").mkdir(parents=True, exist_ok=True)
+                (project_dir / "art" / "ART_GUIDE.md").write_text(
+                    "# Art Guide\n\nUse pixel art.",
+                    encoding="utf-8",
+                )
+            else:
+                (project_dir / "game").mkdir(parents=True, exist_ok=True)
+                (project_dir / "game" / "index.html").write_text(
+                    "<canvas></canvas>",
+                    encoding="utf-8",
+                )
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={
+                    "telemetry": {
+                        f"{self.role}_report": {
+                            "summary": f"{self.role} done",
+                            "changes": [],
+                            "checks": [],
+                            "follow_ups": [],
+                        }
+                    },
+                },
+                trace={"node": self.role, "fallback_used": False},
+            )
+
+    class _Dispatcher:
+        def get(self, node_name: str):
+            return _Agent(node_name)
+
+    def _submit_agent(agent_type, requirement_id, requirement_title, fn, /, *args, **kwargs):
+        submitted.append((agent_type, requirement_id, requirement_title))
+        future: Future[object] = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _Dispatcher)
+    monkeypatch.setattr(
+        graph_module,
+        "agent_pool",
+        SimpleNamespace(submit_agent=_submit_agent),
+        raising=False,
+    )
+
+    result = graph_module.build_delivery_graph().invoke(
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(project_root),
+            "plan_id": plan_id,
+        }
+    )
+
+    assert result["runner_status"] == "completed"
+    assert submitted == [
+        ("art", "req_001", "Write art guide"),
+        ("dev", "req_001", "Implement game UI"),
+    ]
