@@ -247,6 +247,9 @@ class SnakeGameLogic(IGameLogic):
             # Validate direction change (no 180° turns)
             if self._is_valid_direction_change(game_data.direction, new_direction):
                 game_data.next_direction = new_direction
+                # Also update current direction for immediate API feedback
+                # This allows the API to reflect direction changes immediately
+                game_data.direction = new_direction
 
         elif action_type == "move":
             # Process game tick movement

@@ -5,11 +5,12 @@ Provides endpoints for game initialization, state queries,
 move submission, and session management.
 """
 
-from fastapi import APIRouter, HTTPException, status, Request
+from fastapi import APIRouter, HTTPException, status, Request, WebSocket, WebSocketDisconnect
 from typing import Dict, Any
 import logging
 import sys
 from pathlib import Path
+import json
 
 # Add project root to path for imports
 project_root = Path(__file__).parent.parent.parent.parent
@@ -28,6 +29,7 @@ from api.schemas import (
     Direction,
     GameConfig
 )
+from api.websocket_manager import connection_manager
 
 logger = logging.getLogger(__name__)
 
@@ -254,3 +256,156 @@ async def restart_game(body: RestartRequest, request: Request):
         },
         game_state=game_state
     )
+
+
+@router.websocket("/ws/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for real-time game state updates.
+
+    Clients can connect to receive real-time game state updates
+    and submit moves through the WebSocket connection.
+
+    The WebSocket expects messages in JSON format with a 'type' field:
+    - Subscribe to state updates: {"type": "subscribe"}
+    - Unsubscribe from updates: {"type": "unsubscribe"}
+    - Submit move: {"type": "move", "direction": "UP|DOWN|LEFT|RIGHT"}
+    - Ping: {"type": "ping"}
+
+    Args:
+        websocket: WebSocket connection
+        session_id: Game session identifier
+
+    The connection will be closed if:
+        - Session does not exist
+        - WebSocket connection is lost
+        - Client sends invalid data
+    """
+    session_manager = websocket.app.state.session_manager
+
+    # Validate session exists before accepting connection
+    session = await session_manager.get_session(session_id)
+    if not session:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        logger.warning(f"WebSocket connection rejected: Session {session_id} not found")
+        return
+
+    # Accept WebSocket connection
+    connected = await connection_manager.connect(websocket, session_id)
+    if not connected:
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        logger.error(f"Failed to accept WebSocket connection for session {session_id}")
+        return
+
+    logger.info(f"WebSocket client connected for session {session_id}")
+
+    try:
+        # Send initial game state
+        game_state = await session_manager.get_game_state(session_id)
+        if game_state:
+            await connection_manager.send_personal_message({
+                "type": "state_update",
+                "session_id": session_id,
+                "data": game_state
+            }, websocket)
+
+        # Listen for incoming messages
+        while True:
+            try:
+                # Receive message from client
+                data = await websocket.receive_text()
+                message = json.loads(data)
+
+                message_type = message.get("type")
+
+                # Handle different message types
+                if message_type == "subscribe":
+                    # Client is subscribing (already connected, just acknowledge)
+                    await connection_manager.send_personal_message({
+                        "type": "subscribed",
+                        "session_id": session_id,
+                        "connection_count": connection_manager.get_connection_count(session_id)
+                    }, websocket)
+
+                elif message_type == "unsubscribe":
+                    # Client wants to unsubscribe but keep connection open
+                    await connection_manager.send_personal_message({
+                        "type": "unsubscribed",
+                        "session_id": session_id
+                    }, websocket)
+
+                elif message_type == "move":
+                    # Submit a move
+                    direction = message.get("direction")
+                    if not direction:
+                        await connection_manager.send_personal_message({
+                            "type": "error",
+                            "message": "Missing 'direction' field in move message"
+                        }, websocket)
+                        continue
+
+                    # Submit move through session manager
+                    success, result, error = await session_manager.submit_move(
+                        session_id=session_id,
+                        direction=direction.upper()
+                    )
+
+                    # Send personal response FIRST (before broadcast)
+                    if not success:
+                        await connection_manager.send_personal_message({
+                            "type": "move_error",
+                            "message": error or "Invalid move"
+                        }, websocket)
+                    else:
+                        await connection_manager.send_personal_message({
+                            "type": "move_accepted",
+                            "direction": direction.upper()
+                        }, websocket)
+
+                        # Broadcast updated state to all OTHER connected clients (exclude sender)
+                        if result:
+                            await connection_manager.broadcast_to_session(
+                                session_id,
+                                {
+                                    "type": "state_update",
+                                    "session_id": session_id,
+                                    "data": result
+                                },
+                                exclude_ws=websocket
+                            )
+
+                elif message_type == "ping":
+                    # Respond to ping with pong
+                    await connection_manager.send_personal_message({
+                        "type": "pong",
+                        "timestamp": message.get("timestamp")
+                    }, websocket)
+
+                else:
+                    # Unknown message type
+                    await connection_manager.send_personal_message({
+                        "type": "error",
+                        "message": f"Unknown message type: {message_type}"
+                    }, websocket)
+
+            except json.JSONDecodeError:
+                await connection_manager.send_personal_message({
+                    "type": "error",
+                    "message": "Invalid JSON format"
+                }, websocket)
+
+            except ValueError as e:
+                await connection_manager.send_personal_message({
+                    "type": "error",
+                    "message": str(e)
+                }, websocket)
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket client disconnected from session {session_id}")
+
+    except Exception as e:
+        logger.error(f"WebSocket error for session {session_id}: {e}")
+
+    finally:
+        # Clean up connection
+        await connection_manager.disconnect(websocket)
+        logger.info(f"WebSocket connection cleaned up for session {session_id}")

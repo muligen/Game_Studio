@@ -19,6 +19,7 @@ if str(project_root) not in sys.path:
 
 from api.routers import snake, games
 from api.session_manager import SessionManager
+from api.websocket_manager import connection_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="Snake Game API",
-    description="REST API for Snake Game MVP",
+    description="REST API for Snake Game MVP with WebSocket support",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
