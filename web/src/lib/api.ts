@@ -485,6 +485,42 @@ export interface DeliveryBoard {
   runner_status?: 'idle' | 'running' | 'waiting_for_decision' | 'failed' | 'completed'
 }
 
+export interface DeliveryTaskEvent {
+  id: string
+  task_id: string
+  plan_id: string
+  requirement_id: string
+  project_id: string
+  agent: string
+  event_type:
+    | 'task_started'
+    | 'agent_session_attached'
+    | 'agent_invocation_started'
+    | 'agent_invocation_completed'
+    | 'file_changes_detected'
+    | 'task_completed'
+    | 'task_failed'
+    | 'task_retried'
+  message: string
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface DeliveryTaskSessionMessage {
+  role: string
+  content: string
+  uuid: string
+  blocks: unknown[]
+}
+
+export interface DeliveryTaskSession {
+  task_id: string
+  project_id: string
+  agent: string
+  session_id: string | null
+  messages: DeliveryTaskSessionMessage[]
+}
+
 export interface MeetingTranscriptEntry {
   id?: string
   sequence?: number
@@ -622,6 +658,16 @@ export const deliveryApi = {
       params: { workspace },
       body: {},
     }) as Promise<DeliveryTask>,
+
+  getTaskEvents: (workspace: string, taskId: string): Promise<{ events: DeliveryTaskEvent[] }> =>
+    apiRequest(`/delivery-tasks/${taskId}/events`, 'get', {
+      params: { workspace },
+    }) as Promise<{ events: DeliveryTaskEvent[] }>,
+
+  getTaskSession: (workspace: string, taskId: string): Promise<DeliveryTaskSession> =>
+    apiRequest(`/delivery-tasks/${taskId}/session`, 'get', {
+      params: { workspace },
+    }) as Promise<DeliveryTaskSession>,
 } as const
 
 export interface ProjectAgentSession {
