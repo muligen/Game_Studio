@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -155,6 +157,34 @@ class TestGenerateDeliveryPlan:
                 resp.json()["plan"]["id"],
             )
         ]
+
+    @staticmethod
+    def test_active_plan_generation_returns_before_delivery_runner_finishes(
+        client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _seed_meeting(workspace, "meet_001")
+        started = threading.Event()
+        release = threading.Event()
+
+        def _fake_run_delivery_plan(workspace_root: Path, project_root: Path, plan_id: str) -> None:
+            _ = workspace_root, project_root, plan_id
+            started.set()
+            release.wait(timeout=2)
+
+        monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", _fake_run_delivery_plan)
+
+        before = time.monotonic()
+        resp = client.post(
+            "/api/meetings/meet_001/delivery-plan",
+            params={"workspace": str(workspace)},
+            json={"project_id": "proj_001"},
+        )
+        elapsed = time.monotonic() - before
+        release.set()
+
+        assert resp.status_code == 200
+        assert elapsed < 0.5
+        assert started.wait(timeout=1)
 
     @staticmethod
     def test_404_missing_meeting(client: TestClient, workspace: Path, planner: FakePlanner) -> None:

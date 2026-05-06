@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from studio.api.workspace_paths import resolve_project_root, resolve_workspace_root
 from studio.api.websocket import broadcast_entity_changed
 from studio.llm import ClaudeRoleError
-from studio.runtime.graph import build_delivery_graph
+from studio.runtime.delivery_runner import run_delivery_plan, submit_delivery_plan
 from studio.storage.delivery_plan_service import DeliveryPlanService
 
 logger = logging.getLogger(__name__)
@@ -63,26 +62,11 @@ def _get_service(workspace: str) -> DeliveryPlanService:
     )
 
 
-def run_delivery_plan(workspace_root: Path, project_root: Path, plan_id: str) -> None:
-    """Run an active delivery plan through the LangGraph delivery runner."""
-    try:
-        build_delivery_graph().invoke(
-            {
-                "workspace_root": str(workspace_root),
-                "project_root": str(project_root),
-                "plan_id": plan_id,
-            }
-        )
-    except Exception:
-        logger.exception("Delivery runner failed for plan %s", plan_id)
-
-
 @router.post("/meetings/{meeting_id}/delivery-plan")
 async def generate_delivery_plan(
     meeting_id: str,
     workspace: str,
     request: GeneratePlanRequest,
-    background_tasks: BackgroundTasks,
 ) -> dict:
     """Generate a delivery plan from a completed meeting."""
     try:
@@ -116,11 +100,11 @@ async def generate_delivery_plan(
         action="created",
     )
     if result["plan"].status == "active":
-        background_tasks.add_task(
-            run_delivery_plan,
+        submit_delivery_plan(
             resolve_workspace_root(workspace),
             resolve_project_root(workspace),
             result["plan"].id,
+            runner=run_delivery_plan,
         )
     return {
         "plan": result["plan"].model_dump(),
@@ -150,7 +134,6 @@ async def resolve_decision_gate(
     gate_id: str,
     workspace: str,
     request: ResolveGateRequest,
-    background_tasks: BackgroundTasks,
 ) -> dict:
     """Resolve a kickoff decision gate."""
     service = _get_service(workspace)
@@ -171,11 +154,11 @@ async def resolve_decision_gate(
         action="updated",
     )
     if result["plan"].status == "active":
-        background_tasks.add_task(
-            run_delivery_plan,
+        submit_delivery_plan(
             resolve_workspace_root(workspace),
             resolve_project_root(workspace),
             result["plan"].id,
+            runner=run_delivery_plan,
         )
     return {"gate": result["gate"].model_dump(), "plan": result["plan"].model_dump()}
 
