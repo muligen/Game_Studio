@@ -14,6 +14,7 @@ from studio.schemas.requirement import (
     RequirementPriority,
     RequirementStatus,
 )
+from studio.storage.project_binding import completed_mvp_project_id
 from studio.storage.workspace import StudioWorkspace
 
 router = APIRouter(prefix="/requirements", tags=["requirements"])
@@ -62,6 +63,7 @@ async def create_requirement(
         for r in existing
     )
     kind: RequirementKind = "change_request" if mvp_done else "product_mvp"
+    project_id = completed_mvp_project_id(store) if kind == "change_request" else None
 
     req_id = f"req_{uuid4().hex[:8]}"
     card = RequirementCard(
@@ -69,6 +71,7 @@ async def create_requirement(
         title=request.title,
         priority=request.priority,
         kind=kind,
+        project_id=project_id,
     )
     saved = store.requirements.save(card)
     await broadcast_entity_changed(

@@ -19,6 +19,7 @@ from studio.schemas.clarification import (
 )
 from studio.storage.kickoff_service import KickoffService
 from studio.storage.git_tracker import GitTracker
+from studio.storage.project_binding import preferred_project_id_for_requirement
 from studio.storage.workspace import StudioWorkspace
 
 router = APIRouter(prefix="/clarifications", tags=["clarifications"])
@@ -93,7 +94,10 @@ def _ensure_requirement_project(
     project_root,
 ) -> tuple[str, str]:
     requirement = store.requirements.get(req_id)
-    project_id = requirement.project_id
+    project_id = preferred_project_id_for_requirement(store, requirement)
+    if project_id != requirement.project_id:
+        requirement = requirement.model_copy(update={"project_id": project_id})
+        store.requirements.save(requirement)
     if not project_id:
         project_id = f"proj_{uuid.uuid4().hex[:8]}"
         requirement = requirement.model_copy(update={"project_id": project_id})

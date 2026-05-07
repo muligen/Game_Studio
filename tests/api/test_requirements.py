@@ -86,6 +86,32 @@ def test_create_requirement_default_priority(workspace_path: Path, test_client: 
     assert data["priority"] == "medium"
 
 
+def test_create_change_request_reuses_completed_mvp_project_id(
+    temp_workspace: StudioWorkspace,
+    workspace_path: Path,
+    test_client: TestClient,
+):
+    temp_workspace.requirements.save(
+        RequirementCard(
+            id="req_mvp",
+            title="Snake MVP",
+            kind="product_mvp",
+            status="done",
+            project_id="proj_existing",
+        )
+    )
+
+    response = test_client.post(
+        f"/api/requirements?workspace={get_workspace_param(workspace_path)}",
+        json={"title": "Add pause menu"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["kind"] == "change_request"
+    assert data["project_id"] == "proj_existing"
+
+
 def test_get_requirement_by_id(temp_workspace: StudioWorkspace, workspace_path: Path, test_client: TestClient):
     """GET /api/requirements/{id} should return a specific requirement."""
     req = RequirementCard(id="req_get_test", title="Get Test Requirement")

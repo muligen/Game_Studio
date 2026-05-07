@@ -50,6 +50,33 @@ def test_start_binds_requirement_to_project_dir(client, workspace):
     assert (Path(workspace).parent / "GS_projects" / project_id).is_dir()
 
 
+def test_start_change_request_reuses_completed_mvp_project(client, workspace):
+    ws = StudioWorkspace(Path(workspace) / ".studio-data")
+    ws.requirements.save(
+        RequirementCard(
+            id="req_mvp",
+            title="Snake MVP",
+            kind="product_mvp",
+            status="done",
+            project_id="proj_existing",
+        )
+    )
+    ws.requirements.save(
+        RequirementCard(
+            id="req_change",
+            title="Add pause menu",
+            kind="change_request",
+        )
+    )
+
+    response = client.post(f"/api/clarifications/requirements/req_change/session?workspace={workspace}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["session"]["project_id"] == "proj_existing"
+    assert ws.requirements.get("req_change").project_id == "proj_existing"
+
+
 def test_start_accepts_workspace_pointing_at_studio_data_dir(client, workspace):
     response = client.post(
         f"/api/clarifications/requirements/req_001/session?workspace={Path(workspace) / '.studio-data'}"
