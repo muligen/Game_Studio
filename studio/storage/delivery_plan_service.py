@@ -540,7 +540,7 @@ class DeliveryPlanService:
         question = str(item.get("question", "")).strip().lower()
         slug = re.sub(r"[^a-z0-9]+", "_", question).strip("_")
         if slug:
-            return slug[:64]
+            return f"{slug}_{index}"[:64]
         return f"gate_item_{index}"
 
     @staticmethod
