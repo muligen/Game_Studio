@@ -36,6 +36,20 @@ def test_start_creates_session(client, workspace):
     assert data["session"]["status"] == "collecting"
 
 
+def test_start_binds_requirement_to_project_dir(client, workspace):
+    response = client.post(f"/api/clarifications/requirements/req_001/session?workspace={workspace}")
+
+    assert response.status_code == 200
+    data = response.json()
+    project_id = data["session"]["project_id"]
+    ws = StudioWorkspace(Path(workspace) / ".studio-data")
+    requirement = ws.requirements.get("req_001")
+
+    assert project_id.startswith("proj_")
+    assert requirement.project_id == project_id
+    assert (Path(workspace).parent / "GS_projects" / project_id).is_dir()
+
+
 def test_start_accepts_workspace_pointing_at_studio_data_dir(client, workspace):
     response = client.post(
         f"/api/clarifications/requirements/req_001/session?workspace={Path(workspace) / '.studio-data'}"

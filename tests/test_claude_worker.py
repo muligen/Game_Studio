@@ -293,6 +293,59 @@ async def test_worker_generate_uses_profile_claude_project_root_for_sdk(
     assert '"prompt": "Design a simple 2D game concept"' in str(captured["prompt"])
 
 
+@pytest.mark.anyio
+async def test_worker_generate_uses_project_dir_for_sdk_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "worker"
+    claude_root.mkdir(parents=True)
+    (claude_root / "CLAUDE.md").write_text("Worker local instructions", encoding="utf-8")
+    project_dir = tmp_path / "projects" / "proj_001"
+    adapter = ClaudeWorkerAdapter(
+        project_root=tmp_path,
+        project_dir=project_dir,
+        profile=_profile(
+            system_prompt="Worker profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_query(*, prompt: str, options: object):
+        captured["prompt"] = prompt
+        captured["cwd"] = getattr(options, "cwd")
+        yield claude_worker_module.ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            structured_output={
+                "title": "Lantern Vale",
+                "summary": "Restore the valley.",
+                "genre": "cozy strategy",
+            },
+        )
+
+    monkeypatch.setattr(claude_worker_module, "query", fake_query)
+
+    await adapter._generate_design_brief(
+        "Design a simple 2D game concept",
+        claude_worker_module.ClaudeWorkerConfig(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="test-key",
+            base_url=None,
+        ),
+    )
+
+    assert captured["cwd"] == project_dir.resolve()
+    assert "Current working directory is the target project" in str(captured["prompt"])
+    assert "Worker local instructions" in str(captured["prompt"])
+
+
 def test_worker_adapter_delegates_to_role_adapter() -> None:
     calls: list[tuple[str, dict[str, object]]] = []
 

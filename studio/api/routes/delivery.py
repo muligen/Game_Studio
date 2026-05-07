@@ -311,16 +311,17 @@ async def get_delivery_task_session(
             "messages": [],
         }
 
-    profile = AgentProfileLoader().load(task.owner_agent)
-    project_root = resolve_project_root(workspace)
-    claude_root = profile.claude_project_root
-    if not claude_root.is_absolute():
-        claude_root = (project_root / claude_root).resolve()
+    transcript_dir = session.project_dir or session.agent_config_dir
+    if transcript_dir is None:
+        profile = AgentProfileLoader().load(task.owner_agent)
+        project_root = resolve_project_root(workspace)
+        claude_root = profile.claude_project_root
+        transcript_dir = str(claude_root if claude_root.is_absolute() else (project_root / claude_root).resolve())
 
     try:
         sdk_messages = sdk_get_session_messages(
             session.session_id,
-            directory=str(claude_root),
+            directory=str(transcript_dir),
         )
     except Exception:
         sdk_messages = []

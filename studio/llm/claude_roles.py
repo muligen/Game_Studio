@@ -14,6 +14,7 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import AssistantMessage, ResultMessage
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from studio.llm.project_scope import agent_prompt_context, load_agent_settings, resolve_agent_project_dir
 from studio.observability import LangfuseTelemetry
 from studio.runtime import process_registry
 
@@ -655,12 +656,14 @@ class ClaudeRoleAdapter:
         session_id: str | None = None,
         resume_session: bool = False,
         timeout_seconds: int = 300,
+        project_dir: Path | None = None,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
         self.profile = profile
         self.session_id = session_id
         self.resume_session = resume_session
         self.timeout_seconds = timeout_seconds
+        self.project_dir = project_dir.resolve() if project_dir is not None else None
         self._env_path = self.project_root / ".env"
         self._last_debug_record: dict[str, object] | None = None
         self._telemetry = LangfuseTelemetry.from_project_root(self.project_root)
@@ -705,7 +708,13 @@ class ClaudeRoleAdapter:
             "session_id": self.session_id,
             "resume_session": self.resume_session,
             "claude_project_root": str(self._claude_project_root()),
+            "agent_config_dir": str(self._agent_config_dir()),
         }
+        try:
+            metadata["cwd_project_dir"] = str(self._agent_project_dir(context))
+            metadata["project_id"] = self._project_id_from_context(context)
+        except ValueError:
+            metadata["cwd_project_dir"] = str(self._claude_project_root())
         with self._telemetry.llm_observation(
             name=f"claude:{role_name}",
             metadata=metadata,
@@ -744,9 +753,12 @@ class ClaudeRoleAdapter:
 
     def chat(self, message: str) -> str:
         profile = self._require_profile()
+        context = {"goal": {"project_dir": str(self.project_dir)}} if self.project_dir else {}
+        project_dir = self._agent_project_dir(context)
         prompt = "\n".join(
             [
                 profile.system_prompt,
+                agent_prompt_context(profile, project_dir),
                 "You are in direct debug chat mode. Reply naturally to the user's message.",
                 f"User message: {message}",
             ]
@@ -758,6 +770,8 @@ class ClaudeRoleAdapter:
                 "session_id": self.session_id,
                 "resume_session": self.resume_session,
                 "claude_project_root": str(self._claude_project_root()),
+                "agent_config_dir": str(self._agent_config_dir()),
+                "cwd_project_dir": str(project_dir),
             },
             input={"message": message},
         ) as observation:
@@ -831,10 +845,11 @@ class ClaudeRoleAdapter:
         | RequirementClarifierPayload
     ):
         options = ClaudeAgentOptions(
-            cwd=self._claude_project_root(),
+            cwd=self._agent_project_dir(context),
             model=config.model,
             tools=[] if config.mode == "text" else None,
             permission_mode="acceptEdits",
+            settings=self._agent_settings(context),
             setting_sources=["project", "local"],
             env=self._sdk_env(config),
             output_format=self._output_format(role_name),
@@ -895,11 +910,13 @@ class ClaudeRoleAdapter:
         return parse_role_payload(role_name, payload)
 
     async def _chat(self, prompt: str, config: ClaudeRoleConfig) -> str:
+        context = {"goal": {"project_dir": str(self.project_dir)}} if self.project_dir else {}
         options = ClaudeAgentOptions(
-            cwd=self._claude_project_root(),
+            cwd=self._agent_project_dir(context),
             model=config.model,
             tools=[] if config.mode == "text" else None,
             permission_mode="acceptEdits",
+            settings=self._agent_settings(context),
             setting_sources=["project", "local"],
             env=self._sdk_env(config),
             session_id=None if self.resume_session else self.session_id,
@@ -980,9 +997,13 @@ class ClaudeRoleAdapter:
         elif self.session_id is not None:
             cmd.extend(["--session-id", self.session_id])
         try:
+            cmd.extend(["--project-dir", str(self._agent_project_dir(context))])
+        except ValueError:
+            pass
+        try:
             proc = process_registry.run(
                 cmd,
-                cwd=self._claude_project_root(),
+                cwd=self._agent_project_dir(context),
                 input=json.dumps(context, ensure_ascii=False),
                 capture_output=True,
                 text=True,
@@ -1012,6 +1033,7 @@ class ClaudeRoleAdapter:
         return parse_role_payload(role_name, parsed)
 
     def _chat_via_subprocess(self, prompt: str) -> str:
+        context = {"goal": {"project_dir": str(self.project_dir)}} if self.project_dir else {}
         script_path = Path(__file__).resolve()
         cmd = [
             sys.executable,
@@ -1030,10 +1052,11 @@ class ClaudeRoleAdapter:
             cmd.extend(["--session-id", self.session_id, "--resume-session"])
         elif self.session_id is not None:
             cmd.extend(["--session-id", self.session_id])
+        cmd.extend(["--project-dir", str(self._agent_project_dir(context))])
         try:
             proc = process_registry.run(
                 cmd,
-                cwd=self._claude_project_root(),
+                cwd=self._agent_project_dir(context),
                 input=prompt,
                 capture_output=True,
                 text=True,
@@ -1097,6 +1120,7 @@ class ClaudeRoleAdapter:
         return "\n".join(
             [
                 self._require_profile().system_prompt,
+                agent_prompt_context(self._require_profile(), self._agent_project_dir(context)),
                 instruction,
                 schema_json,
                 f"Context: {payload}",
@@ -1110,6 +1134,37 @@ class ClaudeRoleAdapter:
 
     def _claude_project_root(self) -> Path:
         return self._require_profile().claude_project_root
+
+    def _agent_config_dir(self) -> Path:
+        return self._require_profile().claude_project_root
+
+    def _agent_project_dir(self, context: dict[str, object]) -> Path:
+        if self.project_dir is not None:
+            self.project_dir.mkdir(parents=True, exist_ok=True)
+            return self.project_dir
+        try:
+            return resolve_agent_project_dir(
+                project_root=self.project_root,
+                workspace_root=self.project_root / ".studio-data",
+                context=context,
+            )
+        except ValueError:
+            return self._claude_project_root()
+
+    def _agent_settings(self, context: dict[str, object]) -> str | None:
+        return load_agent_settings(self._require_profile(), self._agent_project_dir(context))
+
+    @staticmethod
+    def _project_id_from_context(context: dict[str, object]) -> str | None:
+        goal = context.get("goal")
+        if isinstance(goal, dict):
+            project_id = goal.get("project_id")
+            if isinstance(project_id, str) and project_id.strip():
+                return project_id.strip()
+        project_id = context.get("project_id")
+        if isinstance(project_id, str) and project_id.strip():
+            return project_id.strip()
+        return None
 
     def _subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -1183,6 +1238,7 @@ def _main() -> int:
     parser.add_argument("--chat", action="store_true")
     parser.add_argument("--session-id")
     parser.add_argument("--resume-session", action="store_true")
+    parser.add_argument("--project-dir")
     try:
         args = parser.parse_args()
         _require_active_role(args.role_name)
@@ -1197,6 +1253,7 @@ def _main() -> int:
             profile=profile,
             session_id=getattr(args, "session_id", None),
             resume_session=getattr(args, "resume_session", False),
+            project_dir=Path(args.project_dir) if getattr(args, "project_dir", None) else None,
         )
         config = adapter.load_config()
         if not config.enabled:

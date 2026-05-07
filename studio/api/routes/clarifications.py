@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import re
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from studio.schemas.clarification import (
     RequirementClarificationSession,
 )
 from studio.storage.kickoff_service import KickoffService
+from studio.storage.git_tracker import GitTracker
 from studio.storage.workspace import StudioWorkspace
 
 router = APIRouter(prefix="/clarifications", tags=["clarifications"])
@@ -84,6 +86,22 @@ def _infer_validated_attendees(*texts: str) -> list[str]:
     return []
 
 
+def _ensure_requirement_project(
+    *,
+    store: StudioWorkspace,
+    req_id: str,
+    project_root,
+) -> tuple[str, str]:
+    requirement = store.requirements.get(req_id)
+    project_id = requirement.project_id
+    if not project_id:
+        project_id = f"proj_{uuid.uuid4().hex[:8]}"
+        requirement = requirement.model_copy(update={"project_id": project_id})
+        store.requirements.save(requirement)
+    project_dir = GitTracker(repo_root=project_root, project_id=project_id).ensure_project_dir()
+    return project_id, str(project_dir)
+
+
 @router.post("/requirements/{req_id}/session")
 async def start_or_get_session(workspace: str, req_id: str):
     store = _get_workspace(workspace)
@@ -93,13 +111,23 @@ async def start_or_get_session(workspace: str, req_id: str):
     except (FileNotFoundError, ValueError):
         raise HTTPException(status_code=404, detail="Requirement not found")
 
+    project_id, _project_dir = _ensure_requirement_project(
+        store=store,
+        req_id=req_id,
+        project_root=resolve_project_root(workspace),
+    )
+
     existing = _find_existing_session(store, req_id)
     if existing:
+        if not existing.project_id:
+            existing = existing.model_copy(update={"project_id": project_id})
+            store.clarifications.save(existing)
         return {"session": existing.model_dump()}
 
     session = RequirementClarificationSession(
         id=f"clar_{req_id}",
         requirement_id=req_id,
+        project_id=project_id,
     )
     saved = store.clarifications.save(session)
 
@@ -142,6 +170,14 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
 
     if session.status not in ("collecting", "ready", "failed"):
         raise HTTPException(status_code=400, detail=f"Session is {session.status}")
+
+    project_id, project_dir = _ensure_requirement_project(
+        store=store,
+        req_id=req_id,
+        project_root=resolve_project_root(workspace),
+    )
+    if not session.project_id:
+        session = session.model_copy(update={"project_id": project_id})
 
     user_msg = ClarificationMessage(role="user", content=request.message.strip())
     session.messages.append(user_msg)
@@ -187,6 +223,12 @@ async def send_message(workspace: str, req_id: str, request: SendMessageRequest)
 
         agent_context: dict[str, object] = {
             "requirement_id": req_id,
+            "project_id": project_id,
+            "goal": {
+                "project_id": project_id,
+                "project_dir": project_dir,
+                "phase": "clarification",
+            },
             "conversation": history,
             "current_context": session.meeting_context.model_dump() if session.meeting_context else {},
         }
@@ -282,15 +324,22 @@ async def start_kickoff(workspace: str, req_id: str, request: KickoffRequest):
     store.clarifications.save(session)
 
     ws_root = resolve_workspace_root(workspace)
+    project_id, _project_dir = _ensure_requirement_project(
+        store=store,
+        req_id=req_id,
+        project_root=resolve_project_root(workspace),
+    )
     service = KickoffService(ws_root, project_root=resolve_project_root(workspace))
     task = service.start_kickoff(
         workspace=workspace,
         session_id=request.session_id,
         requirement_id=req_id,
         meeting_context=session.meeting_context.model_dump(),
+        project_id=project_id,
     )
 
     session = session.model_copy(update={
+        "project_id": project_id,
         "kickoff_task_id": task.id,
         "updated_at": datetime.now(UTC).isoformat(),
     })

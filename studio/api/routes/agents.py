@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -44,7 +45,14 @@ async def chat_with_agent(
         raise HTTPException(status_code=409, detail="Agent is busy")
 
     try:
-        response_text = await run_in_threadpool(_run_chat, ws_root, session.session_id, agent, request.message)
+        response_text = await run_in_threadpool(
+            _run_chat,
+            ws_root,
+            session.session_id,
+            agent,
+            request.message,
+            session.project_dir,
+        )
     except ClaudeRoleError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -66,16 +74,17 @@ async def get_agent_messages(
     if session is None:
         return {"messages": []}
 
-    profile = AgentProfileLoader().load(agent)
-    project_root = resolve_project_root(str(ws_root).replace(".studio-data", "").rstrip("/"))
-    claude_root = profile.claude_project_root
-    if not claude_root.is_absolute():
-        claude_root = (project_root / claude_root).resolve()
+    transcript_dir = session.project_dir or session.agent_config_dir
+    if transcript_dir is None:
+        profile = AgentProfileLoader().load(agent)
+        project_root = resolve_project_root(str(ws_root).replace(".studio-data", "").rstrip("/"))
+        claude_root = profile.claude_project_root
+        transcript_dir = str(claude_root if claude_root.is_absolute() else (project_root / claude_root).resolve())
 
     try:
         sdk_messages = sdk_get_session_messages(
             session.session_id,
-            directory=str(claude_root),
+            directory=str(transcript_dir),
         )
     except Exception:
         logger.exception("Failed to load messages for session %s", session.session_id)
@@ -108,7 +117,7 @@ def _extract_content_text(message: dict) -> str:
     return ""
 
 
-def _run_chat(ws_root, session_id: str, agent: str, message: str) -> str:
+def _run_chat(ws_root, session_id: str, agent: str, message: str, project_dir: str | None = None) -> str:
     from studio.llm.claude_roles import ClaudeRoleAdapter
 
     profile = AgentProfileLoader().load(agent)
@@ -117,5 +126,6 @@ def _run_chat(ws_root, session_id: str, agent: str, message: str) -> str:
         profile=profile,
         session_id=session_id,
         resume_session=True,
+        project_dir=None if project_dir is None else Path(project_dir),
     )
     return adapter.chat(message)

@@ -22,6 +22,7 @@ from studio.runtime.llm_logs import LlmRunLogger
 from studio.runtime import pool as agent_pool
 from studio.schemas.design_doc import DesignDoc
 from studio.schemas.runtime import PlanState, RuntimeState
+from studio.storage.git_tracker import GitTracker
 from studio.storage.workspace import StudioWorkspace
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,18 @@ def _parallel_ready_batch(tasks: list[Any]) -> list[Any]:
         seen_project_agents.add(key)
         selected.append(task)
     return selected
+
+
+def _project_goal_context(state: dict[str, object], *, prompt: str, requirement_id: str) -> dict[str, object]:
+    project_id = str(state.get("project_id") or "")
+    goal: dict[str, object] = {"prompt": prompt, "requirement_id": requirement_id}
+    if project_id:
+        goal["project_id"] = project_id
+        project_root = state.get("project_root")
+        if project_root:
+            project_dir = GitTracker(repo_root=Path(str(project_root)), project_id=project_id).ensure_project_dir()
+            goal["project_dir"] = str(project_dir)
+    return goal
 
 
 def _merge_telemetry(
@@ -610,6 +623,7 @@ def build_delivery_graph():
             "task_description": task.description,
             "owner_agent": task.owner_agent,
             "acceptance_criteria": list(task.acceptance_criteria),
+            "project_id": task.project_id,
             "project_dir": str(tracker.project_dir),
             "requirement": requirement.model_dump(mode="json"),
             "meeting": meeting.model_dump(mode="json"),
@@ -1031,10 +1045,10 @@ def build_meeting_graph():
             resume_session=resume_session,
         )
         runtime_state = RuntimeState(
-            project_id="meeting-project",
+            project_id=str(state.get("project_id") or "meeting-project"),
             run_id=_new_run_id(),
             task_id=f"meeting-prepare-{requirement_id}",
-            goal={"prompt": intent, "requirement_id": requirement_id},
+            goal=_project_goal_context(state, prompt=intent, requirement_id=requirement_id),
         )
         _record_kickoff_progress(
             state,
@@ -1089,7 +1103,7 @@ def build_meeting_graph():
         if agent_cls is None:
             raise ValueError(f"unsupported meeting agent: {target_role}")
         goal: dict[str, object] = {
-            "prompt": str(user_intent),
+            **_project_goal_context(state, prompt=str(user_intent), requirement_id=_require_state_str(state, "requirement_id")),
             "phase": "opinion",
             "agenda": agenda,
             "role": target_role,
@@ -1103,7 +1117,7 @@ def build_meeting_graph():
             resume_session=resume_session,
         )
         runtime_state = RuntimeState(
-            project_id="meeting-project",
+            project_id=str(state.get("project_id") or "meeting-project"),
             run_id=_new_run_id(),
             task_id=f"meeting-{target_role}",
             goal=goal,
@@ -1181,10 +1195,10 @@ def build_meeting_graph():
             resume_session=resume_session,
         )
         runtime_state = RuntimeState(
-            project_id="meeting-project",
+            project_id=str(state.get("project_id") or "meeting-project"),
             run_id=_new_run_id(),
             task_id=f"meeting-summarize-{requirement_id}",
-            goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
+            goal=_project_goal_context(state, prompt=str(state.get("user_intent", "")), requirement_id=requirement_id),
         )
         _record_kickoff_progress(
             state,
@@ -1243,10 +1257,10 @@ def build_meeting_graph():
             resume_session=resume_session,
         )
         runtime_state = RuntimeState(
-            project_id="meeting-project",
+            project_id=str(state.get("project_id") or "meeting-project"),
             run_id=_new_run_id(),
             task_id=f"meeting-discussion-{requirement_id}",
-            goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
+            goal=_project_goal_context(state, prompt=str(state.get("user_intent", "")), requirement_id=requirement_id),
         )
         _record_kickoff_progress(
             state,
@@ -1305,10 +1319,10 @@ def build_meeting_graph():
             resume_session=resume_session,
         )
         runtime_state = RuntimeState(
-            project_id="meeting-project",
+            project_id=str(state.get("project_id") or "meeting-project"),
             run_id=_new_run_id(),
             task_id=f"meeting-minutes-{requirement_id}",
-            goal={"prompt": str(state.get("user_intent", "")), "requirement_id": requirement_id},
+            goal=_project_goal_context(state, prompt=str(state.get("user_intent", "")), requirement_id=requirement_id),
         )
         _record_kickoff_progress(
             state,

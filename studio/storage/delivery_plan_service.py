@@ -8,6 +8,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from studio.agents.delivery_planner import DeliveryPlannerAgent
+from studio.agents.profile_loader import AgentProfileLoader
 from studio.schemas.delivery import (
     DeliveryPlan,
     DeliveryTask,
@@ -16,6 +17,7 @@ from studio.schemas.delivery import (
     TaskExecutionResult,
 )
 from studio.schemas.delivery_events import DeliveryTaskEvent
+from studio.storage.git_tracker import GitTracker
 from studio.storage.session_lease import SessionLeaseManager
 from studio.storage.workspace import StudioWorkspace
 
@@ -65,6 +67,7 @@ class DeliveryPlanService:
         resolved_project_root = project_root or (
             workspace_root.parent if workspace_root.name == ".studio-data" else None
         )
+        self._project_root = resolved_project_root or Path.cwd()
         self._planner = planner or ClaudeDeliveryPlanner(project_root=resolved_project_root)
 
     def generate_plan(self, meeting_id: str, project_id: str) -> dict:
@@ -101,6 +104,13 @@ class DeliveryPlanService:
             "project_sessions": project_sessions,
             "pending_user_decision_candidates": list(meeting.pending_user_decisions),
             "project_id": project_id,
+            "goal": {
+                "project_id": project_id,
+                "project_dir": str(
+                    GitTracker(repo_root=self._project_root, project_id=project_id).ensure_project_dir()
+                ),
+                "phase": "delivery_planning",
+            },
         }
         planner_output = self._planner.generate(planning_context)
         raw_tasks = planner_output.get("tasks", [])
@@ -282,6 +292,21 @@ class DeliveryPlanService:
             session = self._ws.sessions.get(composite_key)
         except FileNotFoundError as exc:
             raise ValueError(f"no session found for {composite_key}") from exc
+        if not session.project_dir or not session.agent_config_dir:
+            project_dir = GitTracker(repo_root=self._project_root, project_id=task.project_id).ensure_project_dir()
+            agent_config_dir = session.agent_config_dir
+            if not agent_config_dir:
+                try:
+                    agent_config_dir = str(AgentProfileLoader().load(task.owner_agent).claude_project_root)
+                except Exception:
+                    agent_config_dir = None
+            session = session.model_copy(
+                update={
+                    "project_dir": session.project_dir or str(project_dir),
+                    "agent_config_dir": agent_config_dir,
+                }
+            )
+            self._ws.sessions.save(session)
 
         if not self._lease_mgr.is_available(task.project_id, task.owner_agent):
             raise ValueError(

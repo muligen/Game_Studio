@@ -19,6 +19,8 @@ class ProjectAgentSession(BaseModel):
     requirement_id: StrippedNonEmptyStr
     agent: StrippedNonEmptyStr
     session_id: StrippedNonEmptyStr
+    project_dir: str | None = None
+    agent_config_dir: str | None = None
     status: SessionStatus = "active"
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_used_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

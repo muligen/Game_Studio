@@ -35,6 +35,7 @@ class RequirementCard(BaseModel):
     priority: RequirementPriority = "medium"
     status: RequirementStatus = "draft"
     owner: StrippedNonEmptyStr = "design_agent"
+    project_id: StrippedNonEmptyStr | None = None
     design_doc_id: StrippedNonEmptyStr | None = None
     balance_table_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     bug_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)

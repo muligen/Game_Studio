@@ -13,12 +13,23 @@ class SessionRegistry:
     def __init__(self, root: Path) -> None:
         self._repo = JsonRepository(root / "project_agent_sessions", ProjectAgentSession)
 
-    def create(self, project_id: str, requirement_id: str, agent: str, session_id: str) -> ProjectAgentSession:
+    def create(
+        self,
+        project_id: str,
+        requirement_id: str,
+        agent: str,
+        session_id: str,
+        *,
+        project_dir: str | None = None,
+        agent_config_dir: str | None = None,
+    ) -> ProjectAgentSession:
         record = ProjectAgentSession(
             project_id=project_id,
             requirement_id=requirement_id,
             agent=agent,
             session_id=session_id,
+            project_dir=project_dir,
+            agent_config_dir=agent_config_dir,
         )
         return self._repo.save(record)
 
@@ -38,9 +49,26 @@ class SessionRegistry:
         updated = record.model_copy(update={"last_used_at": datetime.now(UTC).isoformat()})
         return self._repo.save(updated)
 
-    def create_all(self, project_id: str, requirement_id: str, agents: Sequence[str]) -> list[ProjectAgentSession]:
+    def create_all(
+        self,
+        project_id: str,
+        requirement_id: str,
+        agents: Sequence[str],
+        *,
+        project_dir: str | None = None,
+        agent_config_dirs: dict[str, str] | None = None,
+    ) -> list[ProjectAgentSession]:
         sessions: list[ProjectAgentSession] = []
         for agent in agents:
             session_id = str(uuid.uuid4())
-            sessions.append(self.create(project_id, requirement_id, agent, session_id))
+            sessions.append(
+                self.create(
+                    project_id,
+                    requirement_id,
+                    agent,
+                    session_id,
+                    project_dir=project_dir,
+                    agent_config_dir=(agent_config_dirs or {}).get(agent),
+                )
+            )
         return sessions

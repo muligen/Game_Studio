@@ -14,6 +14,7 @@ from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import ResultMessage
 import yaml
 
+from studio.llm.project_scope import agent_prompt_context, load_agent_settings
 from studio.observability import LangfuseTelemetry
 from studio.runtime import process_registry
 
@@ -151,9 +152,11 @@ class ClaudeWorkerAdapter:
         project_root: Path | None = None,
         profile: ClaudeAdapterProfile | None = None,
         role_adapter: Any | None = None,
+        project_dir: Path | None = None,
     ) -> None:
         self.project_root = _repo_root_from(project_root)
         self.profile = profile
+        self.project_dir = project_dir.resolve() if project_dir is not None else None
         self._env_path = self.project_root / ".env"
         self._role_adapter = role_adapter
         self._last_debug_record: dict[str, object] | None = None
@@ -184,7 +187,11 @@ class ClaudeWorkerAdapter:
     def generate_design_brief(self, prompt: str) -> ClaudeWorkerPayload:
         with self._telemetry.llm_observation(
             name="claude:worker",
-            metadata={"role_name": "worker"},
+            metadata={
+                "role_name": "worker",
+                "agent_config_dir": str(self._claude_project_root()) if self.profile else None,
+                "cwd_project_dir": str(self._agent_project_dir()) if self.profile else None,
+            },
             input={"prompt": prompt},
         ) as observation:
             try:
@@ -241,10 +248,11 @@ class ClaudeWorkerAdapter:
         self, prompt: str, config: ClaudeWorkerConfig
     ) -> ClaudeWorkerPayload:
         options = ClaudeAgentOptions(
-            cwd=self._claude_project_root(),
+            cwd=self._agent_project_dir(),
             model=config.model,
             tools=[] if config.mode == "text" else None,
             permission_mode="default",
+            settings=self._agent_settings(),
             setting_sources=["project"],
             env=self._sdk_env(config),
             output_format=_WORKER_OUTPUT_FORMAT,
@@ -300,9 +308,11 @@ class ClaudeWorkerAdapter:
             "--prompt",
             prompt,
         ]
+        if self.project_dir is not None:
+            cmd.extend(["--project-dir", str(self.project_dir)])
         proc = process_registry.run(
             cmd,
-            cwd=self._claude_project_root(),
+            cwd=self._agent_project_dir(),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -375,6 +385,7 @@ class ClaudeWorkerAdapter:
         return "\n".join(
             [
                 self._require_profile().system_prompt,
+                agent_prompt_context(self._require_profile(), self._agent_project_dir()),
                 instruction,
                 schema_json,
                 f"Context: {context_json}",
@@ -388,6 +399,15 @@ class ClaudeWorkerAdapter:
 
     def _claude_project_root(self) -> Path:
         return self._require_profile().claude_project_root
+
+    def _agent_project_dir(self) -> Path:
+        if self.project_dir is not None:
+            self.project_dir.mkdir(parents=True, exist_ok=True)
+            return self.project_dir
+        return self._claude_project_root()
+
+    def _agent_settings(self) -> str | None:
+        return load_agent_settings(self._require_profile(), self._agent_project_dir())
 
     def _subprocess_env(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -406,6 +426,7 @@ def _main() -> int:
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--system-prompt")
     parser.add_argument("--claude-project-root")
+    parser.add_argument("--project-dir")
     parser.add_argument("--prompt", required=True)
     try:
         args = parser.parse_args()
@@ -414,7 +435,11 @@ def _main() -> int:
             claude_project_root=args.claude_project_root,
         )
 
-        adapter = ClaudeWorkerAdapter(project_root=Path(args.project_root), profile=profile)
+        adapter = ClaudeWorkerAdapter(
+            project_root=Path(args.project_root),
+            profile=profile,
+            project_dir=Path(args.project_dir) if args.project_dir else None,
+        )
         config = adapter.load_config()
         if not config.enabled:
             raise ClaudeWorkerError("claude_disabled")

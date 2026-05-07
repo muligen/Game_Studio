@@ -11,12 +11,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from studio.api.websocket import broadcast_entity_changed
+from studio.agents.profile_loader import AgentProfileLoader
 from studio.llm import ClaudeRoleError
 from studio.runtime.delivery_runner import submit_delivery_plan
 from studio.runtime.graph import build_meeting_graph
 from studio.schemas.clarification import RequirementClarificationSession
 from studio.schemas.kickoff_task import KickoffTask
 from studio.storage.delivery_plan_service import DeliveryPlanService
+from studio.storage.git_tracker import GitTracker
 from studio.storage.session_registry import SessionRegistry
 from studio.storage.workspace import StudioWorkspace
 
@@ -62,9 +64,10 @@ class KickoffService:
         session_id: str,
         requirement_id: str,
         meeting_context: dict,
+        project_id: str | None = None,
     ) -> KickoffTask:
         task_id = f"kickoff_{uuid.uuid4().hex[:8]}"
-        project_id = f"proj_{uuid.uuid4().hex[:8]}"
+        project_id = project_id or f"proj_{uuid.uuid4().hex[:8]}"
         now = datetime.now(UTC).isoformat()
         task = KickoffTask(
             id=task_id,
@@ -79,7 +82,24 @@ class KickoffService:
         self._ws.kickoff_tasks.save(task)
 
         registry = SessionRegistry(self._workspace_root)
-        registry.create_all(project_id, requirement_id, _MANAGED_AGENTS)
+        project_dir = GitTracker(
+            repo_root=self._project_root or self._workspace_root.parent,
+            project_id=project_id,
+        ).ensure_project_dir()
+        loader = AgentProfileLoader()
+        agent_config_dirs: dict[str, str] = {}
+        for agent in _MANAGED_AGENTS:
+            try:
+                agent_config_dirs[agent] = str(loader.load(agent).claude_project_root)
+            except Exception:
+                continue
+        registry.create_all(
+            project_id,
+            requirement_id,
+            _MANAGED_AGENTS,
+            project_dir=str(project_dir),
+            agent_config_dirs=agent_config_dirs,
+        )
 
         coro = self._run_meeting_graph(
             task_id=task_id,

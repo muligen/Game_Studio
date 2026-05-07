@@ -397,6 +397,70 @@ async def test_generate_uses_profile_claude_project_root_for_sdk(monkeypatch, tm
 
 
 @pytest.mark.anyio
+async def test_generate_uses_project_dir_for_sdk_cwd_and_profile_for_settings(
+    monkeypatch, tmp_path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "reviewer"
+    (claude_root / ".claude").mkdir(parents=True)
+    (claude_root / "CLAUDE.md").write_text("Reviewer local instructions", encoding="utf-8")
+    (claude_root / ".claude" / "settings.local.json").write_text(
+        '{"env":{"TRACE_TO_LANGFUSE":"true"}}',
+        encoding="utf-8",
+    )
+    project_dir = tmp_path / "projects" / "proj_001"
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="reviewer",
+            system_prompt="Reviewer profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_query(*, prompt: str, options: object):
+        captured["prompt"] = prompt
+        captured["cwd"] = getattr(options, "cwd")
+        captured["settings"] = getattr(options, "settings")
+        yield claude_roles_module.ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            structured_output={"decision": "continue", "reason": "ok", "risks": []},
+        )
+
+    monkeypatch.setattr(claude_roles_module, "query", fake_query)
+
+    context = {
+        "goal": {
+            "project_id": "proj_001",
+            "project_dir": str(project_dir),
+        }
+    }
+    await adapter._generate_payload(
+        "reviewer",
+        context,
+        claude_roles_module.ClaudeRoleConfig(
+            enabled=True,
+            mode="text",
+            model=None,
+            api_key="test-key",
+            base_url=None,
+        ),
+        adapter.debug_prompt("reviewer", context),
+    )
+
+    assert captured["cwd"] == project_dir.resolve()
+    assert '"TRACE_TO_LANGFUSE": "true"' in str(captured["settings"])
+    assert "Current working directory is the target project" in str(captured["prompt"])
+    assert str(claude_root.resolve()) in str(captured["prompt"])
+    assert "Reviewer local instructions" in str(captured["prompt"])
+
+
+@pytest.mark.anyio
 async def test_generate_parses_assistant_text_when_result_message_is_missing(
     monkeypatch, tmp_path
 ) -> None:
