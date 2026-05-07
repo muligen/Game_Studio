@@ -141,3 +141,27 @@ def test_git_tracker_reads_remote_from_dotenv(tmp_path: Path, monkeypatch) -> No
         text=True,
     )
     assert remote.stdout.strip() == "https://example.invalid/dotenv-projects.git"
+
+
+def test_git_tracker_tolerates_concurrent_git_init_completion(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("GAME_STUDIO_PROJECTS_ROOT", str(tmp_path / "isolated-projects"))
+    tracker = GitTracker(repo_root=tmp_path, project_id="proj_001")
+    calls: list[tuple[str, ...]] = []
+
+    def _run_git(*args: str) -> subprocess.CompletedProcess[str]:
+        calls.append(args)
+        if args == ("init",):
+            (tracker.repo_root / ".git").mkdir(parents=True)
+            raise subprocess.CalledProcessError(
+                returncode=128,
+                cmd=["git", "init"],
+                stderr="another git process initialized the repository",
+            )
+        return subprocess.CompletedProcess(["git", *args], 0, stdout="", stderr="")
+
+    tracker._run_git = _run_git  # type: ignore[method-assign]
+
+    tracker.ensure_project_dir()
+
+    assert tracker.project_dir.exists()
+    assert ("init",) in calls

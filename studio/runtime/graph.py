@@ -27,6 +27,24 @@ from studio.storage.workspace import StudioWorkspace
 logger = logging.getLogger(__name__)
 
 
+def _parallel_ready_batch(tasks: list[Any]) -> list[Any]:
+    """Pick tasks that can safely run in the same worker wave.
+
+    A Claude session lease is scoped by project and agent, so two ready tasks
+    for the same pair must run in separate waves even when their DAG
+    dependencies are already satisfied.
+    """
+    selected: list[Any] = []
+    seen_project_agents: set[tuple[str, str]] = set()
+    for task in tasks:
+        key = (str(task.project_id), str(task.owner_agent))
+        if key in seen_project_agents:
+            continue
+        seen_project_agents.add(key)
+        selected.append(task)
+    return selected
+
+
 def _merge_telemetry(
     current: dict[str, Any], *, status: str | None = None, node_name: str | None = None, trace: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -789,7 +807,7 @@ def build_delivery_graph():
             ws = StudioWorkspace(workspace_root)
             plan = ws.delivery_plans.get(plan_id)
             tasks = [ws.delivery_tasks.get(task_id) for task_id in plan.task_ids]
-            ready = [task for task in tasks if task.status == "ready"]
+            ready = _parallel_ready_batch([task for task in tasks if task.status == "ready"])
             if not ready:
                 incomplete = [task for task in tasks if task.status != "done"]
                 if incomplete:

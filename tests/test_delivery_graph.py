@@ -101,6 +101,50 @@ def _seed_delivery_plan(workspace_root: Path) -> str:
     return plan.id
 
 
+def test_delivery_graph_limits_ready_batch_to_one_task_per_project_agent() -> None:
+    from studio.runtime.graph import _parallel_ready_batch
+
+    tasks = [
+        DeliveryTask(
+            id="task_design_1",
+            plan_id="plan_001",
+            meeting_id="meet_001",
+            requirement_id="req_001",
+            project_id="proj_001",
+            title="Design first",
+            description="First design task",
+            owner_agent="design",
+            status="ready",
+        ),
+        DeliveryTask(
+            id="task_design_2",
+            plan_id="plan_001",
+            meeting_id="meet_001",
+            requirement_id="req_001",
+            project_id="proj_001",
+            title="Design second",
+            description="Second design task",
+            owner_agent="design",
+            status="ready",
+        ),
+        DeliveryTask(
+            id="task_qa",
+            plan_id="plan_001",
+            meeting_id="meet_001",
+            requirement_id="req_001",
+            project_id="proj_001",
+            title="QA plan",
+            description="QA task",
+            owner_agent="qa",
+            status="ready",
+        ),
+    ]
+
+    selected = _parallel_ready_batch(tasks)
+
+    assert [task.id for task in selected] == ["task_design_1", "task_qa"]
+
+
 def test_delivery_graph_runs_dependency_batches_and_injects_context(
     tmp_path: Path, monkeypatch,
 ) -> None:

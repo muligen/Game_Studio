@@ -9,10 +9,24 @@ import logging
 import hashlib
 import os
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_GIT_INIT_LOCKS_GUARD = threading.Lock()
+_GIT_INIT_LOCKS: dict[str, threading.Lock] = {}
+
+
+def _git_init_lock_for_path(path: Path) -> threading.Lock:
+    key = str(path.resolve())
+    with _GIT_INIT_LOCKS_GUARD:
+        lock = _GIT_INIT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _GIT_INIT_LOCKS[key] = lock
+        return lock
 
 
 def _parse_dotenv(path: Path) -> dict[str, str]:
@@ -104,11 +118,17 @@ class GitTracker:
 
     def _git_init_if_needed(self) -> None:
         self.repo_root.mkdir(parents=True, exist_ok=True)
-        if not (self.repo_root / ".git").exists():
-            self._run_git("init")
-            logger.info("Initialized git repo at %s", self.repo_root)
-        self._ensure_commit_identity()
-        self._configure_remote_if_needed()
+        with _git_init_lock_for_path(self.repo_root):
+            if not (self.repo_root / ".git").exists():
+                try:
+                    self._run_git("init")
+                    logger.info("Initialized git repo at %s", self.repo_root)
+                except subprocess.CalledProcessError:
+                    if not (self.repo_root / ".git").exists():
+                        raise
+                    logger.debug("Git repo at %s was initialized by another worker", self.repo_root)
+            self._ensure_commit_identity()
+            self._configure_remote_if_needed()
 
     def _ensure_commit_identity(self) -> None:
         defaults = {

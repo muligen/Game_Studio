@@ -19,7 +19,7 @@ _WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
 )
 _SAVE_LOCKS_GUARD = threading.Lock()
 _SAVE_LOCKS: dict[str, threading.Lock] = {}
-_REPLACE_RETRY_DELAYS_SECONDS = (0.01, 0.05, 0.1)
+_REPLACE_RETRY_DELAYS_SECONDS = (0.01, 0.05, 0.1, 0.2, 0.5, 1.0)
 
 
 def _lock_for_path(path: Path) -> threading.Lock:
