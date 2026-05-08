@@ -3,7 +3,7 @@ import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useSearchParams, Link } from 'react-router-dom'
 import { useWorkspace } from '@/lib/workspace'
 import { deliveryApi } from '@/lib/api'
-import type { DeliveryTask, KickoffDecisionGate } from '@/lib/api'
+import type { DeliveryTask, KickoffDecisionGate, AcceptanceRun } from '@/lib/api'
 import { DeliveryTaskCard } from '@/components/board/DeliveryTaskCard'
 import { DeliveryTaskDetailDrawer } from '@/components/board/DeliveryTaskDetailDrawer'
 import { KickoffDecisionGateCard } from '@/components/board/KickoffDecisionGateCard'
@@ -68,6 +68,13 @@ export function DeliveryBoard() {
     },
   })
 
+  const retryAcceptanceMutation = useMutation({
+    mutationFn: (planId: string) => deliveryApi.retryAcceptance(workspace, planId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['delivery-board'] })
+    },
+  })
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -86,7 +93,15 @@ export function DeliveryBoard() {
 
   const gates = board?.decision_gates.filter((g) => g.status === 'open') || []
   const tasks = board?.tasks || []
+  const plans = board?.plans || []
+  const acceptanceRuns = board?.acceptance_runs || []
   const tasksByStatus = (status: string) => tasks.filter((t) => t.status === status)
+
+  const activePlan = plans[0]
+  const latestRun = acceptanceRuns.length > 0
+    ? acceptanceRuns[acceptanceRuns.length - 1]
+    : null as AcceptanceRun | null
+  const showAcceptanceBanner = activePlan && ['validating', 'repairing', 'accepted', 'needs_attention'].includes(activePlan.status)
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -104,6 +119,65 @@ export function DeliveryBoard() {
           <Link to="/" className="text-sm text-blue-600 hover:underline">&larr; Workbench</Link>
         </div>
         <PoolStatusBar />
+        {showAcceptanceBanner && (
+          <div className={`rounded-lg p-4 border ${
+            activePlan.status === 'accepted' ? 'bg-emerald-50 border-emerald-200' :
+            activePlan.status === 'needs_attention' ? 'bg-red-50 border-red-200' :
+            activePlan.status === 'validating' ? 'bg-blue-50 border-blue-200' :
+            'bg-amber-50 border-amber-200'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-sm">
+                  {activePlan.status === 'accepted' && 'Acceptance Passed'}
+                  {activePlan.status === 'needs_attention' && 'Acceptance Failed'}
+                  {activePlan.status === 'validating' && 'Running Acceptance Validation...'}
+                  {activePlan.status === 'repairing' && 'Repairing Failed Criteria...'}
+                </h3>
+                {latestRun && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Attempt {latestRun.attempt_number} &mdash;
+                    {' '}{latestRun.criteria_results.filter((c) => c.status === 'passed').length}/{latestRun.criteria_results.length} criteria passed
+                    {latestRun.criteria_results.some((c) => c.status === 'failed' && c.blocking) && (
+                      <span className="text-red-600 ml-1">
+                        ({latestRun.criteria_results.filter((c) => c.status === 'failed' && c.blocking).length} blocking)
+                      </span>
+                    )}
+                  </p>
+                )}
+                {latestRun && latestRun.criteria_results.filter((c) => c.status !== 'passed').length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {latestRun.criteria_results
+                      .filter((c) => c.status !== 'passed')
+                      .slice(0, 3)
+                      .map((cr) => (
+                        <div key={cr.criterion_id} className="text-xs">
+                          <span className={cr.status === 'failed' ? 'text-red-700' : 'text-amber-700'}>
+                            {cr.status === 'failed' ? '✗' : '?'}
+                          </span>
+                          {' '}{cr.reason}
+                        </div>
+                      ))}
+                    {latestRun.criteria_results.filter((c) => c.status !== 'passed').length > 3 && (
+                      <div className="text-xs text-muted-foreground">
+                        +{latestRun.criteria_results.filter((c) => c.status !== 'passed').length - 3} more
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {activePlan.status === 'needs_attention' && (
+                <button
+                  className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                  onClick={() => retryAcceptanceMutation.mutate(activePlan.id)}
+                  disabled={retryAcceptanceMutation.isPending}
+                >
+                  {retryAcceptanceMutation.isPending ? 'Retrying...' : 'Retry Acceptance'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="flex gap-6 overflow-x-auto pb-4">
           {COLUMNS.map((col) => (
             <div key={col.key} className="flex-shrink-0 w-80">

@@ -29,6 +29,11 @@ const AGENT_COLORS: Record<string, string> = {
   quality: 'bg-teal-200',
 }
 
+const KIND_BADGES: Record<string, { label: string; className: string }> = {
+  bug_fix: { label: 'Bug Fix', className: 'bg-red-100 text-red-800' },
+  acceptance: { label: 'Acceptance', className: 'bg-amber-100 text-amber-800' },
+}
+
 export function DeliveryTaskCard({ task, onStart, onRetry, onClick }: DeliveryTaskCardProps) {
   const canStart = task.status === 'ready' && onStart
   const canRetry = task.status === 'failed' && onRetry
@@ -40,9 +45,16 @@ export function DeliveryTaskCard({ task, onStart, onRetry, onClick }: DeliveryTa
     >
       <div className="flex justify-between items-start mb-2">
         <span className="text-xs text-muted-foreground">{task.id}</span>
-        <Badge className={AGENT_COLORS[task.owner_agent] || 'bg-gray-200'}>
-          {task.owner_agent}
-        </Badge>
+        <div className="flex items-center gap-1">
+          {KIND_BADGES[task.kind] && (
+            <Badge className={KIND_BADGES[task.kind].className}>
+              {KIND_BADGES[task.kind].label}
+            </Badge>
+          )}
+          <Badge className={AGENT_COLORS[task.owner_agent] || 'bg-gray-200'}>
+            {task.owner_agent}
+          </Badge>
+        </div>
       </div>
       <h3 className="font-medium mb-1">{task.title}</h3>
       <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{task.description}</p>
