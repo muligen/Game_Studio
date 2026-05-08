@@ -9,11 +9,10 @@ import { DeliveryTaskDetailDrawer } from '@/components/board/DeliveryTaskDetailD
 import { KickoffDecisionGateCard } from '@/components/board/KickoffDecisionGateCard'
 import { KickoffDecisionDialog } from '@/components/common/KickoffDecisionDialog'
 import { PoolStatusBar } from '@/components/common/PoolStatusBar'
+import { AssumptionsPanel } from '@/components/board/AssumptionsPanel'
 import { useWebSocket } from '@/hooks/useWebSocket'
 
-const COLUMNS = [
-  { key: 'gate', title: 'Kickoff Decision Needed', status: 'gate' },
-  { key: 'preview', title: 'Preview', status: 'preview' },
+const TASK_COLUMNS = [
   { key: 'blocked', title: 'Blocked', status: 'blocked' },
   { key: 'ready', title: 'Ready', status: 'ready' },
   { key: 'in_progress', title: 'In Progress', status: 'in_progress' },
@@ -119,6 +118,10 @@ export function DeliveryBoard() {
           <Link to="/" className="text-sm text-blue-600 hover:underline">&larr; Workbench</Link>
         </div>
         <PoolStatusBar />
+        <AssumptionsPanel
+          assumptions={board?.assumptions || []}
+          needsAttentionItems={board?.needs_attention_items || []}
+        />
         {showAcceptanceBanner && (
           <div className={`rounded-lg p-4 border ${
             activePlan.status === 'accepted' ? 'bg-emerald-50 border-emerald-200' :
@@ -179,37 +182,45 @@ export function DeliveryBoard() {
           </div>
         )}
         <div className="flex gap-6 overflow-x-auto pb-4">
-          {COLUMNS.map((col) => (
-            <div key={col.key} className="flex-shrink-0 w-80">
+          {gates.length > 0 && (
+            <div className="flex-shrink-0 w-80">
               <h2 className="font-semibold mb-4 text-sm uppercase text-gray-600">
-                {col.title} ({col.key === 'gate' ? gates.length : tasksByStatus(col.status).length})
+                Kickoff Decision Needed ({gates.length})
               </h2>
               <div className="space-y-3">
-                {col.key === 'gate'
-                  ? gates.map((gate) => (
-                      <KickoffDecisionGateCard
-                        key={gate.id}
-                        gate={gate}
-                        onResolve={() => setResolveGate(gate)}
-                      />
-                    ))
-                  : tasksByStatus(col.status).map((task) => (
-                      <DeliveryTaskCard
-                        key={task.id}
-                        task={task}
-                        onClick={() => setSelectedTask(task)}
-                        onStart={
-                          task.status === 'ready'
-                            ? () => startMutation.mutate(task.id)
-                            : undefined
-                        }
-                        onRetry={
-                          task.status === 'failed'
-                            ? () => retryMutation.mutate(task.id)
-                            : undefined
-                        }
-                      />
-                    ))}
+                {gates.map((gate) => (
+                  <KickoffDecisionGateCard
+                    key={gate.id}
+                    gate={gate}
+                    onResolve={() => setResolveGate(gate)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+          {TASK_COLUMNS.map((col) => (
+            <div key={col.key} className="flex-shrink-0 w-80">
+              <h2 className="font-semibold mb-4 text-sm uppercase text-gray-600">
+                {col.title} ({tasksByStatus(col.status).length})
+              </h2>
+              <div className="space-y-3">
+                {tasksByStatus(col.status).map((task) => (
+                  <DeliveryTaskCard
+                    key={task.id}
+                    task={task}
+                    onClick={() => setSelectedTask(task)}
+                    onStart={
+                      task.status === 'ready'
+                        ? () => startMutation.mutate(task.id)
+                        : undefined
+                    }
+                    onRetry={
+                      task.status === 'failed'
+                        ? () => retryMutation.mutate(task.id)
+                        : undefined
+                    }
+                  />
+                ))}
               </div>
             </div>
           ))}

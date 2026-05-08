@@ -501,11 +501,41 @@ export interface AcceptanceRun {
   completed_at: string
 }
 
+export interface ProjectAssumption {
+  id: string
+  requirement_id: string
+  project_id: string
+  source: 'meeting' | 'planner' | 'agent' | 'acceptance'
+  category: 'product' | 'art' | 'tech' | 'qa' | 'scope' | 'delivery'
+  decision: string
+  rationale: string
+  impact: string
+  owner_agent: 'design' | 'dev' | 'qa' | 'art' | 'reviewer' | 'quality'
+  change_policy: 'next_iteration'
+  created_at: string
+}
+
+export interface NeedsAttentionItem {
+  id: string
+  requirement_id: string
+  project_id: string
+  plan_id: string | null
+  blocker: string
+  evidence: string[]
+  recommended_action: string
+  affected_task_ids: string[]
+  resumable: boolean
+  status: 'open' | 'resolved'
+  created_at: string
+}
+
 export interface DeliveryBoard {
   plans: DeliveryPlan[]
   tasks: DeliveryTask[]
   decision_gates: KickoffDecisionGate[]
   acceptance_runs: AcceptanceRun[]
+  assumptions: ProjectAssumption[]
+  needs_attention_items: NeedsAttentionItem[]
   runner_status?: 'idle' | 'running' | 'waiting_for_decision' | 'validating' | 'repairing' | 'accepted' | 'needs_attention' | 'failed' | 'completed'
 }
 
