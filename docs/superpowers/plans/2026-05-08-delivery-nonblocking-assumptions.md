@@ -10,6 +10,15 @@
 
 ---
 
+## Post-Merge Dependency Update
+
+The acceptance gate MVP has been merged into `main`. Implement this plan on top of that state model:
+
+- use `needs_attention` for true blockers rather than `cancelled`;
+- preserve the acceptance statuses `validating`, `repairing`, `accepted`, and `needs_attention` in board/API runner status unions;
+- keep requirement completion gated by acceptance `accepted`, not by task completion;
+- include stored assumptions in project docs and acceptance criteria so validation checks the materialized decisions.
+
 ## File Structure
 
 - Create `studio/schemas/assumption.py`: `ProjectAssumption`, `ProjectAssumptionDraft`, and `NeedsAttentionItem`.
@@ -668,7 +677,7 @@ legacy_gate_enabled = self._delivery_decision_gate_enabled()
 has_gate = bool(gate_items_data) and legacy_gate_enabled
 ```
 
-When `raw_needs_attention` exists, create a plan with `status="cancelled"` or a new status if implemented with the acceptance plan. For this plan, keep it conservative:
+When `raw_needs_attention` exists, create a plan with `status="needs_attention"` so the board uses the same status family as the merged acceptance gate:
 
 ```python
 if raw_needs_attention:
@@ -678,7 +687,7 @@ if raw_needs_attention:
         meeting_id=meeting_id,
         requirement_id=requirement.id,
         project_id=project_id,
-        status="cancelled",
+        status="needs_attention",
     )
     self._ws.delivery_plans.save(plan)
     self._save_needs_attention(
@@ -1147,7 +1156,7 @@ Extend `DeliveryBoard`:
 ```ts
 assumptions: ProjectAssumption[]
 needs_attention_items: NeedsAttentionItem[]
-runner_status?: 'idle' | 'running' | 'waiting_for_decision' | 'failed' | 'completed' | 'needs_attention'
+runner_status?: 'idle' | 'running' | 'waiting_for_decision' | 'validating' | 'repairing' | 'accepted' | 'needs_attention' | 'failed' | 'completed'
 ```
 
 - [ ] **Step 2: Create assumptions panel component**

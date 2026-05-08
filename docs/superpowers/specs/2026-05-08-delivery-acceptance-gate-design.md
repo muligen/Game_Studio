@@ -6,6 +6,22 @@ Delivery must stop treating QA, reviewer, and quality outputs as ordinary succes
 
 The gate runs after implementation tasks finish. It builds and starts the target project, drives it through Playwright, records screenshots, videos, logs, command output, and criterion-level results, then either accepts the requirement or creates bug-fix tasks. Bug fixes run through the same Delivery DAG runner and the gate repeats until all criteria pass or the repair budget is exhausted.
 
+## Post-Merge MVP Status
+
+Merged commit `def68eb` implements the core acceptance gate loop:
+
+- acceptance schemas and JSON repositories;
+- acceptance contract builder;
+- build/test/preview command detection;
+- Playwright startup smoke validation;
+- deterministic evaluator;
+- Delivery LangGraph `acceptance_gate` node;
+- automatic `bug_fix` task creation and bounded repair attempts;
+- `accepted` and `needs_attention` plan states;
+- board-level acceptance run visibility and retry.
+
+The merged MVP intentionally stops short of the full target in a few places. Install commands are detected but not executed before build/test/preview. Acceptance artifacts are stored as evidence paths inside `AcceptanceRun`, but there is no dedicated artifact download endpoint yet. The board shows latest validation status and failed criteria, but does not yet show a full artifact browser. Dedicated Langfuse spans for the acceptance phases are still a follow-up; local persistence is already in place through `acceptance_runs` and task events.
+
 ## Goals
 
 - Confirm every requirement acceptance criterion has an explicit pass or fail result.
@@ -42,13 +58,13 @@ The visible flow becomes:
 5. `Accepted`: all criteria pass with evidence.
 6. `Needs Attention`: automatic repair attempts are exhausted or the project cannot be validated.
 
-The user sees:
+The target user experience shows:
 
 - Overall gate status: `pending`, `running`, `failed`, `repairing`, `passed`, or `needs_attention`.
 - Repair attempt count, for example `1/3`.
 - One row per criterion with status, evidence count, and failure reason.
-- Command logs from install, build, test, and preview.
-- Playwright screenshots and videos.
+- Command logs from build, test, and preview. Install execution is a follow-up even though install commands are detected.
+- Playwright screenshot evidence, browser console/page errors, and retained video files when the browser context records them.
 - Browser console errors and page errors.
 - Auto-created bug-fix tasks linked to the failed criteria.
 
@@ -97,7 +113,7 @@ Only `blocker` and `major` failures block completion by default. Startup criteri
 
 The validation runner executes in the project directory, not in the Game Studio repository.
 
-It performs these stages:
+The full target runner performs these stages:
 
 1. Detect project type and package manager from files in `project_dir`.
 2. Install dependencies only when required by the project state.
@@ -108,6 +124,8 @@ It performs these stages:
 7. Capture console messages, page errors, screenshot, video, DOM summary, route failures, and selected pixel checks.
 8. Evaluate each acceptance criterion against command evidence, browser evidence, file evidence, and optional QA/quality LLM interpretation.
 9. Save an `AcceptanceRun` with all evidence and criterion results.
+
+The merged MVP runs stages 1, 3, 4, 5, 6, and core evidence capture. It detects install commands but does not execute them yet. DOM summaries, route failure summaries, selected pixel checks, explicit video evidence rows, and optional LLM interpretation remain follow-up work.
 
 Command detection order for Node projects:
 
@@ -187,30 +205,35 @@ Requirement transition changes:
 
 ## API And Board Contract
 
-Delivery board response adds:
+Merged MVP Delivery board response adds:
 
-- `acceptance_contracts`;
 - `acceptance_runs`;
-- `acceptance_artifacts`;
 - `runner_status`: includes `validating`, `repairing`, `accepted`, and `needs_attention`.
 
-New API endpoints:
+Merged MVP API endpoints:
 
 - `GET /api/delivery-plans/{plan_id}/acceptance-runs`;
+- `GET /api/acceptance-runs/{run_id}`;
+- `POST /api/delivery-plans/{plan_id}/retry-acceptance`.
+
+Follow-up endpoints:
+
 - `GET /api/acceptance-runs/{run_id}/artifacts/{artifact_id}`;
-- `POST /api/delivery-plans/{plan_id}/acceptance/retry`.
+- optional contract detail endpoint if the board needs to render pending criteria before the first run.
 
 The existing retry endpoint remains for individual failed tasks. The new acceptance retry endpoint re-runs the gate after a user or developer manually fixes project files.
 
 ## Observability
 
-Langfuse spans:
+Target Langfuse spans:
 
 - `delivery:acceptance_gate`;
 - `delivery:acceptance:commands`;
 - `delivery:acceptance:playwright`;
 - `delivery:acceptance:evaluate`;
 - `delivery:bug_loop:create_task`.
+
+Merged MVP persists acceptance evidence locally but does not yet create those dedicated Langfuse spans. Add them when the local acceptance run shape is stable.
 
 Metadata includes:
 
@@ -255,7 +278,7 @@ Integration tests cover:
 - a mock project that builds and opens passes acceptance;
 - a mock project with a syntax error fails Playwright validation and creates a bug task;
 - a bug task fixes the syntax error and the next validation passes;
-- Delivery board includes criterion results, artifacts, and repair attempts.
+- Delivery board includes criterion results, evidence summaries/paths, and repair attempts.
 
 End-to-end tests cover:
 

@@ -6,6 +6,15 @@ Remove the normal Delivery decision gate from the default Clarify -> Meeting -> 
 
 The only blocking state left is `Needs Attention`, used after the system has attempted to proceed and cannot continue safely or technically. It is not a pre-delivery question prompt.
 
+## Acceptance Gate Dependency
+
+The acceptance gate MVP is now merged into `main`. This design should integrate with those states instead of inventing another completion path:
+
+- Delivery still executes without a normal user decision gate.
+- After tasks finish, the plan moves through `validating`, `repairing`, `accepted`, or `needs_attention`.
+- A requirement reaches `done` only after the acceptance gate marks the plan `accepted`.
+- Planner or agent assumptions must be written into task context and project docs before validation so the gate can evaluate the actual chosen direction.
+
 ## Problem
 
 The current Delivery decision gate is too weak and too disruptive:

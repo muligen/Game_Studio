@@ -4,11 +4,21 @@
 
 **Goal:** Add an automated Delivery acceptance gate that verifies every requirement acceptance criterion with evidence, opens generated web games through Playwright, creates bug-fix tasks on failure, and marks requirements done only after acceptance passes.
 
-**Architecture:** Add acceptance schemas and repositories, build an immutable contract from requirement and Delivery context, run command and Playwright validation inside the target project directory, evaluate criteria, then integrate the result into the Delivery LangGraph with a bounded bug loop. The board API and frontend expose validation status, evidence, artifacts, and repair attempts.
+**Architecture:** Add acceptance schemas and repositories, build an immutable contract from requirement and Delivery context, run command and Playwright validation inside the target project directory, evaluate criteria, then integrate the result into the Delivery LangGraph with a bounded bug loop. The board API and frontend expose validation status, evidence summaries/paths, and repair attempts.
 
 **Tech Stack:** Python, Pydantic, LangGraph, FastAPI, StudioWorkspace JSON repositories, Playwright for Python, existing Delivery task runner, existing React Delivery board.
 
 ---
+
+## Post-Merge Alignment
+
+Merged commit `def68eb` implemented the core MVP from this plan. Treat the checklist below as the original implementation trail plus these current adjustments:
+
+- Implemented: schemas/storage, contract builder, verifier, evaluator, Delivery graph gate, bug loop, acceptance run persistence, board API, board banner, and focused backend tests.
+- Actual frontend files: `web/src/lib/api.ts`, `web/src/pages/DeliveryBoard.tsx`, and `web/src/components/board/DeliveryTaskCard.tsx`. The MVP did not create `web/src/api/client.ts`, `web/src/lib/types.ts`, or a standalone `AcceptanceGatePanel.tsx`.
+- Actual API endpoints: `GET /api/delivery-plans/{plan_id}/acceptance-runs`, `GET /api/acceptance-runs/{run_id}`, and `POST /api/delivery-plans/{plan_id}/retry-acceptance`.
+- Actual board payload: includes `acceptance_runs`; contracts are persisted in storage and referenced by run `contract_id`, but are not sent as `acceptance_contracts` yet.
+- Remaining follow-ups: install command execution, artifact download endpoint, richer artifact browser, acceptance API tests, real browser E2E coverage, and dedicated Langfuse spans.
 
 ## File Structure
 
@@ -20,10 +30,9 @@
 - Modify `studio/schemas/delivery.py`: add plan statuses and task kind metadata.
 - Modify `studio/storage/delivery_plan_service.py`: stop auto-completing requirements before acceptance, create bug-fix tasks, and persist acceptance events.
 - Modify `studio/runtime/graph.py`: add `acceptance_gate` and bug loop transitions after task execution.
-- Modify `studio/api/routes/delivery.py`: expose acceptance run list, artifacts, and manual acceptance retry.
-- Modify `web/src/lib/types.ts`: add acceptance board types.
-- Modify `web/src/api/client.ts`: add acceptance API calls.
-- Modify `web/src/pages/DeliveryBoard.tsx` and board components: show Acceptance Gate status, criteria, evidence, artifacts, and bug loop attempts.
+- Modify `studio/api/routes/delivery.py`: expose acceptance run list, single run details, and manual acceptance retry.
+- Modify `web/src/lib/api.ts`: add acceptance board types and acceptance API calls.
+- Modify `web/src/pages/DeliveryBoard.tsx` and board components: show Acceptance Gate status, criteria, evidence summaries/paths, and bug loop attempts.
 - Add tests in `tests/test_acceptance_schemas.py`, `tests/test_acceptance_contract.py`, `tests/test_acceptance_verifier.py`, `tests/test_acceptance_evaluator.py`, `tests/test_delivery_acceptance_graph.py`, `tests/test_delivery_api.py`, and Delivery E2E tests.
 
 ## Task 1: Add Acceptance Schemas And Workspace Storage
@@ -1325,7 +1334,7 @@ def acceptance_gate_node(state: _DeliveryState) -> dict[str, object]:
     tracker = GitTracker(repo_root=project_root, project_id=plan.project_id)
     project_dir = tracker.ensure_project_dir()
     run_id = f"acc_{plan_id}_{attempt_number}"
-    verification = verify_project(project_dir, artifacts_root=workspace_root / "acceptance_artifacts", run_id=run_id)
+    verification = verify_project(project_dir, artifacts_root=workspace_root / "artifacts", run_id=run_id)
     task_results = [
         ws.execution_results.get(task.execution_result_id).model_dump(mode="json")
         for task in tasks
@@ -1437,7 +1446,7 @@ def test_delivery_board_includes_acceptance_runs(client, workspace):
     assert resp.status_code == 200
     data = resp.json()
     assert data["acceptance_runs"][0]["id"] == "acc_run_001"
-    assert data["acceptance_contracts"][0]["id"] == "contract_plan_001"
+    # Post-merge MVP note: contracts are persisted but not included in board payload yet.
 ```
 
 - [ ] **Step 2: Run API test and verify failure**
@@ -1455,17 +1464,12 @@ Expected: fail because the board response does not include acceptance data.
 In `list_delivery_board()`, include:
 
 ```python
-"acceptance_contracts": [c.model_dump() for c in service._ws.acceptance_contracts.list_all()],
 "acceptance_runs": [r.model_dump() for r in service._ws.acceptance_runs.list_all()],
 ```
 
 Filter by requirement when `requirement_id` is provided:
 
 ```python
-acceptance_contracts = [
-    contract for contract in service._ws.acceptance_contracts.list_all()
-    if requirement_id is None or contract.requirement_id == requirement_id
-]
 acceptance_runs = [
     run for run in service._ws.acceptance_runs.list_all()
     if requirement_id is None or run.requirement_id == requirement_id
@@ -1485,7 +1489,7 @@ async def list_acceptance_runs(plan_id: str, workspace: str) -> dict:
         if run.plan_id == plan_id
     ]
     runs.sort(key=lambda run: run.created_at)
-    return {"acceptance_runs": [run.model_dump() for run in runs]}
+    return {"runs": [run.model_dump() for run in runs]}
 ```
 
 - [ ] **Step 5: Run API tests**
@@ -1508,14 +1512,15 @@ git commit -m "feat: expose delivery acceptance API"
 ## Task 7: Update Delivery Board UI For Acceptance Gate And Bug Loop
 
 **Files:**
-- Modify: `web/src/lib/types.ts`
-- Modify: `web/src/api/client.ts`
-- Create: `web/src/components/board/AcceptanceGatePanel.tsx`
+- Modify: `web/src/lib/api.ts`
 - Modify: `web/src/pages/DeliveryBoard.tsx`
+- Modify: `web/src/components/board/DeliveryTaskCard.tsx`
+
+Post-merge MVP adjustment: the merged implementation keeps acceptance UI inline in `DeliveryBoard.tsx` instead of introducing a standalone `AcceptanceGatePanel.tsx`. A standalone panel and artifact drilldown can still be a later UI cleanup.
 
 - [ ] **Step 1: Add frontend types**
 
-Add to `web/src/lib/types.ts`:
+Add to `web/src/lib/api.ts`:
 
 ```ts
 export interface AcceptanceCriterion {
@@ -1573,11 +1578,10 @@ export interface AcceptanceRun {
 Extend board response type with:
 
 ```ts
-acceptance_contracts: AcceptanceContract[]
 acceptance_runs: AcceptanceRun[]
 ```
 
-- [ ] **Step 2: Create AcceptanceGatePanel component**
+- [ ] **Step 2: Optional follow-up: create standalone AcceptanceGatePanel component**
 
 Create `web/src/components/board/AcceptanceGatePanel.tsx`:
 
@@ -1656,7 +1660,7 @@ export function AcceptanceGatePanel({ contracts, runs, tasks }: AcceptanceGatePa
 }
 ```
 
-- [ ] **Step 3: Render panel in DeliveryBoard**
+- [ ] **Step 3: Optional follow-up: render standalone panel in DeliveryBoard**
 
 In `web/src/pages/DeliveryBoard.tsx`, import and render:
 
@@ -1674,7 +1678,7 @@ Add near the task board:
 />
 ```
 
-- [ ] **Step 4: Add restrained CSS**
+- [ ] **Step 4: Optional follow-up: add restrained CSS for standalone panel**
 
 Use the existing Delivery board stylesheet. Add classes:
 
@@ -1737,7 +1741,7 @@ Expected: pass.
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add web/src/lib/types.ts web/src/api/client.ts web/src/components/board/AcceptanceGatePanel.tsx web/src/pages/DeliveryBoard.tsx
+git add web/src/lib/api.ts web/src/pages/DeliveryBoard.tsx web/src/components/board/DeliveryTaskCard.tsx
 git commit -m "feat: show delivery acceptance gate"
 ```
 
