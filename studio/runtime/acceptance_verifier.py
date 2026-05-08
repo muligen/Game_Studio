@@ -45,16 +45,21 @@ def verify_project(project_dir: Path, *, artifacts_root: Path, run_id: str) -> V
     artifacts_dir = artifacts_root / run_id
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     if not (project_dir / "package.json").exists():
-        if (project_dir / "index.html").exists():
+        static_html_entry = _find_static_html_entry(project_dir)
+        if static_html_entry is not None:
             evidence = [
                 AcceptanceEvidence(
                     id="ev_standalone_html_detected",
                     evidence_type="command",
-                    summary="Standalone index.html was detected as the project launch target.",
-                    artifact_path=str(project_dir / "index.html"),
+                    summary=f"Standalone HTML entry was detected: {static_html_entry.relative_to(project_dir).as_posix()}",
+                    artifact_path=str(static_html_entry),
                 )
             ]
-            browser_ok, browser_evidence, browser_errors = _run_static_html_smoke(project_dir, artifacts_dir)
+            browser_ok, browser_evidence, browser_errors = _run_static_html_smoke(
+                project_dir,
+                artifacts_dir,
+                static_html_entry,
+            )
             evidence.extend(browser_evidence)
             return VerificationResult(
                 startup_ok=not browser_errors,
@@ -177,12 +182,24 @@ def _run_playwright_smoke(
     return not errors, evidence, errors
 
 
-def _run_static_html_smoke(project_dir: Path, artifacts_dir: Path) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
+def _find_static_html_entry(project_dir: Path) -> Path | None:
+    for rel_path in ("index.html", "game/index.html"):
+        candidate = project_dir / rel_path
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _run_static_html_smoke(
+    project_dir: Path,
+    artifacts_dir: Path,
+    index_path: Path,
+) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
     from playwright.sync_api import sync_playwright
 
     evidence: list[AcceptanceEvidence] = []
     errors: list[str] = []
-    index_path = (project_dir / "index.html").resolve()
+    index_path = index_path.resolve()
     with sync_playwright() as p:
         browser = p.chromium.launch()
         context = browser.new_context(record_video_dir=str(artifacts_dir / "videos"))

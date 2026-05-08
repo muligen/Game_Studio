@@ -115,12 +115,20 @@ class DeliveryPlanService:
             },
         }
         planner_output = self._planner.generate(planning_context)
+        raw_needs_attention = list(planner_output.get("needs_attention", []))
+        blocking_needs_attention, assumption_needs_attention = self._partition_needs_attention(raw_needs_attention)
+        planner_assumptions = [
+            *list(planner_output.get("assumptions", [])),
+            *[
+                self._needs_attention_as_assumption(raw)
+                for raw in assumption_needs_attention
+            ],
+        ]
         self._save_planner_assumptions(
             requirement_id=requirement.id,
             project_id=project_id,
-            assumptions=list(planner_output.get("assumptions", [])),
+            assumptions=planner_assumptions,
         )
-        raw_needs_attention = list(planner_output.get("needs_attention", []))
         raw_tasks = self._ensure_documentation_task(list(planner_output.get("tasks", [])))
         if not raw_tasks:
             raise ValueError("delivery planner returned no tasks")
@@ -144,7 +152,7 @@ class DeliveryPlanService:
         legacy_gate_enabled = self._delivery_decision_gate_enabled()
         has_gate = bool(gate_items_data) and legacy_gate_enabled
 
-        if raw_needs_attention:
+        if blocking_needs_attention:
             needs_plan_id = f"plan_{uuid4().hex}"
             needs_plan = DeliveryPlan(
                 id=needs_plan_id,
@@ -158,7 +166,7 @@ class DeliveryPlanService:
                 requirement_id=requirement.id,
                 project_id=project_id,
                 plan_id=needs_plan.id,
-                raw_items=raw_needs_attention,
+                raw_items=blocking_needs_attention,
             )
             return {"plan": needs_plan, "tasks": [], "decision_gate": None}
 
@@ -168,7 +176,7 @@ class DeliveryPlanService:
             dep_ids: list[str] = []
             for title in raw.get("depends_on", []):
                 if title not in task_id_map:
-                    if has_gate and self._is_decision_placeholder(str(title)):
+                    if self._is_decision_placeholder(str(title)):
                         continue
                     raise ValueError(f"depends_on references unknown task '{title}'")
                 dep_ids.append(task_id_map[title])
@@ -560,6 +568,7 @@ class DeliveryPlanService:
                 kind="bug_fix",
                 status="ready",
                 acceptance_criteria=[crit_text],
+                decision_resolution_version=plan.decision_resolution_version,
             )
             self._ws.delivery_tasks.save(task)
             plan.task_ids.append(task.id)
@@ -598,6 +607,129 @@ class DeliveryPlanService:
         return os.environ.get("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "").strip().lower() in {
             "1", "true", "yes", "on",
         }
+
+    @classmethod
+    def _partition_needs_attention(
+        cls,
+        raw_items: list[object],
+    ) -> tuple[list[object], list[object]]:
+        blocking: list[object] = []
+        assumptions: list[object] = []
+        for raw in raw_items:
+            if cls._is_true_needs_attention(raw):
+                blocking.append(raw)
+            else:
+                assumptions.append(raw)
+        return blocking, assumptions
+
+    @staticmethod
+    def _is_true_needs_attention(raw: object) -> bool:
+        data = dict(raw) if isinstance(raw, dict) else {}
+        parts = [
+            str(data.get("blocker", "")),
+            str(data.get("recommended_action", "")),
+            " ".join(str(item) for item in data.get("evidence", [])),
+        ]
+        text = "\n".join(parts).lower()
+        true_blocker_markers = (
+            "api key",
+            "api_key",
+            "secret",
+            "credential",
+            "missing required external",
+            "required external",
+            "external account",
+            "external dependency",
+            "license",
+            "licence",
+            "asset rights",
+            "copyright",
+            "contradictory hard constraint",
+            "hard constraint",
+            "unavailable",
+            "密钥",
+            "凭证",
+            "外部账号",
+            "外部依赖",
+            "许可证",
+            "授权",
+            "版权",
+            "硬约束",
+            "矛盾约束",
+        )
+        if any(marker in text for marker in true_blocker_markers):
+            return True
+
+        preference_markers = (
+            "decision_gate",
+            "decision gate",
+            "user decision",
+            "choose ",
+            "which ",
+            "visual style",
+            "style",
+            "layout",
+            "theme",
+            "feedback",
+            "level transition",
+            "决策门",
+            "用户选择",
+            "视觉风格",
+            "风格",
+            "布局",
+            "主题",
+            "胜利反馈",
+            "关卡过渡",
+        )
+        if any(marker in text for marker in preference_markers):
+            return False
+        return True
+
+    @classmethod
+    def _needs_attention_as_assumption(cls, raw: object) -> dict[str, str]:
+        data = dict(raw) if isinstance(raw, dict) else {}
+        blocker = str(data.get("blocker", "Delivery preference needs a default."))
+        evidence = [str(item) for item in data.get("evidence", [])]
+        recommended_action = str(data.get("recommended_action", "Proceed with a documented delivery default."))
+        text = "\n".join([blocker, recommended_action, *evidence])
+        return {
+            "category": cls._infer_assumption_category(text),
+            "decision": f"Proceed with a reasonable default for: {blocker}",
+            "rationale": (
+                "Delivery treats this as an ordinary implementation preference, not a blocker. "
+                "Agents should choose the smallest documented default and continue."
+            ),
+            "impact": recommended_action,
+            "owner_agent": cls._infer_assumption_owner(text),
+        }
+
+    @staticmethod
+    def _infer_assumption_category(text: str) -> str:
+        lowered = text.lower()
+        if any(marker in lowered for marker in ("visual", "style", "art", "视觉", "风格", "美术")):
+            return "art"
+        if any(marker in lowered for marker in ("qa", "test", "验收", "测试")):
+            return "qa"
+        if any(marker in lowered for marker in ("tech", "技术", "api", "storage", "localstorage")):
+            return "tech"
+        if any(marker in lowered for marker in ("scope", "level", "关卡", "范围")):
+            return "scope"
+        if any(marker in lowered for marker in ("delivery", "交付")):
+            return "delivery"
+        return "product"
+
+    @staticmethod
+    def _infer_assumption_owner(text: str) -> str:
+        lowered = text.lower()
+        if any(marker in lowered for marker in ("qa", "test", "验收", "测试")):
+            return "qa"
+        if any(marker in lowered for marker in ("art", "visual", "style", "视觉", "风格", "美术")):
+            return "art"
+        if any(marker in lowered for marker in ("design", "product", "scope", "设计", "产品", "范围")):
+            return "design"
+        if any(marker in lowered for marker in ("quality", "acceptance", "质量")):
+            return "quality"
+        return "dev"
 
     def _save_planner_assumptions(
         self,
@@ -748,12 +880,17 @@ class DeliveryPlanService:
     @staticmethod
     def _is_decision_placeholder(value: str) -> bool:
         normalized = value.strip().upper()
+        lowered = value.strip().lower()
         return (
             normalized.startswith("STAKEHOLDER_DECISION")
             or normalized.startswith("USER_DECISION")
             or normalized.startswith("DECISION:")
             or normalized.startswith("DECISION_")
             or normalized.startswith("DECISION_GATE")
+            or "decision gate" in lowered
+            or "user decision" in lowered
+            or "决策门" in value
+            or "用户决策" in value
         )
 
     def _has_cycle(self, graph: dict[str, list[str]]) -> bool:

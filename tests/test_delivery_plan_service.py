@@ -7,7 +7,7 @@ import pytest
 from studio.llm import ClaudeRoleError
 from studio.schemas.assumption import NeedsAttentionItem
 from studio.schemas.design_doc import DesignDoc
-from studio.schemas.delivery import DeliveryPlan
+from studio.schemas.delivery import DeliveryPlan, GateItem, KickoffDecisionGate
 from studio.schemas.meeting import MeetingMinutes
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.session import ProjectAgentSession
@@ -553,6 +553,59 @@ class TestResolveGate:
         assert items[0].blocker == "Missing required external API key."
 
     @staticmethod
+    def test_generate_plan_demotes_ordinary_preference_needs_attention_to_assumption(
+        tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose visual style"])
+        _requirement(tmp_path)
+        planner = FakePlanner({
+            "tasks": [
+                {
+                    "title": "Implement Sokoban visuals",
+                    "description": "Build readable default tile visuals for the Sokoban MVP.",
+                    "owner_agent": "art",
+                    "depends_on": ["DECISION_GATE: visual_style"],
+                    "acceptance_criteria": ["Tiles, walls, boxes, goals, and player are visually distinct."],
+                },
+            ],
+            "decision_gate": {
+                "items": [
+                    {
+                        "id": "visual_style",
+                        "question": "Which visual style should the MVP use?",
+                        "context": "Ordinary delivery preference.",
+                        "options": ["pixel", "minimal"],
+                    },
+                ],
+            },
+            "assumptions": [],
+            "needs_attention": [
+                {
+                    "blocker": "视觉风格决策门需要用户选择，否则art agent无法开始视觉资源制作",
+                    "evidence": [
+                        "decision_gate.items[0]: 视觉风格决策门",
+                        "tasks[3].title: 视觉资源制作 - 依赖视觉风格决策",
+                    ],
+                    "recommended_action": "用户需要回答决策门中的视觉风格问题，art agent才能开始工作",
+                    "affected_task_titles": ["Implement Sokoban visuals"],
+                    "resumable": True,
+                }
+            ],
+        })
+        svc = DeliveryPlanService(tmp_path, planner=planner, project_root=tmp_path.parent)
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["plan"].status == "active"
+        assert result["tasks"]
+        assert result["decision_gate"] is None
+        ws = StudioWorkspace(tmp_path)
+        assert ws.needs_attention_items.list_all() == []
+        assumptions = ws.project_assumptions.list_all()
+        assert len(assumptions) == 1
+        assert "视觉风格" in assumptions[0].decision
+
+    @staticmethod
     def test_board_status_prefers_repairing_plan_over_open_needs_attention(
         tmp_path: Path,
     ) -> None:
@@ -662,6 +715,61 @@ class TestStartTask:
 
         with pytest.raises(ValueError, match="decision_resolution_version"):
             svc.start_task(task.id)
+
+    @staticmethod
+    def test_bug_fix_task_inherits_resolved_decision_version(
+        tmp_path: Path,
+    ) -> None:
+        ws = StudioWorkspace(tmp_path)
+        ws.ensure_layout()
+        ws.delivery_plans.save(
+            DeliveryPlan(
+                id="plan_001",
+                meeting_id="meet_001",
+                requirement_id="req_001",
+                project_id="proj_001",
+                status="validating",
+                decision_gate_id="gate_001",
+                decision_resolution_version=1,
+            )
+        )
+        ws.decision_gates.save(
+            KickoffDecisionGate(
+                id="gate_001",
+                plan_id="plan_001",
+                meeting_id="meet_001",
+                requirement_id="req_001",
+                project_id="proj_001",
+                status="resolved",
+                resolution_version=1,
+                items=[
+                    GateItem(
+                        id="visual_style",
+                        question="Which visual style?",
+                        context="Legacy gate",
+                        options=["pixel", "minimal"],
+                        resolution="pixel",
+                    )
+                ],
+            )
+        )
+        _create_session(tmp_path, project_id="proj_001", agent="dev", session_id="sess_dev_001")
+        svc = DeliveryPlanService(tmp_path, project_root=tmp_path.parent)
+
+        [bug_task] = svc.create_bug_fix_tasks(
+            "plan_001",
+            [
+                {
+                    "criterion_id": "crit_launch",
+                    "repair_hint": "Fix validation failure for startup command.",
+                    "owner_hint": "dev",
+                }
+            ],
+        )
+
+        assert bug_task.decision_resolution_version == 1
+        started = svc.start_task(bug_task.id)
+        assert started.status == "in_progress"
 
     @staticmethod
     def test_rejects_stale_task_decision_version(

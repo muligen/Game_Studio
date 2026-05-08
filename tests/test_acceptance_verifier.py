@@ -62,6 +62,39 @@ def test_verify_project_accepts_standalone_html_project(tmp_path, monkeypatch):
     assert any(e.id == "ev_static_html" for e in result.evidence)
 
 
+def test_verify_project_accepts_nested_game_index_html_project(tmp_path, monkeypatch):
+    from studio.schemas.acceptance import AcceptanceEvidence
+
+    project_dir = tmp_path / "proj_001"
+    game_dir = project_dir / "game"
+    game_dir.mkdir(parents=True)
+    (game_dir / "index.html").write_text("<canvas data-game-root></canvas>", encoding="utf-8")
+    opened_paths: list[Path] = []
+
+    def fake_static_browser(project_dir_arg, artifacts_dir_arg, index_path):
+        opened_paths.append(index_path)
+        return True, [
+            AcceptanceEvidence(
+                id="ev_nested_static_html",
+                evidence_type="playwright",
+                summary="Playwright opened nested game/index.html.",
+            )
+        ], []
+
+    monkeypatch.setattr(
+        "studio.runtime.acceptance_verifier._run_static_html_smoke",
+        fake_static_browser,
+        raising=False,
+    )
+
+    result = verify_project(project_dir, artifacts_root=tmp_path / "artifacts", run_id="acc_run_nested_static")
+
+    assert result.startup_ok is True
+    assert result.browser_ok is True
+    assert opened_paths == [game_dir / "index.html"]
+    assert any(e.id == "ev_nested_static_html" for e in result.evidence)
+
+
 def test_verify_project_uses_browser_result(tmp_path, monkeypatch):
     from studio.schemas.acceptance import AcceptanceEvidence
 
