@@ -609,12 +609,17 @@ def build_delivery_graph():
                     dependency_artifact_files.append(rel_path)
                     artifact_excerpts.append(_read_artifact_excerpt(project_dir, rel_path))
 
+        assumptions = [
+            item.model_dump(mode="json")
+            for item in ws.project_assumptions.list_all()
+            if item.project_id == task.project_id and item.requirement_id == task.requirement_id
+        ]
         context = {
             "prompt": "\n\n".join(
                 [
                     "Delivery task is approved and ready for autonomous execution.",
                     "Do not ask the user questions and do not call AskQuestion.",
-                    "Use available tools directly. If anything is ambiguous, make the smallest reasonable assumption and record it in follow_ups.",
+                    "If anything is ambiguous, make the smallest reasonable assumption, continue, and include a structured assumption in your JSON if it affects product, art, tech, QA, scope, or delivery documentation.",
                     f"Task: {task.title}",
                     task.description,
                 ]
@@ -637,6 +642,14 @@ def build_delivery_graph():
             "dependency_artifact_excerpts": artifact_excerpts,
             "project_files": _project_files(project_dir),
             "context_warnings": warnings,
+            "assumptions": assumptions,
+            "documentation_requirements": [
+                "docs/PROJECT_BRIEF.md",
+                "docs/DECISIONS.md",
+                "docs/ACCEPTANCE.md",
+                "docs/RUNBOOK.md",
+                "docs/ITERATION_NOTES.md",
+            ],
         }
         return (
             context,
@@ -761,6 +774,25 @@ def build_delivery_graph():
                     follow_ups = [str(item) for item in report.get("follow_ups", [])]
             if result and result.trace.get("fallback_used"):
                 context_warnings.append("agent used fallback output")
+
+            if isinstance(report, dict):
+                from studio.schemas.assumption import ProjectAssumptionDraft
+                raw_assumptions = report.get("assumptions", [])
+                if isinstance(raw_assumptions, list):
+                    for raw in raw_assumptions:
+                        if isinstance(raw, dict):
+                            try:
+                                draft = ProjectAssumptionDraft.model_validate(raw)
+                                ws.project_assumptions.save(
+                                    draft.to_assumption(
+                                        assumption_id=f"assumption_{uuid.uuid4().hex}",
+                                        requirement_id=started_task.requirement_id,
+                                        project_id=started_task.project_id,
+                                        source="agent",
+                                    )
+                                )
+                            except Exception:
+                                logger.debug("Skipping invalid agent assumption", exc_info=True)
 
             completed = service.complete_task(
                 task_id=started_task.id,
