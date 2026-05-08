@@ -260,8 +260,8 @@ class DeliveryPlanService:
             raise ValueError(f"task {task_id} is not ready (status={task.status})")
 
         plan = self._ws.delivery_plans.get(task.plan_id)
-        if plan.status != "active":
-            raise ValueError(f"plan {plan.id} is not active (status={plan.status})")
+        if plan.status not in {"active", "repairing"}:
+            raise ValueError(f"plan {plan.id} is not active or repairing (status={plan.status})")
 
         if plan.decision_gate_id:
             gate = self._ws.decision_gates.get(plan.decision_gate_id)
@@ -453,8 +453,8 @@ class DeliveryPlanService:
             raise ValueError(f"task {task_id} is not failed (status={task.status})")
 
         plan = self._ws.delivery_plans.get(task.plan_id)
-        if plan.status != "active":
-            raise ValueError(f"plan {plan.id} is not active (status={plan.status})")
+        if plan.status not in {"active", "repairing"}:
+            raise ValueError(f"plan {plan.id} is not active or repairing (status={plan.status})")
 
         for dep_id in task.depends_on_task_ids:
             dep_task = self._ws.delivery_tasks.get(dep_id)
