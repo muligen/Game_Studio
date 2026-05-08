@@ -134,6 +134,8 @@ async def list_delivery_board(
         "tasks": [t.model_dump() for t in result["tasks"]],
         "decision_gates": [g.model_dump() for g in result["decision_gates"]],
         "acceptance_runs": [run.model_dump() for run in acceptance_runs],
+        "assumptions": [item.model_dump() for item in result.get("assumptions", [])],
+        "needs_attention_items": [item.model_dump() for item in result.get("needs_attention_items", [])],
         "runner_status": result.get("runner_status", "idle"),
     }
 
