@@ -315,7 +315,7 @@ export interface DeliveryPlan {
   meeting_id: string
   requirement_id: string
   project_id: string
-  status: 'awaiting_user_decision' | 'active' | 'completed' | 'cancelled'
+  status: 'awaiting_user_decision' | 'active' | 'validating' | 'repairing' | 'accepted' | 'needs_attention' | 'completed' | 'cancelled'
   task_ids: string[]
   decision_gate_id: string | null
   decision_resolution_version: number | null
@@ -332,6 +332,7 @@ export interface DeliveryTask {
   title: string
   description: string
   owner_agent: string
+  kind: 'delivery' | 'bug_fix' | 'acceptance'
   status: 'preview' | 'blocked' | 'ready' | 'in_progress' | 'review' | 'done' | 'failed' | 'cancelled'
   depends_on_task_ids: string[]
   execution_result_id: string | null
@@ -478,11 +479,34 @@ export interface KickoffMeetingResult {
   meeting: KickoffMeetingSnapshot
 }
 
+export interface AcceptanceCriterionResult {
+  criterion_id: string
+  status: 'passed' | 'failed' | 'inconclusive'
+  evidence_ids: string[]
+  reason: string
+  repair_hint: string | null
+  owner_hint: string | null
+  blocking: boolean
+}
+
+export interface AcceptanceRun {
+  id: string
+  contract_id: string
+  plan_id: string
+  requirement_id: string
+  project_id: string
+  attempt_number: number
+  status: 'passed' | 'failed'
+  criteria_results: AcceptanceCriterionResult[]
+  completed_at: string
+}
+
 export interface DeliveryBoard {
   plans: DeliveryPlan[]
   tasks: DeliveryTask[]
   decision_gates: KickoffDecisionGate[]
-  runner_status?: 'idle' | 'running' | 'waiting_for_decision' | 'failed' | 'completed'
+  acceptance_runs: AcceptanceRun[]
+  runner_status?: 'idle' | 'running' | 'waiting_for_decision' | 'validating' | 'repairing' | 'accepted' | 'needs_attention' | 'failed' | 'completed'
 }
 
 export interface DeliveryTaskEvent {
@@ -501,6 +525,9 @@ export interface DeliveryTaskEvent {
     | 'task_completed'
     | 'task_failed'
     | 'task_retried'
+    | 'bug_fix_created'
+    | 'acceptance_started'
+    | 'acceptance_completed'
   message: string
   metadata: Record<string, unknown>
   created_at: string
@@ -668,6 +695,22 @@ export const deliveryApi = {
     apiRequest(`/delivery-tasks/${taskId}/session`, 'get', {
       params: { workspace },
     }) as Promise<DeliveryTaskSession>,
+
+  listAcceptanceRuns: (workspace: string, planId: string): Promise<{ runs: AcceptanceRun[] }> =>
+    apiRequest(`/delivery-plans/${planId}/acceptance-runs`, 'get', {
+      params: { workspace },
+    }) as Promise<{ runs: AcceptanceRun[] }>,
+
+  getAcceptanceRun: (workspace: string, runId: string): Promise<AcceptanceRun> =>
+    apiRequest(`/acceptance-runs/${runId}`, 'get', {
+      params: { workspace },
+    }) as Promise<AcceptanceRun>,
+
+  retryAcceptance: (workspace: string, planId: string): Promise<{ plan_id: string; status: string }> =>
+    apiRequest(`/delivery-plans/${planId}/retry-acceptance`, 'post', {
+      params: { workspace },
+      body: {},
+    }) as Promise<{ plan_id: string; status: string }>,
 } as const
 
 export interface ProjectAgentSession {
