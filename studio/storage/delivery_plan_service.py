@@ -677,18 +677,24 @@ class DeliveryPlanService:
         plans = self._ws.delivery_plans.list_all()
         tasks = self._ws.delivery_tasks.list_all()
         gates = self._ws.decision_gates.list_all()
+        assumptions = self._ws.project_assumptions.list_all()
+        needs_attention_items = self._ws.needs_attention_items.list_all()
 
         if requirement_id:
             plans = [plan for plan in plans if plan.requirement_id == requirement_id]
             plan_ids = {plan.id for plan in plans}
             tasks = [task for task in tasks if task.plan_id in plan_ids]
             gates = [gate for gate in gates if gate.plan_id in plan_ids]
+            assumptions = [a for a in assumptions if a.requirement_id == requirement_id]
+            needs_attention_items = [n for n in needs_attention_items if n.requirement_id == requirement_id]
 
         return {
             "plans": plans,
             "tasks": tasks,
             "decision_gates": gates,
-            "runner_status": self._runner_status(plans, tasks, gates),
+            "assumptions": assumptions,
+            "needs_attention_items": needs_attention_items,
+            "runner_status": self._runner_status(plans, tasks, gates, needs_attention_items),
         }
 
     @staticmethod
@@ -696,9 +702,12 @@ class DeliveryPlanService:
         plans: list[DeliveryPlan],
         tasks: list[DeliveryTask],
         gates: list[KickoffDecisionGate],
+        needs_attention_items: list | None = None,
     ) -> str:
         if not plans:
             return "idle"
+        if needs_attention_items and any(item.status == "open" for item in needs_attention_items):
+            return "needs_attention"
         if any(gate.status == "open" for gate in gates):
             return "waiting_for_decision"
         if any(plan.status == "accepted" for plan in plans):
