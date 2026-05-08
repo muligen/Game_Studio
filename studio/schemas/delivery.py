@@ -9,12 +9,15 @@ from studio.schemas.artifact import StrippedNonEmptyStr
 
 
 DeliveryPlanStatus = Literal[
-    "awaiting_user_decision", "active", "completed", "cancelled",
+    "awaiting_user_decision", "active", "validating", "repairing",
+    "accepted", "needs_attention", "completed", "cancelled",
 ]
 
 DeliveryTaskStatus = Literal[
     "preview", "blocked", "ready", "in_progress", "review", "done", "failed", "cancelled",
 ]
+
+DeliveryTaskKind = Literal["delivery", "bug_fix", "acceptance"]
 
 GateStatus = Literal["open", "resolved", "cancelled"]
 
@@ -64,6 +67,7 @@ class DeliveryTask(BaseModel):
     title: StrippedNonEmptyStr
     description: StrippedNonEmptyStr
     owner_agent: StrippedNonEmptyStr
+    kind: DeliveryTaskKind = "delivery"
     status: DeliveryTaskStatus = "ready"
     depends_on_task_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     execution_result_id: StrippedNonEmptyStr | None = None

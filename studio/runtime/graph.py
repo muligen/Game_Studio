@@ -479,6 +479,8 @@ class _DeliveryState(TypedDict, total=False):
     executed_task_ids: list[str]
     failed_task_ids: list[str]
     context_warnings: list[str]
+    acceptance_attempt: int
+    max_acceptance_attempts: int
 
 
 def build_delivery_graph():
@@ -805,6 +807,8 @@ def build_delivery_graph():
             "executed_task_ids": [],
             "failed_task_ids": [],
             "context_warnings": [],
+            "acceptance_attempt": 0,
+            "max_acceptance_attempts": 3,
         }
 
     def run_delivery_node(state: _DeliveryState) -> dict[str, object]:
@@ -823,7 +827,7 @@ def build_delivery_graph():
             tasks = [ws.delivery_tasks.get(task_id) for task_id in plan.task_ids]
             ready = _parallel_ready_batch([task for task in tasks if task.status == "ready"])
             if not ready:
-                incomplete = [task for task in tasks if task.status != "done"]
+                incomplete = [task for task in tasks if task.status not in {"done", "cancelled"}]
                 if incomplete:
                     return {
                         **state,
@@ -834,7 +838,7 @@ def build_delivery_graph():
                     }
                 return {
                     **state,
-                    "runner_status": "completed",
+                    "runner_status": "tasks_done",
                     "executed_task_ids": executed,
                     "failed_task_ids": failed,
                     "context_warnings": all_warnings,
@@ -901,18 +905,125 @@ def build_delivery_graph():
                     "context_warnings": all_warnings,
                 }
 
+    def acceptance_gate_node(state: _DeliveryState) -> dict[str, object]:
+        from studio.runtime.acceptance_evaluator import evaluate_acceptance
+        from studio.runtime.acceptance_verifier import verify_project
+        from studio.storage.acceptance_contract import build_acceptance_contract
+
+        workspace_root = Path(_require_state_str(state, "workspace_root"))
+        plan_id = _require_state_str(state, "plan_id")
+        attempt = int(state.get("acceptance_attempt", 0)) + 1
+        max_attempts = int(state.get("max_acceptance_attempts", 3))
+
+        ws = StudioWorkspace(workspace_root)
+        plan = ws.delivery_plans.get(plan_id)
+        project_dir = GitTracker(
+            repo_root=Path(_require_state_str(state, "project_root")),
+            project_id=plan.project_id,
+        ).project_dir
+
+        contract = build_acceptance_contract(ws, plan_id)
+        ws.acceptance_contracts.save(contract)
+
+        run_id = f"acc_{plan_id}_attempt_{attempt}"
+        verification = verify_project(
+            project_dir,
+            artifacts_root=workspace_root / "artifacts",
+            run_id=run_id,
+        )
+
+        task_results = []
+        for task_id in plan.task_ids:
+            task = ws.delivery_tasks.get(task_id)
+            if task.execution_result_id:
+                try:
+                    result = ws.execution_results.get(task.execution_result_id)
+                    task_results.append(result.model_dump(mode="json"))
+                except FileNotFoundError:
+                    pass
+
+        run = evaluate_acceptance(
+            contract=contract,
+            verification=verification,
+            task_results=task_results,
+            run_id=run_id,
+            attempt_number=attempt,
+        )
+        ws.acceptance_runs.save(run)
+
+        service = DeliveryPlanService(workspace_root, project_root=Path(_require_state_str(state, "project_root")))
+
+        if run.status == "passed":
+            service.accept_plan(plan_id)
+            return {**state, "runner_status": "accepted", "acceptance_attempt": attempt}
+
+        failed_blocking = [
+            cr.model_dump(mode="json")
+            for cr in run.criteria_results
+            if cr.status != "passed" and cr.blocking
+        ]
+
+        if attempt >= max_attempts:
+            service.mark_plan_needs_attention(
+                plan_id,
+                reason=f"Acceptance failed after {attempt} attempt(s).",
+            )
+            return {
+                **state,
+                "runner_status": "needs_attention",
+                "acceptance_attempt": attempt,
+                "context_warnings": [
+                    *list(state.get("context_warnings", [])),
+                    f"acceptance gate failed after {attempt} attempt(s)",
+                ],
+            }
+
+        bug_tasks = service.create_bug_fix_tasks(plan_id, failed_blocking)
+        for bt in bug_tasks:
+            service.record_task_event(
+                bt.id, "bug_fix_created",
+                message=f"Bug-fix task created: {bt.title}",
+                metadata={"criterion": bt.title, "attempt": attempt},
+            )
+
+        return {
+            **state,
+            "runner_status": "repairing",
+            "acceptance_attempt": attempt,
+            "context_warnings": [
+                *list(state.get("context_warnings", [])),
+                f"acceptance attempt {attempt} failed, created {len(bug_tasks)} bug-fix task(s)",
+            ],
+        }
+
+    def route_after_tasks(state: _DeliveryState) -> str:
+        status = state.get("runner_status", "")
+        if status == "failed":
+            return "finalize_delivery"
+        if status == "tasks_done":
+            return "acceptance_gate"
+        return "finalize_delivery"
+
+    def route_after_acceptance(state: _DeliveryState) -> str:
+        status = state.get("runner_status", "")
+        if status in {"accepted", "needs_attention"}:
+            return "finalize_delivery"
+        if status == "repairing":
+            return "run_task"
+        return "finalize_delivery"
+
     def finalize_delivery_node(state: _DeliveryState) -> dict[str, object]:
-        if state.get("runner_status") != "completed":
-            return dict(state)
         return dict(state)
 
     graph = StateGraph(_DeliveryState)
     graph.add_node("prepare_context", prepare_context_node)
     graph.add_node("run_task", run_delivery_node)
+    graph.add_node("acceptance_gate", acceptance_gate_node)
     graph.add_node("finalize_delivery", finalize_delivery_node)
     graph.add_edge(START, "prepare_context")
     graph.add_edge("prepare_context", "run_task")
-    graph.add_edge("run_task", "finalize_delivery")
+    graph.add_conditional_edges("run_task", route_after_tasks, ["acceptance_gate", "finalize_delivery"])
+    graph.add_conditional_edges("acceptance_gate", route_after_acceptance, ["run_task", "finalize_delivery"])
     graph.add_edge("finalize_delivery", END)
     return graph.compile()
 

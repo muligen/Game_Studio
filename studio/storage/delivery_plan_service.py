@@ -393,18 +393,8 @@ class DeliveryPlanService:
 
         refreshed_tasks = [self._ws.delivery_tasks.get(candidate_id) for candidate_id in plan.task_ids]
         if all(candidate.status == "done" for candidate in refreshed_tasks):
-            plan = plan.model_copy(update={"status": "completed", "updated_at": now})
+            plan = plan.model_copy(update={"status": "validating", "updated_at": now})
             self._ws.delivery_plans.save(plan)
-
-            try:
-                req = self._ws.requirements.get(plan.requirement_id)
-                if req.status != "done":
-                    from studio.domain.requirement_flow import transition_requirement
-                    req = transition_requirement(req, "done")
-                    self._ws.requirements.save(req)
-            except Exception:
-                logger = logging.getLogger(__name__)
-                logger.exception("Failed to auto-advance requirement %s", plan.requirement_id)
 
         return {"task": task, "execution_result": exec_result}
 
@@ -516,6 +506,65 @@ class DeliveryPlanService:
         )
         return self._ws.delivery_task_events.save(event)
 
+    def create_bug_fix_tasks(
+        self,
+        plan_id: str,
+        failed_criteria: list[dict[str, object]],
+    ) -> list[DeliveryTask]:
+        plan = self._ws.delivery_plans.get(plan_id)
+        now = datetime.now(UTC).isoformat()
+        plan = plan.model_copy(update={"status": "repairing", "updated_at": now})
+        self._ws.delivery_plans.save(plan)
+
+        bug_tasks: list[DeliveryTask] = []
+        for criterion in failed_criteria:
+            crit_id = str(criterion.get("criterion_id", "unknown"))
+            crit_text = str(criterion.get("repair_hint") or criterion.get("reason") or crit_id)
+            task = DeliveryTask(
+                id=f"bugfix_{uuid4().hex}",
+                plan_id=plan_id,
+                meeting_id=plan.meeting_id,
+                requirement_id=plan.requirement_id,
+                project_id=plan.project_id,
+                title=f"Fix: {crit_text[:80]}",
+                description=crit_text,
+                owner_agent=str(criterion.get("owner_hint", "dev")),
+                kind="bug_fix",
+                status="ready",
+                acceptance_criteria=[crit_text],
+            )
+            self._ws.delivery_tasks.save(task)
+            plan.task_ids.append(task.id)
+            bug_tasks.append(task)
+
+        self._ws.delivery_plans.save(plan)
+        return bug_tasks
+
+    def accept_plan(self, plan_id: str) -> dict:
+        plan = self._ws.delivery_plans.get(plan_id)
+        now = datetime.now(UTC).isoformat()
+        plan = plan.model_copy(update={"status": "accepted", "updated_at": now})
+        self._ws.delivery_plans.save(plan)
+
+        try:
+            req = self._ws.requirements.get(plan.requirement_id)
+            if req.status != "done":
+                from studio.domain.requirement_flow import transition_requirement
+                req = transition_requirement(req, "done")
+                self._ws.requirements.save(req)
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.exception("Failed to auto-advance requirement %s", plan.requirement_id)
+
+        return {"plan": plan}
+
+    def mark_plan_needs_attention(self, plan_id: str, *, reason: str) -> dict:
+        plan = self._ws.delivery_plans.get(plan_id)
+        now = datetime.now(UTC).isoformat()
+        plan = plan.model_copy(update={"status": "needs_attention", "updated_at": now})
+        self._ws.delivery_plans.save(plan)
+        return {"plan": plan, "reason": reason}
+
     def list_board(self, requirement_id: str | None = None) -> dict:
         plans = self._ws.delivery_plans.list_all()
         tasks = self._ws.delivery_tasks.list_all()
@@ -544,10 +593,16 @@ class DeliveryPlanService:
             return "idle"
         if any(gate.status == "open" for gate in gates):
             return "waiting_for_decision"
-        if any(plan.status == "completed" for plan in plans) and all(
-            task.status == "done" for task in tasks
-        ):
+        if any(plan.status == "accepted" for plan in plans):
+            return "accepted"
+        if any(plan.status == "completed" for plan in plans):
             return "completed"
+        if any(plan.status == "validating" for plan in plans):
+            return "validating"
+        if any(plan.status == "repairing" for plan in plans):
+            return "repairing"
+        if any(plan.status == "needs_attention" for plan in plans):
+            return "needs_attention"
         if any(task.status == "failed" for task in tasks):
             return "failed"
         if any(task.status == "in_progress" for task in tasks):
