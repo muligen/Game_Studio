@@ -77,6 +77,8 @@ class DeliveryPlannerAgent:
                     for gi in payload.decision_gate.items
                 ],
             },
+            "assumptions": [item.model_dump(mode="json") for item in payload.assumptions],
+            "needs_attention": [item.model_dump(mode="json") for item in payload.needs_attention],
         }
 
     def consume_llm_log_entry(self) -> dict[str, object] | None:

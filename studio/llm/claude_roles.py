@@ -12,9 +12,10 @@ from typing import Any, Literal, Protocol
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 from claude_agent_sdk.types import AssistantMessage, ResultMessage
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from studio.llm.project_scope import agent_prompt_context, load_agent_settings, resolve_agent_project_dir
+from studio.schemas.assumption import ProjectAssumptionDraft
 from studio.observability import LangfuseTelemetry
 from studio.runtime import process_registry
 
@@ -209,11 +210,23 @@ class DeliveryPlannerGate(BaseModel):
     items: list[DeliveryPlannerGateItem]
 
 
+class DeliveryPlannerNeedsAttentionItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    blocker: str
+    evidence: list[str]
+    recommended_action: str
+    affected_task_titles: list[str]
+    resumable: bool = True
+
+
 class DeliveryPlannerPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tasks: list[DeliveryPlannerTaskItem]
     decision_gate: DeliveryPlannerGate
+    assumptions: list[ProjectAssumptionDraft] = Field(default_factory=list)
+    needs_attention: list[DeliveryPlannerNeedsAttentionItem] = Field(default_factory=list)
 
 class RequirementClarifierPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -275,15 +288,17 @@ _ROLE_PROMPTS: dict[str, str] = {
     ),
     "delivery_planner": (
         "你是交付规划师。\n"
-        "根据已完成的会议纪要、需求上下文和可选的kickoff决策门决议，"
-        "产出包含任务和决策门的交付计划。\n"
+        "根据已完成的会议纪要和需求上下文，产出包含任务和假设的交付计划。\n"
+        "对于用户未指定的普通实现偏好（视觉风格、库选择、布局、命名等），选择合理的默认值并记录到 assumptions 中。\n"
         "仅返回JSON，包含：\n"
         "- tasks：列表，每项包含 {title, description, owner_agent（优先使用：design, dev, qa, art, reviewer, quality）, "
         "depends_on（其他任务标题的列表）, acceptance_criteria, source_evidence}\n"
-        "  如果任务依赖用户决策，不要把决策写成普通任务标题；请在 decision_gate.items 中创建对应问题，"
-        "并在 depends_on 中使用 DECISION_GATE:<gate_item_id> 作为占位依赖。\n"
-        "- decision_gate：{items: [{question, context, options, source_evidence}]} "
-        "针对需要用户决策的未解决冲突。如无冲突则 items 为空。\n"
+        "- decision_gate：{items: []} — 默认为空。仅在上下文明确要求使用 legacy decision gate 时才填充。\n"
+        "- assumptions：列表，每项包含 {category, decision, rationale, impact, owner_agent, change_policy}\n"
+        "  记录所有自动选择的默认决策。\n"
+        "- needs_attention：列表，仅用于真正的阻塞问题（缺少API密钥、矛盾的硬约束、许可证风险、不可用的外部依赖）。\n"
+        "  每项包含 {blocker, evidence, recommended_action, affected_task_titles, resumable}。\n"
+        "原则：Clarify负责收集必要信息。Delivery负责自主执行。\n"
     ),
     "requirement_clarifier": (
         "你是游戏开发的需求澄清agent。\n"
@@ -466,8 +481,39 @@ _ROLE_OUTPUT_FORMATS: dict[str, dict[str, object]] = {
                 "required": ["items"],
                 "additionalProperties": False,
             },
+            "assumptions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string", "enum": ["product", "art", "tech", "qa", "scope", "delivery"]},
+                        "decision": {"type": "string"},
+                        "rationale": {"type": "string"},
+                        "impact": {"type": "string"},
+                        "owner_agent": {"type": "string", "enum": ["design", "dev", "qa", "art", "reviewer", "quality"]},
+                        "change_policy": {"type": "string", "enum": ["next_iteration"]},
+                    },
+                    "required": ["category", "decision", "rationale", "impact", "owner_agent"],
+                    "additionalProperties": False,
+                },
+            },
+            "needs_attention": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "blocker": {"type": "string"},
+                        "evidence": {"type": "array", "items": {"type": "string"}},
+                        "recommended_action": {"type": "string"},
+                        "affected_task_titles": {"type": "array", "items": {"type": "string"}},
+                        "resumable": {"type": "boolean"},
+                    },
+                    "required": ["blocker", "evidence", "recommended_action", "affected_task_titles"],
+                    "additionalProperties": False,
+                },
+            },
         },
-        "required": ["tasks", "decision_gate"],
+        "required": ["tasks", "decision_gate", "assumptions", "needs_attention"],
         "additionalProperties": False,
     },
     "reviewer": {

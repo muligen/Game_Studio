@@ -33,6 +33,8 @@ def _valid_payload_dict() -> dict[str, object]:
                 },
             ],
         },
+        "assumptions": [],
+        "needs_attention": [],
     }
 
 
@@ -97,6 +99,37 @@ def test_delivery_planner_payload_rejects_extra_fields() -> None:
 
     with pytest.raises(ValidationError):
         DeliveryPlannerPayload.model_validate(data)
+
+
+def test_delivery_planner_payload_accepts_assumptions_and_needs_attention() -> None:
+    payload = DeliveryPlannerPayload.model_validate(
+        {
+            "tasks": [
+                {
+                    "title": "Implement Snake MVP",
+                    "description": "Build the game with default retro pixel style.",
+                    "owner_agent": "dev",
+                    "depends_on": [],
+                    "acceptance_criteria": ["Game opens in browser"],
+                    "source_evidence": ["Meeting agreed browser MVP"],
+                }
+            ],
+            "decision_gate": {"items": []},
+            "assumptions": [
+                {
+                    "category": "art",
+                    "decision": "Default to retro pixel art.",
+                    "rationale": "Readable, cheap, and suitable for Snake.",
+                    "impact": "Art, dev, and QA use retro pixel acceptance criteria.",
+                    "owner_agent": "art",
+                }
+            ],
+            "needs_attention": [],
+        }
+    )
+
+    assert payload.assumptions[0].decision == "Default to retro pixel art."
+    assert payload.needs_attention == []
 
 
 def test_delivery_planner_profile_loads_correctly() -> None:
