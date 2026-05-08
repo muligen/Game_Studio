@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from studio.llm import ClaudeRoleError
+from studio.schemas.assumption import NeedsAttentionItem
 from studio.schemas.design_doc import DesignDoc
+from studio.schemas.delivery import DeliveryPlan
 from studio.schemas.meeting import MeetingMinutes
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.session import ProjectAgentSession
@@ -549,6 +551,39 @@ class TestResolveGate:
         items = StudioWorkspace(tmp_path).needs_attention_items.list_all()
         assert len(items) == 1
         assert items[0].blocker == "Missing required external API key."
+
+    @staticmethod
+    def test_board_status_prefers_repairing_plan_over_open_needs_attention(
+        tmp_path: Path,
+    ) -> None:
+        ws = StudioWorkspace(tmp_path)
+        ws.ensure_layout()
+        ws.delivery_plans.save(
+            DeliveryPlan(
+                id="plan_001",
+                meeting_id="meet_001",
+                requirement_id="req_001",
+                project_id="proj_001",
+                status="repairing",
+            )
+        )
+        ws.needs_attention_items.save(
+            NeedsAttentionItem(
+                id="needs_001",
+                requirement_id="req_001",
+                project_id="proj_001",
+                plan_id="plan_001",
+                blocker="Ordinary preference needs a default.",
+                evidence=["Planner recorded a pending preference."],
+                recommended_action="Proceed with the documented default.",
+            )
+        )
+
+        result = DeliveryPlanService(tmp_path, project_root=tmp_path.parent).list_board(
+            requirement_id="req_001",
+        )
+
+        assert result["runner_status"] == "repairing"
 
 
 class TestStartTask:

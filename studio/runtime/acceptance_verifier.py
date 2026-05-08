@@ -45,17 +45,34 @@ def verify_project(project_dir: Path, *, artifacts_root: Path, run_id: str) -> V
     artifacts_dir = artifacts_root / run_id
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     if not (project_dir / "package.json").exists():
+        if (project_dir / "index.html").exists():
+            evidence = [
+                AcceptanceEvidence(
+                    id="ev_standalone_html_detected",
+                    evidence_type="command",
+                    summary="Standalone index.html was detected as the project launch target.",
+                    artifact_path=str(project_dir / "index.html"),
+                )
+            ]
+            browser_ok, browser_evidence, browser_errors = _run_static_html_smoke(project_dir, artifacts_dir)
+            evidence.extend(browser_evidence)
+            return VerificationResult(
+                startup_ok=not browser_errors,
+                browser_ok=browser_ok,
+                evidence=evidence,
+                errors=browser_errors,
+            )
         evidence = AcceptanceEvidence(
             id="ev_package_missing",
             evidence_type="file",
-            summary="package.json was not found in the target project directory.",
+            summary="Neither package.json nor index.html was found in the target project directory.",
             artifact_path=None,
         )
         return VerificationResult(
             startup_ok=False,
             browser_ok=False,
             evidence=[evidence],
-            errors=["package.json missing from project_dir"],
+            errors=["package.json or index.html missing from project_dir"],
         )
 
     commands = detect_node_commands(project_dir)
@@ -157,6 +174,47 @@ def _run_playwright_smoke(
             process.kill()
             stdout, _ = process.communicate(timeout=5)
         log_path.write_text(stdout or "", encoding="utf-8")
+    return not errors, evidence, errors
+
+
+def _run_static_html_smoke(project_dir: Path, artifacts_dir: Path) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
+    from playwright.sync_api import sync_playwright
+
+    evidence: list[AcceptanceEvidence] = []
+    errors: list[str] = []
+    index_path = (project_dir / "index.html").resolve()
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        context = browser.new_context(record_video_dir=str(artifacts_dir / "videos"))
+        page = context.new_page()
+        console_errors: list[str] = []
+        page_errors: list[str] = []
+        page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+        page.on("pageerror", lambda exc: page_errors.append(str(exc)))
+        page.goto(index_path.as_uri(), wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(1000)
+        screenshot_path = artifacts_dir / "startup.png"
+        page.screenshot(path=str(screenshot_path), full_page=True)
+        visible_surface = page.locator("canvas, #root, main, [data-game-root]").count() > 0
+        context.close()
+        browser.close()
+
+    if page_errors:
+        errors.extend(f"pageerror: {item}" for item in page_errors)
+    fatal_console = [item for item in console_errors if _is_fatal_console_error(item)]
+    if fatal_console:
+        errors.extend(f"console: {item}" for item in fatal_console)
+    if not visible_surface:
+        errors.append("no visible game surface found")
+    evidence.append(
+        AcceptanceEvidence(
+            id="ev_playwright_static_html",
+            evidence_type="playwright",
+            summary="Playwright opened standalone index.html and captured startup state.",
+            artifact_path=str(screenshot_path),
+            metadata={"console_errors": console_errors, "page_errors": page_errors, "visible_surface": visible_surface},
+        )
+    )
     return not errors, evidence, errors
 
 

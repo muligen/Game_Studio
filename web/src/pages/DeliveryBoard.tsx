@@ -121,6 +121,7 @@ export function DeliveryBoard() {
         <AssumptionsPanel
           assumptions={board?.assumptions || []}
           needsAttentionItems={board?.needs_attention_items || []}
+          runnerStatus={board?.runner_status}
         />
         {showAcceptanceBanner && (
           <div className={`rounded-lg p-4 border ${

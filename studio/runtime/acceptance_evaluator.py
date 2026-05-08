@@ -48,6 +48,8 @@ def _evaluate_criterion(
     ]
     if criterion.source == "system":
         return _evaluate_system_criterion(criterion, verification, matching_evidence, blocking)
+    if _is_launch_target_failure(verification):
+        return _deferred_until_startup_fixed(criterion)
     if _has_fallback_warning(task_results):
         return AcceptanceCriterionResult(
             criterion_id=criterion.id,
@@ -94,6 +96,8 @@ def _evaluate_system_criterion(
     blocking: bool,
 ) -> AcceptanceCriterionResult:
     text = criterion.text.lower()
+    if _is_launch_target_failure(verification) and "detectable command" not in text:
+        return _deferred_until_startup_fixed(criterion)
     if "browser page opens" in text and not verification.browser_ok:
         return _failed(criterion, "Playwright could not prove that the browser page opens cleanly.", blocking)
     if "console" in text and verification.errors:
@@ -125,6 +129,35 @@ def _failed(criterion: AcceptanceCriterion, reason: str, blocking: bool) -> Acce
         repair_hint=f"Fix validation failure for: {criterion.text}",
         owner_hint=criterion.owner_hint,
         blocking=blocking,
+    )
+
+
+def _deferred_until_startup_fixed(criterion: AcceptanceCriterion) -> AcceptanceCriterionResult:
+    return AcceptanceCriterionResult(
+        criterion_id=criterion.id,
+        status="inconclusive",
+        evidence_ids=[],
+        reason="Startup entry point validation must pass before this criterion can be evaluated.",
+        repair_hint=f"Evaluate after startup is fixed: {criterion.text}",
+        owner_hint=criterion.owner_hint,
+        blocking=False,
+    )
+
+
+def _is_launch_target_failure(verification: VerificationResult) -> bool:
+    if verification.startup_ok:
+        return False
+    error_text = "\n".join(verification.errors).lower()
+    if any(marker in error_text for marker in ("pageerror:", "console:")):
+        return False
+    return any(
+        marker in error_text
+        for marker in (
+            "package.json",
+            "index.html",
+            "preview command missing",
+            "no working start or preview",
+        )
     )
 
 

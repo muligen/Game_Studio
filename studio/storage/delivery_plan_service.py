@@ -706,26 +706,26 @@ class DeliveryPlanService:
     ) -> str:
         if not plans:
             return "idle"
-        if needs_attention_items and any(item.status == "open" for item in needs_attention_items):
-            return "needs_attention"
         if any(gate.status == "open" for gate in gates):
             return "waiting_for_decision"
         if any(plan.status == "accepted" for plan in plans):
             return "accepted"
-        if any(plan.status == "completed" for plan in plans):
-            return "completed"
         if any(plan.status == "validating" for plan in plans):
             return "validating"
         if any(plan.status == "repairing" for plan in plans):
             return "repairing"
         if any(plan.status == "needs_attention" for plan in plans):
             return "needs_attention"
+        if any(plan.status == "completed" for plan in plans):
+            return "completed"
         if any(task.status == "failed" for task in tasks):
             return "failed"
         if any(task.status == "in_progress" for task in tasks):
             return "running"
         if any(plan.status == "active" for plan in plans):
             return "running"
+        if needs_attention_items and any(item.status == "open" for item in needs_attention_items):
+            return "needs_attention"
         return "idle"
 
     @staticmethod
