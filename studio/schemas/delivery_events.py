@@ -17,6 +17,9 @@ DeliveryTaskEventType = Literal[
     "task_completed",
     "task_failed",
     "task_retried",
+    "bug_fix_created",
+    "acceptance_started",
+    "acceptance_completed",
 ]
 
 

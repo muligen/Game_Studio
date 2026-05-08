@@ -18,6 +18,7 @@ from studio.schemas.delivery import (
     TaskExecutionResult,
 )
 from studio.schemas.delivery_events import DeliveryTaskEvent
+from studio.schemas.acceptance import AcceptanceContract, AcceptanceRun
 from studio.schemas.meeting import MeetingMinutes
 from studio.schemas.meeting_transcript import MeetingTranscript, MeetingTranscriptEvent
 from studio.schemas.requirement import RequirementCard
@@ -68,6 +69,8 @@ class StudioWorkspace:
         self.clarifications = JsonRepository(root / "requirement_clarifications", RequirementClarificationSession)
         self.kickoff_tasks = JsonRepository(root / "kickoff_tasks", KickoffTask)
         self.delivery_task_events = JsonRepository(root / "delivery_task_events", DeliveryTaskEvent)
+        self.acceptance_contracts = JsonRepository(root / "acceptance_contracts", AcceptanceContract)
+        self.acceptance_runs = JsonRepository(root / "acceptance_runs", AcceptanceRun)
 
     def ensure_layout(self) -> None:
         for repo_root in (
@@ -87,6 +90,8 @@ class StudioWorkspace:
             self.clarifications.root,
             self.kickoff_tasks.root,
             self.delivery_task_events.root,
+            self.acceptance_contracts.root,
+            self.acceptance_runs.root,
         ):
             repo_root.mkdir(parents=True, exist_ok=True)
 

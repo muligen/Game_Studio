@@ -9,6 +9,8 @@ from studio.schemas.meeting import MeetingMinutes
 from studio.schemas.requirement import RequirementCard
 from studio.schemas.runtime import NodeDecision, NodeResult
 from studio.schemas.session import ProjectAgentSession
+from studio.schemas.acceptance import AcceptanceRun, AcceptanceCriterionResult
+from studio.runtime.acceptance_verifier import VerificationResult
 from studio.storage.workspace import StudioWorkspace
 
 
@@ -201,6 +203,23 @@ def test_delivery_graph_runs_dependency_batches_and_injects_context(
 
     monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _Dispatcher)
 
+    def _fake_verify(project_dir, *, artifacts_root, run_id):
+        return VerificationResult(startup_ok=True, browser_ok=True, evidence=[])
+    monkeypatch.setattr("studio.runtime.acceptance_verifier.verify_project", _fake_verify)
+
+    def _fake_evaluate(*, contract, verification, task_results, run_id, attempt_number):
+        return AcceptanceRun(
+            id=run_id,
+            contract_id=contract.id,
+            plan_id=contract.plan_id,
+            requirement_id=contract.requirement_id,
+            project_id=contract.project_id,
+            attempt_number=attempt_number,
+            status="passed",
+            criteria_results=[],
+        )
+    monkeypatch.setattr("studio.runtime.acceptance_evaluator.evaluate_acceptance", _fake_evaluate)
+
     result = build_delivery_graph().invoke(
         {
             "workspace_root": str(workspace_root),
@@ -210,8 +229,8 @@ def test_delivery_graph_runs_dependency_batches_and_injects_context(
     )
 
     ws = StudioWorkspace(workspace_root)
-    assert result["runner_status"] == "completed"
-    assert ws.delivery_plans.get(plan_id).status == "completed"
+    assert result["runner_status"] == "accepted"
+    assert ws.delivery_plans.get(plan_id).status == "accepted"
     assert [role for role, _ in calls] == ["art", "dev"]
     assert calls[0][1]["resolved_decisions"] == [
         {
@@ -227,7 +246,7 @@ def test_delivery_graph_runs_dependency_batches_and_injects_context(
     assert ws.execution_results.get("result_task_dev").changed_files == ["game/index.html"]
 
 
-def test_delivery_graph_workspace_stub_agents_record_context(tmp_path: Path) -> None:
+def test_delivery_graph_workspace_stub_agents_record_context(tmp_path: Path, monkeypatch) -> None:
     from studio.runtime.graph import build_delivery_graph
 
     workspace_root = tmp_path / ".studio-data"
@@ -235,6 +254,24 @@ def test_delivery_graph_workspace_stub_agents_record_context(tmp_path: Path) -> 
     workspace_root.mkdir(parents=True)
     (workspace_root / "e2e_stub_delivery_agents").write_text("true", encoding="utf-8")
     plan_id = _seed_delivery_plan(workspace_root)
+
+
+    def _fake_verify(project_dir, *, artifacts_root, run_id):
+        return VerificationResult(startup_ok=True, browser_ok=True, evidence=[])
+    monkeypatch.setattr("studio.runtime.acceptance_verifier.verify_project", _fake_verify)
+
+    def _fake_evaluate(*, contract, verification, task_results, run_id, attempt_number):
+        return AcceptanceRun(
+            id=run_id,
+            contract_id=contract.id,
+            plan_id=contract.plan_id,
+            requirement_id=contract.requirement_id,
+            project_id=contract.project_id,
+            attempt_number=attempt_number,
+            status="passed",
+            criteria_results=[],
+        )
+    monkeypatch.setattr("studio.runtime.acceptance_evaluator.evaluate_acceptance", _fake_evaluate)
 
     result = build_delivery_graph().invoke(
         {
@@ -248,7 +285,7 @@ def test_delivery_graph_workspace_stub_agents_record_context(tmp_path: Path) -> 
     project_dir = project_root.parent / "GS_projects" / "proj_001"
     dev_context = (project_dir / "debug" / "dev-context.json").read_text(encoding="utf-8")
 
-    assert result["runner_status"] == "completed"
+    assert result["runner_status"] == "accepted"
     assert ws.delivery_tasks.get("task_art").status == "done"
     assert ws.delivery_tasks.get("task_dev").status == "done"
     assert "art/ART_GUIDE.md" in dev_context
@@ -319,6 +356,23 @@ def test_delivery_graph_submits_agent_tasks_to_shared_pool(
         raising=False,
     )
 
+    def _fake_verify(project_dir, *, artifacts_root, run_id):
+        return VerificationResult(startup_ok=True, browser_ok=True, evidence=[])
+    monkeypatch.setattr("studio.runtime.acceptance_verifier.verify_project", _fake_verify)
+
+    def _fake_evaluate(*, contract, verification, task_results, run_id, attempt_number):
+        return AcceptanceRun(
+            id=run_id,
+            contract_id=contract.id,
+            plan_id=contract.plan_id,
+            requirement_id=contract.requirement_id,
+            project_id=contract.project_id,
+            attempt_number=attempt_number,
+            status="passed",
+            criteria_results=[],
+        )
+    monkeypatch.setattr("studio.runtime.acceptance_evaluator.evaluate_acceptance", _fake_evaluate)
+
     result = graph_module.build_delivery_graph().invoke(
         {
             "workspace_root": str(workspace_root),
@@ -327,7 +381,7 @@ def test_delivery_graph_submits_agent_tasks_to_shared_pool(
         }
     )
 
-    assert result["runner_status"] == "completed"
+    assert result["runner_status"] == "accepted"
     assert submitted == [
         ("art", "req_001", "Write art guide"),
         ("dev", "req_001", "Implement game UI"),
@@ -413,6 +467,23 @@ def test_delivery_graph_records_task_events(tmp_path: Path, monkeypatch) -> None
 
     monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _Dispatcher)
     graph_module.agent_pool = SimpleNamespace(submit_agent=_submit_agent)
+
+    def _fake_verify(project_dir, *, artifacts_root, run_id):
+        return VerificationResult(startup_ok=True, browser_ok=True, evidence=[])
+    monkeypatch.setattr("studio.runtime.acceptance_verifier.verify_project", _fake_verify)
+
+    def _fake_evaluate(*, contract, verification, task_results, run_id, attempt_number):
+        return AcceptanceRun(
+            id=run_id,
+            contract_id=contract.id,
+            plan_id=contract.plan_id,
+            requirement_id=contract.requirement_id,
+            project_id=contract.project_id,
+            attempt_number=attempt_number,
+            status="passed",
+            criteria_results=[],
+        )
+    monkeypatch.setattr("studio.runtime.acceptance_evaluator.evaluate_acceptance", _fake_evaluate)
 
     graph_module.build_delivery_graph().invoke(
         {"workspace_root": str(workspace_root), "project_root": str(project_root), "plan_id": plan_id}

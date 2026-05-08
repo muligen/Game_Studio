@@ -121,13 +121,19 @@ async def list_delivery_board(
     workspace: str,
     requirement_id: str | None = None,
 ) -> dict:
-    """List all delivery board items (plans, tasks, decision gates)."""
+    """List all delivery board items (plans, tasks, decision gates, acceptance runs)."""
     service = _get_service(workspace)
     result = service.list_board(requirement_id=requirement_id)
+    plan_ids = {p.id for p in result["plans"]}
+    acceptance_runs = [
+        run for run in service._ws.acceptance_runs.list_all()
+        if run.plan_id in plan_ids
+    ]
     return {
         "plans": [p.model_dump() for p in result["plans"]],
         "tasks": [t.model_dump() for t in result["tasks"]],
         "decision_gates": [g.model_dump() for g in result["decision_gates"]],
+        "acceptance_runs": [run.model_dump() for run in acceptance_runs],
         "runner_status": result.get("runner_status", "idle"),
     }
 
@@ -356,3 +362,64 @@ def _extract_content_text(message: object) -> str:
                 texts.append(block.get("text", ""))
         return "\n".join(texts)
     return ""
+
+
+@router.get("/delivery-plans/{plan_id}/acceptance-runs")
+async def list_acceptance_runs(
+    plan_id: str,
+    workspace: str,
+) -> dict:
+    """List all acceptance runs for a delivery plan."""
+    service = _get_service(workspace)
+    try:
+        service._ws.delivery_plans.get(plan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    contract_id = f"contract_{plan_id}"
+    runs = [
+        run for run in service._ws.acceptance_runs.list_all()
+        if run.contract_id == contract_id
+    ]
+    runs.sort(key=lambda r: r.completed_at or "")
+    return {"runs": [run.model_dump() for run in runs]}
+
+
+@router.get("/acceptance-runs/{run_id}")
+async def get_acceptance_run(
+    run_id: str,
+    workspace: str,
+) -> dict:
+    """Get a single acceptance run with full details."""
+    service = _get_service(workspace)
+    try:
+        run = service._ws.acceptance_runs.get(run_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Acceptance run not found")
+    return run.model_dump()
+
+
+@router.post("/delivery-plans/{plan_id}/retry-acceptance")
+async def retry_acceptance(
+    plan_id: str,
+    workspace: str,
+) -> dict:
+    """Re-run acceptance validation for a plan that needs attention."""
+    service = _get_service(workspace)
+    try:
+        plan = service._ws.delivery_plans.get(plan_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if plan.status not in {"needs_attention", "validating", "repairing"}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Plan status is '{plan.status}', retry only available for validating/repairing/needs_attention",
+        )
+    plan = plan.model_copy(update={"status": "active"})
+    service._ws.delivery_plans.save(plan)
+    submit_delivery_plan(
+        resolve_workspace_root(workspace),
+        resolve_project_root(workspace),
+        plan_id,
+        runner=run_delivery_plan,
+    )
+    return {"plan_id": plan_id, "status": "retriggered"}

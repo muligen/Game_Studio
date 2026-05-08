@@ -40,4 +40,5 @@ class RequirementCard(BaseModel):
     balance_table_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     bug_ids: list[StrippedNonEmptyStr] = Field(default_factory=list)
     notes: list[StrippedNonEmptyStr] = Field(default_factory=list)
+    acceptance_criteria: list[StrippedNonEmptyStr] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
