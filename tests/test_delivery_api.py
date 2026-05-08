@@ -114,9 +114,10 @@ def planner(monkeypatch: pytest.MonkeyPatch) -> FakePlanner:
 class TestGenerateDeliveryPlan:
     @staticmethod
     def test_200_generates_plan_from_backend_planner(
-        client: TestClient, workspace: Path, planner: FakePlanner,
+        client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _seed_meeting(workspace, "meet_001")
+        monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", lambda *args, **kwargs: None)
 
         resp = client.post(
             "/api/meetings/meet_001/delivery-plan",
@@ -128,7 +129,8 @@ class TestGenerateDeliveryPlan:
         data = resp.json()
         assert data["plan"]["meeting_id"] == "meet_001"
         assert data["plan"]["status"] == "active"
-        assert len(data["tasks"]) == 2
+        assert len(data["tasks"]) == 3
+        assert any("documentation" in task["title"].lower() for task in data["tasks"])
         assert data["decision_gate"] is None
 
     @staticmethod
@@ -213,9 +215,10 @@ class TestGenerateDeliveryPlan:
 
     @staticmethod
     def test_200_generates_plan_when_workspace_is_studio_data_dir(
-        client: TestClient, workspace: Path, planner: FakePlanner,
+        client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _seed_meeting(workspace, "meet_002")
+        monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", lambda *args, **kwargs: None)
 
         resp = client.post(
             "/api/meetings/meet_002/delivery-plan",
@@ -226,13 +229,16 @@ class TestGenerateDeliveryPlan:
         assert resp.status_code == 200
         data = resp.json()
         assert data["plan"]["meeting_id"] == "meet_002"
-        assert len(data["tasks"]) == 2
+        assert len(data["tasks"]) == 3
 
 
 class TestListDeliveryBoard:
     @staticmethod
-    def test_200_returns_board(client: TestClient, workspace: Path, planner: FakePlanner) -> None:
+    def test_200_returns_board(
+        client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         _seed_meeting(workspace, "meet_001")
+        monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", lambda *args, **kwargs: None)
         client.post(
             "/api/meetings/meet_001/delivery-plan",
             params={"workspace": str(workspace)},
@@ -244,16 +250,18 @@ class TestListDeliveryBoard:
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["plans"]) == 1
-        assert len(data["tasks"]) == 2
+        assert len(data["tasks"]) == 3
         assert data["decision_gates"] == []
 
 
 class TestResolveGate:
     @staticmethod
     def test_200_resolves_gate_and_activates_plan(
-        client: TestClient, workspace: Path, planner: FakePlanner,
+        client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _seed_meeting(workspace, "meet_001")
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
+        monkeypatch.setattr("studio.api.routes.delivery.run_delivery_plan", lambda *args, **kwargs: None)
         planner.payload = _planner_payload(
             gate_items=[
                 {
@@ -287,6 +295,7 @@ class TestResolveGate:
         client: TestClient, workspace: Path, planner: FakePlanner, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _seed_meeting(workspace, "meet_001")
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         planner.payload = _planner_payload(
             gate_items=[
                 {
