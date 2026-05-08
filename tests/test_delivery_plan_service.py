@@ -141,7 +141,7 @@ class TestGeneratePlan:
         result = svc.generate_plan("meet_001", "proj_001")
 
         assert result["plan"].status == "active"
-        assert len(result["tasks"]) == 2
+        assert len(result["tasks"]) == 3  # 2 planner tasks + 1 auto-added documentation task
         assert planner.calls, "planner should have been invoked"
         context = planner.calls[0]
         assert context["meeting"]["id"] == "meet_001"
@@ -213,7 +213,7 @@ class TestGeneratePlan:
 
         result = svc.generate_plan("meet_001", "proj_001")
 
-        assert [task.owner_agent for task in result["tasks"]] == ["design", "dev", "qa"]
+        assert [task.owner_agent for task in result["tasks"]] == ["design", "dev", "qa", "quality"]
 
     @staticmethod
     def test_rejects_cyclic_dependencies(
@@ -254,8 +254,9 @@ class TestGeneratePlan:
 
     @staticmethod
     def test_creates_preview_tasks_when_gate_exists(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path, pending_user_decisions=["Choose status effect scope"])
         _requirement(tmp_path)
         planner.payload = _planner_payload(
@@ -273,12 +274,13 @@ class TestGeneratePlan:
 
         assert result["plan"].status == "awaiting_user_decision"
         assert result["decision_gate"] is not None
-        assert [task.status for task in result["tasks"]] == ["preview", "preview"]
+        assert [task.status for task in result["tasks"]] == ["preview", "preview", "preview"]
 
     @staticmethod
     def test_ignores_decision_placeholder_dependency_when_gate_exists(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path, pending_user_decisions=["Choose visual style"])
         _requirement(tmp_path)
         planner.payload = {
@@ -310,8 +312,9 @@ class TestGeneratePlan:
 
     @staticmethod
     def test_ignores_decision_gate_dependency_when_gate_exists(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path, pending_user_decisions=["Choose startup viewport"])
         _requirement(tmp_path)
         planner.payload = {
@@ -343,8 +346,9 @@ class TestGeneratePlan:
 
     @staticmethod
     def test_ignores_decision_colon_dependency_when_gate_exists(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path, pending_user_decisions=["Choose retro style"])
         _requirement(tmp_path)
         planner.payload = {
@@ -376,8 +380,9 @@ class TestGeneratePlan:
 
     @staticmethod
     def test_generates_gate_item_ids_when_planner_omits_them(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path, pending_user_decisions=["Choose art direction"])
         _requirement(tmp_path)
         planner.payload = _planner_payload(
@@ -414,8 +419,9 @@ class TestGeneratePlan:
 class TestResolveGate:
     @staticmethod
     def test_promotes_preview_tasks_and_stamps_versions(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path)
         _requirement(tmp_path)
         planner.payload = _planner_payload(
@@ -445,11 +451,112 @@ class TestResolveGate:
         assert tasks[1].decision_resolution_version == 1
 
 
+    @staticmethod
+    def test_generate_plan_saves_assumptions_and_starts_active(
+        tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose visual style"])
+        _requirement(tmp_path)
+        planner = FakePlanner(
+            _planner_payload(
+                gate_items=[
+                    {
+                        "id": "visual_style",
+                        "question": "Which visual style?",
+                        "context": "Ordinary preference",
+                        "options": ["pixel", "minimal"],
+                    }
+                ],
+            )
+            | {
+                "assumptions": [
+                    {
+                        "category": "art",
+                        "decision": "Default to retro pixel art.",
+                        "rationale": "Readable and low-cost for Snake MVP.",
+                        "impact": "Art, dev, and QA use pixel style.",
+                        "owner_agent": "art",
+                    }
+                ],
+                "needs_attention": [],
+            }
+        )
+        svc = DeliveryPlanService(tmp_path, planner=planner, project_root=tmp_path.parent)
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["plan"].status == "active"
+        assert result["decision_gate"] is None
+        assumptions = StudioWorkspace(tmp_path).project_assumptions.list_all()
+        assert assumptions[0].decision == "Default to retro pixel art."
+        doc_tasks = [t for t in result["tasks"] if "documentation" in t.title.lower()]
+        assert len(doc_tasks) == 1
+
+    @staticmethod
+    def test_generate_plan_can_use_legacy_decision_gate_when_enabled(
+        tmp_path: Path, monkeypatch,
+    ) -> None:
+        _completed_meeting(tmp_path, pending_user_decisions=["Choose visual style"])
+        _requirement(tmp_path)
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
+        planner = FakePlanner(
+            _planner_payload(
+                gate_items=[
+                    {
+                        "id": "visual_style",
+                        "question": "Which visual style?",
+                        "context": "Legacy gate enabled",
+                        "options": ["pixel", "minimal"],
+                    }
+                ],
+            )
+            | {"assumptions": [], "needs_attention": []}
+        )
+        svc = DeliveryPlanService(tmp_path, planner=planner, project_root=tmp_path.parent)
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["plan"].status == "awaiting_user_decision"
+        assert result["decision_gate"] is not None
+
+    @staticmethod
+    def test_generate_plan_creates_needs_attention_plan_for_blockers(
+        tmp_path: Path,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        _requirement(tmp_path)
+        planner = FakePlanner({
+            "tasks": [],
+            "decision_gate": {"items": []},
+            "assumptions": [],
+            "needs_attention": [
+                {
+                    "blocker": "Missing required external API key.",
+                    "evidence": ["No API key was present in project config."],
+                    "recommended_action": "Provide an API key and retry Delivery.",
+                    "affected_task_titles": [],
+                    "resumable": True,
+                }
+            ],
+        })
+        svc = DeliveryPlanService(tmp_path, planner=planner, project_root=tmp_path.parent)
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["plan"].status == "needs_attention"
+        assert result["tasks"] == []
+        assert result["decision_gate"] is None
+        items = StudioWorkspace(tmp_path).needs_attention_items.list_all()
+        assert len(items) == 1
+        assert items[0].blocker == "Missing required external API key."
+
+
 class TestStartTask:
     @staticmethod
     def test_rejects_preview_task_before_gate_resolution(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path)
         _requirement(tmp_path)
         planner.payload = _planner_payload(
@@ -495,8 +602,9 @@ class TestStartTask:
 
     @staticmethod
     def test_rejects_missing_task_decision_version_after_gate_resolution(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path)
         _requirement(tmp_path)
         planner.payload = _planner_payload(
@@ -522,8 +630,9 @@ class TestStartTask:
 
     @staticmethod
     def test_rejects_stale_task_decision_version(
-        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path,
+        svc: DeliveryPlanService, planner: FakePlanner, tmp_path: Path, monkeypatch,
     ) -> None:
+        monkeypatch.setenv("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "true")
         _completed_meeting(tmp_path)
         _requirement(tmp_path)
         planner.payload = _planner_payload(

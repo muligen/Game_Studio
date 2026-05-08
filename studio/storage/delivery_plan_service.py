@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ from uuid import uuid4
 
 from studio.agents.delivery_planner import DeliveryPlannerAgent
 from studio.agents.profile_loader import AgentProfileLoader
+from studio.schemas.assumption import NeedsAttentionItem, ProjectAssumptionDraft
 from studio.schemas.delivery import (
     DeliveryPlan,
     DeliveryTask,
@@ -113,7 +115,13 @@ class DeliveryPlanService:
             },
         }
         planner_output = self._planner.generate(planning_context)
-        raw_tasks = planner_output.get("tasks", [])
+        self._save_planner_assumptions(
+            requirement_id=requirement.id,
+            project_id=project_id,
+            assumptions=list(planner_output.get("assumptions", [])),
+        )
+        raw_needs_attention = list(planner_output.get("needs_attention", []))
+        raw_tasks = self._ensure_documentation_task(list(planner_output.get("tasks", [])))
         if not raw_tasks:
             raise ValueError("delivery planner returned no tasks")
 
@@ -133,7 +141,27 @@ class DeliveryPlanService:
             task_id_map[str(raw["title"])] = tid
 
         gate_items_data = planner_output.get("decision_gate", {}).get("items", [])
-        has_gate = bool(gate_items_data)
+        legacy_gate_enabled = self._delivery_decision_gate_enabled()
+        has_gate = bool(gate_items_data) and legacy_gate_enabled
+
+        if raw_needs_attention:
+            needs_plan_id = f"plan_{uuid4().hex}"
+            needs_plan = DeliveryPlan(
+                id=needs_plan_id,
+                meeting_id=meeting_id,
+                requirement_id=requirement.id,
+                project_id=project_id,
+                status="needs_attention",
+            )
+            self._ws.delivery_plans.save(needs_plan)
+            self._save_needs_attention(
+                requirement_id=requirement.id,
+                project_id=project_id,
+                plan_id=needs_plan.id,
+                raw_items=raw_needs_attention,
+            )
+            return {"plan": needs_plan, "tasks": [], "decision_gate": None}
+
         dep_graph: dict[str, list[str]] = {}
         for raw in raw_tasks:
             tid = task_id_map[str(raw["title"])]
@@ -564,6 +592,86 @@ class DeliveryPlanService:
         plan = plan.model_copy(update={"status": "needs_attention", "updated_at": now})
         self._ws.delivery_plans.save(plan)
         return {"plan": plan, "reason": reason}
+
+    @staticmethod
+    def _delivery_decision_gate_enabled() -> bool:
+        return os.environ.get("GAME_STUDIO_ENABLE_DELIVERY_DECISION_GATE", "").strip().lower() in {
+            "1", "true", "yes", "on",
+        }
+
+    def _save_planner_assumptions(
+        self,
+        *,
+        requirement_id: str,
+        project_id: str,
+        assumptions: list[object],
+    ) -> None:
+        for raw in assumptions:
+            draft = ProjectAssumptionDraft.model_validate(raw)
+            assumption = draft.to_assumption(
+                assumption_id=f"assumption_{uuid4().hex}",
+                requirement_id=requirement_id,
+                project_id=project_id,
+                source="planner",
+            )
+            self._ws.project_assumptions.save(assumption)
+
+    def _save_needs_attention(
+        self,
+        *,
+        requirement_id: str,
+        project_id: str,
+        plan_id: str | None,
+        raw_items: list[object],
+    ) -> list[NeedsAttentionItem]:
+        saved: list[NeedsAttentionItem] = []
+        for raw in raw_items:
+            data = dict(raw) if isinstance(raw, dict) else {}
+            item = NeedsAttentionItem(
+                id=f"needs_{uuid4().hex}",
+                requirement_id=requirement_id,
+                project_id=project_id,
+                plan_id=plan_id,
+                blocker=str(data.get("blocker", "Delivery needs attention.")),
+                evidence=[str(item) for item in data.get("evidence", [])],
+                recommended_action=str(data.get("recommended_action", "Review the blocker and retry Delivery.")),
+                affected_task_ids=[],
+                resumable=bool(data.get("resumable", True)),
+            )
+            saved.append(self._ws.needs_attention_items.save(item))
+        return saved
+
+    @staticmethod
+    def _ensure_documentation_task(raw_tasks: list[dict[str, object]]) -> list[dict[str, object]]:
+        docs_markers = ("PROJECT_BRIEF.md", "DECISIONS.md", "ACCEPTANCE.md", "RUNBOOK.md", "ITERATION_NOTES.md")
+        combined = "\n".join(
+            f"{task.get('title', '')}\n{task.get('description', '')}\n"
+            + "\n".join(str(item) for item in task.get("acceptance_criteria", []))
+            for task in raw_tasks
+        )
+        if all(marker in combined for marker in docs_markers):
+            return raw_tasks
+        titles = [str(task["title"]) for task in raw_tasks]
+        return [
+            *raw_tasks,
+            {
+                "title": "Write project delivery documentation",
+                "description": (
+                    "Create docs/PROJECT_BRIEF.md, docs/DECISIONS.md, docs/ACCEPTANCE.md, "
+                    "docs/RUNBOOK.md, and docs/ITERATION_NOTES.md inside the target project."
+                ),
+                "owner_agent": "quality",
+                "depends_on": titles,
+                "acceptance_criteria": [
+                    "docs/PROJECT_BRIEF.md explains goal, scope, gameplay, and target platform.",
+                    "docs/DECISIONS.md lists confirmed decisions and automatic assumptions with rationale.",
+                    "docs/ACCEPTANCE.md lists acceptance criteria and validation evidence.",
+                    "docs/RUNBOOK.md explains install, run, test, and build commands.",
+                    "docs/ITERATION_NOTES.md lists follow-up suggestions and assumption overrides.",
+                ],
+                "source_evidence": ["Delivery documentation is required for every project."],
+            },
+        ]
 
     def list_board(self, requirement_id: str | None = None) -> dict:
         plans = self._ws.delivery_plans.list_all()
