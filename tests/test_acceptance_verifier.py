@@ -132,6 +132,7 @@ def test_optional_command_resolves_windows_npm_shim(tmp_path, monkeypatch):
     project_dir.mkdir()
     artifacts_dir.mkdir()
     captured: dict[str, list[str]] = {}
+    captured_kwargs: dict[str, object] = {}
 
     def fake_which(executable: str) -> str | None:
         if executable == "npm":
@@ -140,7 +141,8 @@ def test_optional_command_resolves_windows_npm_shim(tmp_path, monkeypatch):
 
     def fake_run(command, **kwargs):
         captured["command"] = [str(item) for item in command]
-        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+        captured_kwargs.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout=None, stderr=None)
 
     monkeypatch.setattr(acceptance_verifier.os, "name", "nt")
     monkeypatch.setattr(acceptance_verifier.shutil, "which", fake_which)
@@ -159,6 +161,9 @@ def test_optional_command_resolves_windows_npm_shim(tmp_path, monkeypatch):
 
     assert ok is True
     assert captured["command"][0] == "C:/node/npm.cmd"
+    assert captured_kwargs["encoding"] == "utf-8"
+    assert captured_kwargs["errors"] == "replace"
+    assert (artifacts_dir / "test.log").read_text(encoding="utf-8") == "\n"
     assert errors == []
 
 
@@ -170,6 +175,7 @@ def test_playwright_smoke_resolves_windows_preview_shim(tmp_path, monkeypatch):
     project_dir.mkdir()
     artifacts_dir.mkdir()
     captured: dict[str, list[str]] = {}
+    captured_kwargs: dict[str, object] = {}
 
     class FakeProcess:
         def terminate(self):
@@ -185,6 +191,7 @@ def test_playwright_smoke_resolves_windows_preview_shim(tmp_path, monkeypatch):
 
     def fake_popen(command, **kwargs):
         captured["command"] = [str(item) for item in command]
+        captured_kwargs.update(kwargs)
         return FakeProcess()
 
     def fake_node_smoke(**kwargs):
@@ -209,6 +216,8 @@ def test_playwright_smoke_resolves_windows_preview_shim(tmp_path, monkeypatch):
 
     assert ok is True
     assert captured["command"][0] == "C:/node/npm.cmd"
+    assert captured_kwargs["encoding"] == "utf-8"
+    assert captured_kwargs["errors"] == "replace"
     assert errors == []
 
 

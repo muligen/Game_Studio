@@ -134,6 +134,8 @@ def _run_playwright_smoke(
         command,
         cwd=project_dir,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
@@ -172,6 +174,8 @@ def _run_controlled_static_server_smoke(
         [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"],
         cwd=project_dir,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
@@ -400,11 +404,13 @@ def _run_optional_command(
         command,
         cwd=project_dir,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=120,
         check=False,
     )
-    log_path.write_text(completed.stdout + "\n" + completed.stderr, encoding="utf-8")
+    log_path.write_text((completed.stdout or "") + "\n" + (completed.stderr or ""), encoding="utf-8")
     passed = completed.returncode == 0
     evidence.append(
         AcceptanceEvidence(
