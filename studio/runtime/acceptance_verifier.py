@@ -209,11 +209,12 @@ def _run_node_playwright_smoke(
     repo_root = Path(__file__).resolve().parents[2]
     web_dir = repo_root / "web"
     playwright_dir = web_dir / "node_modules" / "playwright"
-    screenshot_path = artifacts_dir / screenshot_name
-    result_path = artifacts_dir / "playwright-result.json"
-    log_path = artifacts_dir / "playwright.log"
-    video_dir = artifacts_dir / "videos"
-    script_path = artifacts_dir / "playwright-smoke.mjs"
+    screenshot_path = (artifacts_dir / screenshot_name).resolve()
+    result_path = (artifacts_dir / "playwright-result.json").resolve()
+    log_path = (artifacts_dir / "playwright.log").resolve()
+    video_dir = (artifacts_dir / "videos").resolve()
+    script_path = (artifacts_dir / "playwright-smoke.mjs").resolve()
+    web_package_uri = (web_dir / "package.json").resolve().as_uri()
 
     if not playwright_dir.exists():
         evidence = AcceptanceEvidence(
@@ -226,10 +227,12 @@ def _run_node_playwright_smoke(
         return False, [evidence], [f"Node Playwright dependency missing: {playwright_dir}"]
 
     video_dir.mkdir(parents=True, exist_ok=True)
-    script_path.write_text(
-        """
-import { chromium } from 'playwright';
+    script_text = """
+import { createRequire } from 'node:module';
 import fs from 'node:fs';
+
+const require = createRequire('__WEB_PACKAGE_URI__');
+const { chromium } = require('playwright');
 
 const [url, screenshotPath, videoDir, resultPath] = process.argv.slice(2);
 const browser = await chromium.launch();
@@ -267,17 +270,30 @@ fs.writeFileSync(
   JSON.stringify({ consoleErrors, pageErrors, visibleSurface }, null, 2),
   'utf8',
 );
-""".strip(),
-        encoding="utf-8",
-    )
-    completed = subprocess.run(
-        ["node", str(script_path), url, str(screenshot_path), str(video_dir), str(result_path)],
-        cwd=web_dir,
-        text=True,
-        capture_output=True,
-        timeout=60,
-        check=False,
-    )
+""".strip().replace("__WEB_PACKAGE_URI__", web_package_uri)
+    script_path.write_text(script_text, encoding="utf-8")
+    command = ["node", str(script_path), url, str(screenshot_path), str(video_dir), str(result_path)]
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=web_dir,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        log_path.write_text((exc.stdout or "") + "\n" + (exc.stderr or ""), encoding="utf-8")
+        evidence = AcceptanceEvidence(
+            id=evidence_id,
+            evidence_type="playwright",
+            summary="Playwright smoke check timed out before producing browser evidence.",
+            artifact_path=str(log_path),
+            metadata={"url": url, "timeout": exc.timeout},
+        )
+        return False, [evidence], [f"playwright smoke timed out after {exc.timeout} seconds"]
     log_path.write_text((completed.stdout or "") + "\n" + (completed.stderr or ""), encoding="utf-8")
     if completed.returncode != 0:
         evidence = AcceptanceEvidence(

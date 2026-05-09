@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 from studio.runtime import acceptance_verifier
 from studio.runtime.acceptance_verifier import detect_node_commands, verify_project
@@ -219,6 +220,63 @@ def test_playwright_smoke_resolves_windows_preview_shim(tmp_path, monkeypatch):
     assert captured_kwargs["encoding"] == "utf-8"
     assert captured_kwargs["errors"] == "replace"
     assert errors == []
+
+
+def test_node_playwright_smoke_runs_artifact_script_by_absolute_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    artifacts_dir = Path("artifacts")
+    artifacts_dir.mkdir()
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = [str(item) for item in command]
+        result_path = Path(command[-1])
+        result_path.write_text(
+            json.dumps({"consoleErrors": [], "pageErrors": [], "visibleSurface": True}),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(acceptance_verifier.subprocess, "run", fake_run)
+
+    ok, _evidence, errors = acceptance_verifier._run_node_playwright_smoke(
+        artifacts_dir=artifacts_dir,
+        url="http://127.0.0.1:1234",
+        evidence_id="ev_playwright",
+        summary="smoke",
+        screenshot_name="startup.png",
+    )
+
+    assert ok is True
+    assert Path(captured["command"][1]).is_absolute()
+    assert captured["command"][1].endswith("playwright-smoke.mjs")
+    script_text = (artifacts_dir / "playwright-smoke.mjs").read_text(encoding="utf-8")
+    assert "createRequire" in script_text
+    assert "require('playwright')" in script_text
+    assert errors == []
+
+
+def test_node_playwright_smoke_reports_timeout_as_validation_failure(tmp_path, monkeypatch):
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+
+    def fake_run(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(acceptance_verifier.subprocess, "run", fake_run)
+
+    ok, evidence, errors = acceptance_verifier._run_node_playwright_smoke(
+        artifacts_dir=artifacts_dir,
+        url="http://127.0.0.1:1234",
+        evidence_id="ev_playwright",
+        summary="smoke",
+        screenshot_name="startup.png",
+    )
+
+    assert ok is False
+    assert "timed out" in errors[0]
+    assert evidence[0].id == "ev_playwright"
+    assert evidence[0].artifact_path is not None
 
 
 def test_static_html_smoke_uses_bounded_local_server(tmp_path, monkeypatch):
