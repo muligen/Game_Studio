@@ -26,7 +26,7 @@ def build_acceptance_contract(ws: StudioWorkspace, plan_id: str) -> AcceptanceCo
         raw_items.append(("requirement", str(criterion), ["llm"], "major", "qa"))
 
     for decision in meeting.decisions:
-        raw_items.append(("meeting_decision", str(decision), ["llm"], "major", "qa"))
+        raw_items.append(("meeting_decision", str(decision), ["llm"], "minor", "qa"))
 
     for consensus in meeting.consensus_points:
         raw_items.append(("meeting_consensus", str(consensus), ["llm"], "minor", "qa"))
@@ -47,8 +47,10 @@ def build_acceptance_contract(ws: StudioWorkspace, plan_id: str) -> AcceptanceCo
 
     for task_id in plan.task_ids:
         task = ws.delivery_tasks.get(task_id)
+        if task.kind == "bug_fix":
+            continue
         for criterion in task.acceptance_criteria:
-            raw_items.append((f"task:{task.id}", str(criterion), ["llm"], "major", str(task.owner_agent)))
+            raw_items.append((f"task:{task.id}", str(criterion), ["llm"], "minor", str(task.owner_agent)))
 
     for text, evidence_types, owner_hint in _SYSTEM_CRITERIA:
         raw_items.append(("system", text, evidence_types, "blocker", owner_hint))

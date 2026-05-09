@@ -50,12 +50,12 @@ def _evaluate_criterion(
         return _evaluate_system_criterion(criterion, verification, matching_evidence, blocking)
     if _is_launch_target_failure(verification):
         return _deferred_until_startup_fixed(criterion)
-    if _has_fallback_warning(task_results):
+    if _has_fallback_warning_for_criterion(criterion, task_results):
         return AcceptanceCriterionResult(
             criterion_id=criterion.id,
             status="failed",
             evidence_ids=[],
-            reason="Agent fallback output was present, so requirement criteria need repair or real validation evidence.",
+            reason="The responsible task used fallback output, so this criterion needs repair or real validation evidence.",
             repair_hint=f"Produce real evidence for: {criterion.text}",
             owner_hint=criterion.owner_hint,
             blocking=blocking,
@@ -102,6 +102,20 @@ def _evaluate_system_criterion(
         return _failed(criterion, "Playwright could not prove that the browser page opens cleanly.", blocking)
     if "console" in text and verification.errors:
         return _failed(criterion, "; ".join(verification.errors), blocking)
+    if "console" in text:
+        browser_evidence = [
+            evidence for evidence in verification.evidence
+            if evidence.evidence_type == "playwright"
+        ]
+        if browser_evidence:
+            return AcceptanceCriterionResult(
+                criterion_id=criterion.id,
+                status="passed",
+                evidence_ids=[evidence.id for evidence in browser_evidence],
+                reason="Browser smoke evidence recorded no fatal console errors.",
+                owner_hint=criterion.owner_hint,
+                blocking=blocking,
+            )
     if "builds successfully" in text and verification.build_ok is False:
         return _failed(criterion, "Build command failed.", blocking)
     if "tests pass" in text and verification.test_ok is False:
@@ -161,8 +175,16 @@ def _is_launch_target_failure(verification: VerificationResult) -> bool:
     )
 
 
-def _has_fallback_warning(task_results: list[dict[str, object]]) -> bool:
+def _has_fallback_warning_for_criterion(
+    criterion: AcceptanceCriterion,
+    task_results: list[dict[str, object]],
+) -> bool:
+    if not criterion.source.startswith("task:"):
+        return False
+    task_id = criterion.source.split(":", 1)[1]
     for result in task_results:
+        if result.get("task_id") != task_id:
+            continue
         warnings = result.get("context_warnings", [])
         if isinstance(warnings, list) and any("fallback" in str(item).lower() for item in warnings):
             return True

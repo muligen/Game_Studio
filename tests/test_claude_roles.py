@@ -310,7 +310,77 @@ def test_delivery_execution_prompt_forbids_questions_and_requires_autonomous_wor
 
     assert "Do not ask the user questions" in prompt
     assert "Do not call AskQuestion" in prompt
+    assert "Do not start persistent development servers" in prompt
     assert "make the smallest reasonable assumption" in prompt
+
+
+@pytest.mark.anyio
+async def test_delivery_execution_tool_guard_blocks_persistent_server_commands(tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "dev"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="dev",
+            system_prompt="Dev profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    guard = adapter._tool_permission_guard(
+        {
+            "goal": {
+                "delivery_execution": True,
+                "project_dir": str(tmp_path / "projects" / "proj_001"),
+            }
+        }
+    )
+
+    assert guard is not None
+    denied = await guard(
+        "Bash",
+        {"command": "python -m http.server 8000 > /dev/null 2>&1 &"},
+        claude_roles_module.ToolPermissionContext(),
+    )
+    allowed = await guard(
+        "Bash",
+        {"command": "npm test"},
+        claude_roles_module.ToolPermissionContext(),
+    )
+
+    assert denied.behavior == "deny"
+    assert "must not start persistent development servers" in denied.message
+    assert allowed.behavior == "allow"
+
+
+@pytest.mark.anyio
+async def test_delivery_execution_tool_guard_allows_timeout_wrapped_checks(tmp_path) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "qa"
+    claude_root.mkdir(parents=True)
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="qa",
+            system_prompt="QA profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    guard = adapter._tool_permission_guard(
+        {
+            "goal": {
+                "delivery_execution": True,
+                "project_dir": str(tmp_path / "projects" / "proj_001"),
+            }
+        }
+    )
+
+    assert guard is not None
+    result = await guard(
+        "Bash",
+        {"command": "timeout 10s python -m http.server 8000"},
+        claude_roles_module.ToolPermissionContext(),
+    )
+
+    assert result.behavior == "allow"
 
 
 def test_prompt_uses_profile_system_prompt_for_reviewer(tmp_path) -> None:

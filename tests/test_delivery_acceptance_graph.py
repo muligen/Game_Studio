@@ -142,6 +142,48 @@ def test_acceptance_passes_on_first_try(tmp_path: Path, monkeypatch) -> None:
     assert ws.requirements.get("req_001").status == "done"
 
 
+def test_acceptance_crash_marks_plan_needs_attention(tmp_path: Path, monkeypatch) -> None:
+    import studio.runtime.graph as graph_module
+    from studio.runtime.graph import build_delivery_graph
+
+    workspace_root = tmp_path / ".studio-data"
+    plan_id = _seed_delivery_plan(workspace_root)
+
+    class _Dispatcher:
+        def get(self, node_name: str):
+            return _make_agent()(node_name)
+
+    def _submit(agent_type, req_id, title, fn, /, *args, **kwargs):
+        future: Future[object] = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _Dispatcher)
+    graph_module.agent_pool = SimpleNamespace(submit_agent=_submit)
+
+    def _broken_verify(project_dir, *, artifacts_root, run_id):
+        raise RuntimeError("playwright dependency missing")
+
+    monkeypatch.setattr("studio.runtime.acceptance_verifier.verify_project", _broken_verify)
+
+    result = build_delivery_graph().invoke({
+        "workspace_root": str(workspace_root),
+        "project_root": str(tmp_path),
+        "plan_id": plan_id,
+    })
+
+    ws = StudioWorkspace(workspace_root)
+    assert result["runner_status"] == "needs_attention"
+    assert result["acceptance_attempt"] == 1
+    assert any("playwright dependency missing" in item for item in result["context_warnings"])
+    assert ws.delivery_plans.get(plan_id).status == "needs_attention"
+    assert ws.requirements.get("req_001").status != "done"
+    assert ws.acceptance_runs.list_all() == []
+
+
 def test_acceptance_fails_then_repairs_and_passes(tmp_path: Path, monkeypatch) -> None:
     import studio.runtime.graph as graph_module
     from studio.runtime.graph import build_delivery_graph

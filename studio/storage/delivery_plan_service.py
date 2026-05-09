@@ -553,9 +553,16 @@ class DeliveryPlanService:
         self._ws.delivery_plans.save(plan)
 
         bug_tasks: list[DeliveryTask] = []
+        existing_bug_descriptions = {
+            task.description
+            for task in self._ws.delivery_tasks.list_all()
+            if task.plan_id == plan_id and task.kind == "bug_fix" and task.status != "cancelled"
+        }
         for criterion in failed_criteria:
             crit_id = str(criterion.get("criterion_id", "unknown"))
             crit_text = str(criterion.get("repair_hint") or criterion.get("reason") or crit_id)
+            if crit_text in existing_bug_descriptions:
+                continue
             task = DeliveryTask(
                 id=f"bugfix_{uuid4().hex}",
                 plan_id=plan_id,
@@ -573,6 +580,7 @@ class DeliveryPlanService:
             self._ws.delivery_tasks.save(task)
             plan.task_ids.append(task.id)
             bug_tasks.append(task)
+            existing_bug_descriptions.add(crit_text)
 
         self._ws.delivery_plans.save(plan)
         return bug_tasks

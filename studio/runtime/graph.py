@@ -954,36 +954,51 @@ def build_delivery_graph():
             project_id=plan.project_id,
         ).project_dir
 
-        contract = build_acceptance_contract(ws, plan_id)
-        ws.acceptance_contracts.save(contract)
-
-        run_id = f"acc_{plan_id}_attempt_{attempt}"
-        verification = verify_project(
-            project_dir,
-            artifacts_root=workspace_root / "artifacts",
-            run_id=run_id,
-        )
-
-        task_results = []
-        for task_id in plan.task_ids:
-            task = ws.delivery_tasks.get(task_id)
-            if task.execution_result_id:
-                try:
-                    result = ws.execution_results.get(task.execution_result_id)
-                    task_results.append(result.model_dump(mode="json"))
-                except FileNotFoundError:
-                    pass
-
-        run = evaluate_acceptance(
-            contract=contract,
-            verification=verification,
-            task_results=task_results,
-            run_id=run_id,
-            attempt_number=attempt,
-        )
-        ws.acceptance_runs.save(run)
-
         service = DeliveryPlanService(workspace_root, project_root=Path(_require_state_str(state, "project_root")))
+        try:
+            contract = build_acceptance_contract(ws, plan_id)
+            ws.acceptance_contracts.save(contract)
+
+            run_id = f"acc_{plan_id}_attempt_{attempt}"
+            verification = verify_project(
+                project_dir,
+                artifacts_root=workspace_root / "artifacts",
+                run_id=run_id,
+            )
+
+            task_results = []
+            for task_id in plan.task_ids:
+                task = ws.delivery_tasks.get(task_id)
+                if task.execution_result_id:
+                    try:
+                        result = ws.execution_results.get(task.execution_result_id)
+                        task_results.append(result.model_dump(mode="json"))
+                    except FileNotFoundError:
+                        pass
+
+            run = evaluate_acceptance(
+                contract=contract,
+                verification=verification,
+                task_results=task_results,
+                run_id=run_id,
+                attempt_number=attempt,
+            )
+            ws.acceptance_runs.save(run)
+        except Exception as exc:
+            logger.exception("Acceptance gate failed for plan %s", plan_id)
+            service.mark_plan_needs_attention(
+                plan_id,
+                reason=f"Acceptance gate crashed: {str(exc) or exc.__class__.__name__}",
+            )
+            return {
+                **state,
+                "runner_status": "needs_attention",
+                "acceptance_attempt": attempt,
+                "context_warnings": [
+                    *list(state.get("context_warnings", [])),
+                    f"acceptance gate crashed: {str(exc) or exc.__class__.__name__}",
+                ],
+            }
 
         if run.status == "passed":
             service.accept_plan(plan_id)

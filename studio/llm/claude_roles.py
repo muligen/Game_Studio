@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from claude_agent_sdk import ClaudeAgentOptions, query
-from claude_agent_sdk.types import AssistantMessage, ResultMessage
+from claude_agent_sdk.types import (
+    AssistantMessage,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    ResultMessage,
+    ToolPermissionContext,
+)
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from studio.llm.project_scope import agent_prompt_context, load_agent_settings, resolve_agent_project_dir
@@ -25,6 +31,24 @@ if str(_REPO_ROOT) not in sys.path:
 
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSEY = {"0", "false", "no", "off", ""}
+_PERSISTENT_SERVER_COMMANDS = (
+    re.compile(r"\bpython(?:\.\w+)?\s+-m\s+http\.server\b", re.IGNORECASE),
+    re.compile(r"\bpython(?:\.\w+)?\s+-m\s+uvicorn\b", re.IGNORECASE),
+    re.compile(r"\buvicorn\b", re.IGNORECASE),
+    re.compile(r"\bflask\s+run\b", re.IGNORECASE),
+    re.compile(r"\bnext\s+dev\b", re.IGNORECASE),
+    re.compile(r"\bnpm\s+run\s+dev\b", re.IGNORECASE),
+    re.compile(r"\bnpx\s+vite\b", re.IGNORECASE),
+    re.compile(r"\bvite(?:\.cmd)?(?:\s|$)", re.IGNORECASE),
+    re.compile(r"\bnpx\s+serve\b", re.IGNORECASE),
+    re.compile(r"\bhttp-server\b", re.IGNORECASE),
+)
+_BOUNDED_COMMAND_MARKERS = (
+    "timeout ",
+    "timeout.exe ",
+    "start-server-and-test",
+    "playwright test",
+)
 
 
 class ClaudeRoleError(RuntimeError):
@@ -689,6 +713,18 @@ def _is_meeting_opinion_context(context: dict[str, object]) -> bool:
     return isinstance(phase, str) and phase.strip().lower() == "opinion"
 
 
+def _is_delivery_execution_context(context: dict[str, object]) -> bool:
+    goal = context.get("goal")
+    return isinstance(goal, dict) and bool(goal.get("delivery_execution"))
+
+
+def _is_persistent_server_command(command: str) -> bool:
+    normalized = command.strip().lower()
+    if any(marker in normalized for marker in _BOUNDED_COMMAND_MARKERS):
+        return False
+    return any(pattern.search(command) for pattern in _PERSISTENT_SERVER_COMMANDS)
+
+
 def _require_active_role(role_name: str) -> None:
     if role_name not in _ACTIVE_ROLE_NAMES:
         raise ClaudeRoleError(f"unsupported_role:{role_name}")
@@ -901,6 +937,7 @@ class ClaudeRoleAdapter:
             output_format=self._output_format(role_name),
             session_id=None if self.resume_session else self.session_id,
             resume=self.session_id if self.resume_session else None,
+            can_use_tool=self._tool_permission_guard(context),
         )
 
         result: ResultMessage | None = None
@@ -1002,6 +1039,32 @@ class ClaudeRoleAdapter:
         if config.base_url:
             env["ANTHROPIC_BASE_URL"] = config.base_url
         return env
+
+    def _tool_permission_guard(self, context: dict[str, object]):
+        if not _is_delivery_execution_context(context):
+            return None
+
+        async def _guard(
+            tool_name: str,
+            tool_input: dict[str, Any],
+            permission_context: ToolPermissionContext,
+        ) -> PermissionResultAllow | PermissionResultDeny:
+            _ = permission_context
+            if tool_name != "Bash":
+                return PermissionResultAllow()
+            command = tool_input.get("command")
+            if not isinstance(command, str) or not _is_persistent_server_command(command):
+                return PermissionResultAllow()
+            return PermissionResultDeny(
+                message=(
+                    "Delivery tasks must not start persistent development servers or background daemons. "
+                    "Use finite commands that exit on their own, such as unit tests, validation scripts, "
+                    "Playwright test runners, or explicit timeout-wrapped checks."
+                ),
+                interrupt=False,
+            )
+
+        return _guard
 
     def _generate_payload_via_subprocess(
         self,
@@ -1152,6 +1215,7 @@ class ClaudeRoleAdapter:
                 "Delivery execution mode. The task has already been clarified, approved, and assigned.\n"
                 "Do not ask the user questions. Do not call AskQuestion.\n"
                 "Use available tools directly to complete the task in project_dir.\n"
+                "Do not start persistent development servers or background daemons; use finite validation commands that exit on their own.\n"
                 "If anything is ambiguous, make the smallest reasonable assumption and record it in follow_ups.\n"
                 "After completing the work, reply with JSON matching this schema:\n"
             )

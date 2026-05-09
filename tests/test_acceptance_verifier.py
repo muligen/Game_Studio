@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from studio.runtime import acceptance_verifier
 from studio.runtime.acceptance_verifier import detect_node_commands, verify_project
 
 
@@ -120,3 +121,65 @@ def test_verify_project_uses_browser_result(tmp_path, monkeypatch):
 
     assert result.browser_ok is True
     assert result.startup_ok is True
+
+
+def test_static_html_smoke_uses_bounded_local_server(tmp_path, monkeypatch):
+    from studio.schemas.acceptance import AcceptanceEvidence
+
+    project_dir = tmp_path / "proj_001"
+    project_dir.mkdir()
+    index_path = project_dir / "index.html"
+    index_path.write_text("<script type='module' src='js/app.js'></script><main></main>", encoding="utf-8")
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    popen_calls: list[list[str]] = []
+    opened_urls: list[str] = []
+
+    class FakeProcess:
+        terminated = False
+        killed = False
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.killed = True
+
+        def communicate(self, timeout=None):
+            return "server log", None
+
+    fake_process = FakeProcess()
+
+    def fake_popen(command, **kwargs):
+        popen_calls.append([str(item) for item in command])
+        return fake_process
+
+    def fake_node_smoke(*, artifacts_dir, url, evidence_id, summary, screenshot_name):
+        opened_urls.append(url)
+        return True, [
+            AcceptanceEvidence(
+                id=evidence_id,
+                evidence_type="playwright",
+                summary=summary,
+                artifact_path=str(artifacts_dir / screenshot_name),
+            )
+        ], []
+
+    monkeypatch.setattr(acceptance_verifier.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(acceptance_verifier, "_run_node_playwright_smoke", fake_node_smoke)
+
+    ok, evidence, errors = acceptance_verifier._run_static_html_smoke(
+        project_dir,
+        artifacts_dir,
+        index_path,
+    )
+
+    assert ok is True
+    assert errors == []
+    assert popen_calls[0][1:3] == ["-m", "http.server"]
+    assert "--bind" in popen_calls[0]
+    assert opened_urls[0].startswith("http://127.0.0.1:")
+    assert opened_urls[0].endswith("/index.html")
+    assert fake_process.terminated is True
+    assert (artifacts_dir / "static-server.log").read_text(encoding="utf-8") == "server log"
+    assert any(item.id == "ev_static_html_server" for item in evidence)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -125,8 +126,6 @@ def verify_project(project_dir: Path, *, artifacts_root: Path, run_id: str) -> V
 def _run_playwright_smoke(
     project_dir: Path, artifacts_dir: Path, preview_command: list[str],
 ) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
-    from playwright.sync_api import sync_playwright
-
     port = _free_port()
     command = [*preview_command, "--", "--host", "127.0.0.1", "--port", str(port)]
     process = subprocess.Popen(
@@ -140,37 +139,16 @@ def _run_playwright_smoke(
     errors: list[str] = []
     log_path = artifacts_dir / "preview.log"
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            context = browser.new_context(record_video_dir=str(artifacts_dir / "videos"))
-            page = context.new_page()
-            console_errors: list[str] = []
-            page_errors: list[str] = []
-            page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-            page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-            page.goto(f"http://127.0.0.1:{port}", wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(1000)
-            screenshot_path = artifacts_dir / "startup.png"
-            page.screenshot(path=str(screenshot_path), full_page=True)
-            visible_surface = page.locator("canvas, #root, main, [data-game-root]").count() > 0
-            context.close()
-            browser.close()
-            if page_errors:
-                errors.extend(f"pageerror: {item}" for item in page_errors)
-            fatal_console = [item for item in console_errors if _is_fatal_console_error(item)]
-            if fatal_console:
-                errors.extend(f"console: {item}" for item in fatal_console)
-            if not visible_surface:
-                errors.append("no visible game surface found")
-            evidence.append(
-                AcceptanceEvidence(
-                    id="ev_playwright_startup",
-                    evidence_type="playwright",
-                    summary="Playwright opened the game page and captured startup state.",
-                    artifact_path=str(screenshot_path),
-                    metadata={"console_errors": console_errors, "page_errors": page_errors, "visible_surface": visible_surface},
-                )
-            )
+        browser_ok, browser_evidence, browser_errors = _run_node_playwright_smoke(
+            artifacts_dir=artifacts_dir,
+            url=f"http://127.0.0.1:{port}",
+            evidence_id="ev_playwright_startup",
+            summary="Playwright opened the game page and captured startup state.",
+            screenshot_name="startup.png",
+        )
+        evidence.extend(browser_evidence)
+        errors.extend(browser_errors)
+        return browser_ok and not errors, evidence, errors
     finally:
         process.terminate()
         try:
@@ -179,7 +157,162 @@ def _run_playwright_smoke(
             process.kill()
             stdout, _ = process.communicate(timeout=5)
         log_path.write_text(stdout or "", encoding="utf-8")
-    return not errors, evidence, errors
+
+
+def _run_controlled_static_server_smoke(
+    project_dir: Path,
+    artifacts_dir: Path,
+    index_path: Path,
+) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
+    port = _free_port()
+    rel_path = index_path.relative_to(project_dir).as_posix()
+    process = subprocess.Popen(
+        [sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"],
+        cwd=project_dir,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    log_path = artifacts_dir / "static-server.log"
+    try:
+        return _run_node_playwright_smoke(
+            artifacts_dir=artifacts_dir,
+            url=f"http://127.0.0.1:{port}/{rel_path}",
+            evidence_id="ev_playwright_static_html",
+            summary="Playwright opened standalone index.html through a controlled local server.",
+            screenshot_name="startup.png",
+        )
+    finally:
+        process.terminate()
+        try:
+            stdout, _ = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, _ = process.communicate(timeout=5)
+        log_path.write_text(stdout or "", encoding="utf-8")
+
+
+def _run_node_playwright_smoke(
+    *,
+    artifacts_dir: Path,
+    url: str,
+    evidence_id: str,
+    summary: str,
+    screenshot_name: str,
+) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
+    repo_root = Path(__file__).resolve().parents[2]
+    web_dir = repo_root / "web"
+    playwright_dir = web_dir / "node_modules" / "playwright"
+    screenshot_path = artifacts_dir / screenshot_name
+    result_path = artifacts_dir / "playwright-result.json"
+    log_path = artifacts_dir / "playwright.log"
+    video_dir = artifacts_dir / "videos"
+    script_path = artifacts_dir / "playwright-smoke.mjs"
+
+    if not playwright_dir.exists():
+        evidence = AcceptanceEvidence(
+            id=evidence_id,
+            evidence_type="playwright",
+            summary="Node Playwright dependency was not found.",
+            artifact_path=None,
+            metadata={"expected_path": str(playwright_dir)},
+        )
+        return False, [evidence], [f"Node Playwright dependency missing: {playwright_dir}"]
+
+    video_dir.mkdir(parents=True, exist_ok=True)
+    script_path.write_text(
+        """
+import { chromium } from 'playwright';
+import fs from 'node:fs';
+
+const [url, screenshotPath, videoDir, resultPath] = process.argv.slice(2);
+const browser = await chromium.launch();
+const context = await browser.newContext({ recordVideo: { dir: videoDir } });
+const page = await context.newPage();
+const consoleErrors = [];
+const pageErrors = [];
+page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+page.on('pageerror', err => pageErrors.push(String(err)));
+
+let loaded = false;
+let lastError = '';
+for (let attempt = 0; attempt < 30; attempt += 1) {
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 3000 });
+    loaded = true;
+    break;
+  } catch (error) {
+    lastError = String(error && error.message ? error.message : error);
+    await page.waitForTimeout(1000);
+  }
+}
+if (!loaded) {
+  throw new Error(lastError || `Failed to open ${url}`);
+}
+
+await page.waitForTimeout(1000);
+const visibleSurface = await page.locator('canvas, #root, main, [data-game-root]').count() > 0;
+await page.screenshot({ path: screenshotPath, fullPage: true });
+await context.close();
+await browser.close();
+
+fs.writeFileSync(
+  resultPath,
+  JSON.stringify({ consoleErrors, pageErrors, visibleSurface }, null, 2),
+  'utf8',
+);
+""".strip(),
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(script_path), url, str(screenshot_path), str(video_dir), str(result_path)],
+        cwd=web_dir,
+        text=True,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+    log_path.write_text((completed.stdout or "") + "\n" + (completed.stderr or ""), encoding="utf-8")
+    if completed.returncode != 0:
+        evidence = AcceptanceEvidence(
+            id=evidence_id,
+            evidence_type="playwright",
+            summary="Playwright smoke check failed before producing browser evidence.",
+            artifact_path=str(log_path),
+            metadata={"url": url, "returncode": completed.returncode},
+        )
+        return False, [evidence], [f"playwright smoke failed with exit code {completed.returncode}"]
+
+    data = json.loads(result_path.read_text(encoding="utf-8"))
+    console_errors = [str(item) for item in data.get("consoleErrors", [])]
+    page_errors = [str(item) for item in data.get("pageErrors", [])]
+    visible_surface = bool(data.get("visibleSurface"))
+
+    errors: list[str] = []
+    if page_errors:
+        errors.extend(f"pageerror: {item}" for item in page_errors)
+    fatal_console = [item for item in console_errors if _is_fatal_console_error(item)]
+    if fatal_console:
+        errors.extend(f"console: {item}" for item in fatal_console)
+    if not visible_surface:
+        errors.append("no visible game surface found")
+
+    return not errors, [
+        AcceptanceEvidence(
+            id=evidence_id,
+            evidence_type="playwright",
+            summary=summary,
+            artifact_path=str(screenshot_path),
+            metadata={
+                "url": url,
+                "console_errors": console_errors,
+                "page_errors": page_errors,
+                "visible_surface": visible_surface,
+                "result_path": str(result_path),
+                "log_path": str(log_path),
+            },
+        )
+    ], errors
 
 
 def _find_static_html_entry(project_dir: Path) -> Path | None:
@@ -195,44 +328,25 @@ def _run_static_html_smoke(
     artifacts_dir: Path,
     index_path: Path,
 ) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
-    from playwright.sync_api import sync_playwright
-
     evidence: list[AcceptanceEvidence] = []
     errors: list[str] = []
     index_path = index_path.resolve()
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        context = browser.new_context(record_video_dir=str(artifacts_dir / "videos"))
-        page = context.new_page()
-        console_errors: list[str] = []
-        page_errors: list[str] = []
-        page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
-        page.on("pageerror", lambda exc: page_errors.append(str(exc)))
-        page.goto(index_path.as_uri(), wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(1000)
-        screenshot_path = artifacts_dir / "startup.png"
-        page.screenshot(path=str(screenshot_path), full_page=True)
-        visible_surface = page.locator("canvas, #root, main, [data-game-root]").count() > 0
-        context.close()
-        browser.close()
-
-    if page_errors:
-        errors.extend(f"pageerror: {item}" for item in page_errors)
-    fatal_console = [item for item in console_errors if _is_fatal_console_error(item)]
-    if fatal_console:
-        errors.extend(f"console: {item}" for item in fatal_console)
-    if not visible_surface:
-        errors.append("no visible game surface found")
     evidence.append(
         AcceptanceEvidence(
-            id="ev_playwright_static_html",
-            evidence_type="playwright",
-            summary="Playwright opened standalone index.html and captured startup state.",
-            artifact_path=str(screenshot_path),
-            metadata={"console_errors": console_errors, "page_errors": page_errors, "visible_surface": visible_surface},
+            id="ev_static_html_server",
+            evidence_type="command",
+            summary="Standalone HTML project was served through a bounded local server for browser validation.",
+            artifact_path=str(index_path),
         )
     )
-    return not errors, evidence, errors
+    browser_ok, browser_evidence, browser_errors = _run_controlled_static_server_smoke(
+        project_dir,
+        artifacts_dir,
+        index_path,
+    )
+    evidence.extend(browser_evidence)
+    errors.extend(browser_errors)
+    return browser_ok and not errors, evidence, errors
 
 
 def _package_manager(project_dir: Path) -> str:

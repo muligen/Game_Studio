@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 DeliveryRunner = Callable[[Path, Path, str], None]
 _threads: set[threading.Thread] = set()
+_plan_threads: dict[str, threading.Thread] = {}
 _lock = threading.Lock()
 
 
@@ -42,7 +43,10 @@ def submit_delivery_plan(
             runner(workspace_root, project_root, plan_id)
         finally:
             with _lock:
-                _threads.discard(threading.current_thread())
+                current = threading.current_thread()
+                _threads.discard(current)
+                if _plan_threads.get(plan_id) is current:
+                    del _plan_threads[plan_id]
 
     thread = threading.Thread(
         target=_target,
@@ -50,7 +54,13 @@ def submit_delivery_plan(
         daemon=True,
     )
     with _lock:
+        existing = _plan_threads.get(plan_id)
+        if existing is not None and existing.is_alive():
+            return existing
+        if existing is not None:
+            _threads.discard(existing)
         _threads.add(thread)
+        _plan_threads[plan_id] = thread
     thread.start()
     return thread
 
