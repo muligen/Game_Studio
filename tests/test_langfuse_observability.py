@@ -123,6 +123,37 @@ def test_fake_backend_records_trace_span_and_generation() -> None:
     assert telemetry.events[2]["metadata"]["role_name"] == "worker"
 
 
+def test_error_path_sets_output_fallback() -> None:
+    telemetry = LangfuseTelemetry.fake()
+
+    with telemetry.llm_observation(
+        name="claude:design",
+        metadata={"role_name": "design"},
+        input={"prompt": "test"},
+    ) as observation:
+        observation.update(error=ValueError("exit code: 1"))
+
+    gen_end = [e for e in telemetry.events if e["kind"] == "generation_end"][0]
+    assert gen_end["output"] == {"error": "exit code: 1"}
+    assert gen_end["error"] == "exit code: 1"
+
+
+def test_error_does_not_overwrite_existing_output() -> None:
+    telemetry = LangfuseTelemetry.fake()
+
+    with telemetry.llm_observation(
+        name="claude:design",
+        metadata={"role_name": "design"},
+        input={"prompt": "test"},
+    ) as observation:
+        observation.update(output={"title": "My Game"})
+        observation.update(error=ValueError("something went wrong"))
+
+    gen_end = [e for e in telemetry.events if e["kind"] == "generation_end"][0]
+    assert gen_end["output"] == {"title": "My Game"}
+    assert gen_end["error"] == "something went wrong"
+
+
 def test_subprocess_env_includes_langfuse_settings_when_enabled() -> None:
     telemetry = LangfuseTelemetry(
         config=LangfuseConfig(

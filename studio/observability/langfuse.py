@@ -153,6 +153,8 @@ class _Observation:
             self.output = redact(output)
         if error is not None:
             self.error = str(error)
+            if self.output is None:
+                self.output = {"error": str(error)}
         self.telemetry._update_backend(self)
         self.telemetry._record(
             f"{self.kind}_update",
