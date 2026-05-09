@@ -646,7 +646,11 @@ class DeliveryPlanService:
             "copyright",
             "contradictory hard constraint",
             "hard constraint",
-            "unavailable",
+            "permission denied",
+            "access denied",
+            "read-only",
+            "not writable",
+            "cannot write",
             "密钥",
             "凭证",
             "外部账号",
@@ -656,11 +660,15 @@ class DeliveryPlanService:
             "版权",
             "硬约束",
             "矛盾约束",
+            "拒绝访问",
+            "没有权限",
+            "不可写",
+            "无法写入",
         )
         if any(marker in text for marker in true_blocker_markers):
             return True
 
-        preference_markers = (
+        nonblocking_markers = (
             "decision_gate",
             "decision gate",
             "user decision",
@@ -672,6 +680,15 @@ class DeliveryPlanService:
             "theme",
             "feedback",
             "level transition",
+            "empty project",
+            "empty directory",
+            "project structure",
+            "missing participants",
+            "missing_participants",
+            "agent was absent",
+            "agents were absent",
+            "did not participate",
+            "not participated",
             "决策门",
             "用户选择",
             "视觉风格",
@@ -680,10 +697,19 @@ class DeliveryPlanService:
             "主题",
             "胜利反馈",
             "关卡过渡",
+            "项目目录为空",
+            "空目录",
+            "缺少项目结构",
+            "基础配置",
+            "尚未参与",
+            "未参与",
+            "关键角色缺失",
+            "缺乏技术",
+            "缺乏艺术",
         )
-        if any(marker in text for marker in preference_markers):
+        if any(marker in text for marker in nonblocking_markers):
             return False
-        return True
+        return False
 
     @classmethod
     def _needs_attention_as_assumption(cls, raw: object) -> dict[str, str]:

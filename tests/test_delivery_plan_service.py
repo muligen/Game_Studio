@@ -606,6 +606,69 @@ class TestResolveGate:
         assert "视觉风格" in assumptions[0].decision
 
     @staticmethod
+    @pytest.mark.parametrize(
+        ("blocker", "evidence", "recommended_action"),
+        [
+            (
+                "项目目录为空，缺少项目结构和基础配置",
+                ["项目目录扫描结果：空目录"],
+                "Dev agent should create the initial HTML, JavaScript, docs, and project structure.",
+            ),
+            (
+                "Art agent和Dev agent尚未参与项目讨论，缺乏技术和艺术维度的专业输入",
+                ["meeting supplementary.missing_participants: art agent and dev agent were absent"],
+                "Continue Delivery and let the assigned art/dev tasks provide those inputs.",
+            ),
+            (
+                "localStorage unavailable fallback strategy needs a default",
+                ["Browser storage fallback can be implemented by the dev task."],
+                "Use an in-memory fallback and document that saves are disabled when storage is unavailable.",
+            ),
+        ],
+    )
+    def test_generate_plan_demotes_delivery_context_warnings_to_assumptions(
+        tmp_path: Path,
+        blocker: str,
+        evidence: list[str],
+        recommended_action: str,
+    ) -> None:
+        _completed_meeting(tmp_path)
+        _requirement(tmp_path)
+        planner = FakePlanner({
+            "tasks": [
+                {
+                    "title": "Implement Sokoban MVP",
+                    "description": "Create a playable Sokoban MVP from an empty project directory.",
+                    "owner_agent": "dev",
+                    "depends_on": [],
+                    "acceptance_criteria": ["The game opens in a browser and can be played."],
+                },
+            ],
+            "decision_gate": {"items": []},
+            "assumptions": [],
+            "needs_attention": [
+                {
+                    "blocker": blocker,
+                    "evidence": evidence,
+                    "recommended_action": recommended_action,
+                    "affected_task_titles": ["Implement Sokoban MVP"],
+                    "resumable": True,
+                }
+            ],
+        })
+        svc = DeliveryPlanService(tmp_path, planner=planner, project_root=tmp_path.parent)
+
+        result = svc.generate_plan("meet_001", "proj_001")
+
+        assert result["plan"].status == "active"
+        assert len(result["tasks"]) == 2  # planner task + auto-added documentation task
+        ws = StudioWorkspace(tmp_path)
+        assert ws.needs_attention_items.list_all() == []
+        assumptions = ws.project_assumptions.list_all()
+        assert len(assumptions) == 1
+        assert blocker in assumptions[0].decision
+
+    @staticmethod
     def test_board_status_prefers_repairing_plan_over_open_needs_attention(
         tmp_path: Path,
     ) -> None:

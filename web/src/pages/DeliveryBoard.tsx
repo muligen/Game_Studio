@@ -100,7 +100,10 @@ export function DeliveryBoard() {
   const latestRun = acceptanceRuns.length > 0
     ? acceptanceRuns[acceptanceRuns.length - 1]
     : null as AcceptanceRun | null
-  const showAcceptanceBanner = activePlan && ['validating', 'repairing', 'accepted', 'needs_attention'].includes(activePlan.status)
+  const showAcceptanceBanner = activePlan && (
+    ['validating', 'repairing', 'accepted'].includes(activePlan.status)
+    || (activePlan.status === 'needs_attention' && latestRun !== null)
+  )
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -134,7 +137,7 @@ export function DeliveryBoard() {
               <div>
                 <h3 className="font-semibold text-sm">
                   {activePlan.status === 'accepted' && 'Acceptance Passed'}
-                  {activePlan.status === 'needs_attention' && 'Acceptance Failed'}
+                  {activePlan.status === 'needs_attention' && latestRun && 'Acceptance Failed'}
                   {activePlan.status === 'validating' && 'Running Acceptance Validation...'}
                   {activePlan.status === 'repairing' && 'Repairing Failed Criteria...'}
                 </h3>
@@ -170,7 +173,7 @@ export function DeliveryBoard() {
                   </div>
                 )}
               </div>
-              {activePlan.status === 'needs_attention' && (
+              {activePlan.status === 'needs_attention' && latestRun && (
                 <button
                   className="px-3 py-1.5 text-sm bg-red-600 text-white rounded hover:bg-red-700"
                   onClick={() => retryAcceptanceMutation.mutate(activePlan.id)}
