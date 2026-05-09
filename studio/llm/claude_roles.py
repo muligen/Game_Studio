@@ -926,6 +926,8 @@ class ClaudeRoleAdapter:
         | DeliveryPlannerPayload
         | RequirementClarifierPayload
     ):
+        can_use_tool = self._tool_permission_guard(context) if config.mode != "text" else None
+        prompt_input = self._stream_prompt(prompt) if can_use_tool is not None else prompt
         options = ClaudeAgentOptions(
             cwd=self._agent_project_dir(context),
             model=config.model,
@@ -937,14 +939,14 @@ class ClaudeRoleAdapter:
             output_format=self._output_format(role_name),
             session_id=None if self.resume_session else self.session_id,
             resume=self.session_id if self.resume_session else None,
-            can_use_tool=self._tool_permission_guard(context),
+            can_use_tool=can_use_tool,
         )
 
         result: ResultMessage | None = None
         assistant_replies: list[str] = []
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                async for message in query(prompt=prompt, options=options):
+                async for message in query(prompt=prompt_input, options=options):
                     if isinstance(message, ResultMessage):
                         result = message
                     elif isinstance(message, AssistantMessage):
@@ -1033,6 +1035,16 @@ class ClaudeRoleAdapter:
             "reply": reply,
         }
         return reply
+
+    @staticmethod
+    async def _stream_prompt(prompt: str):
+        yield {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": prompt,
+            },
+        }
 
     def _sdk_env(self, config: ClaudeRoleConfig) -> dict[str, str]:
         env = {"ANTHROPIC_API_KEY": config.api_key or ""}

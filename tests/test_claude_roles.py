@@ -531,6 +531,81 @@ async def test_generate_uses_project_dir_for_sdk_cwd_and_profile_for_settings(
 
 
 @pytest.mark.anyio
+async def test_generate_uses_streaming_prompt_when_tool_guard_is_enabled(
+    monkeypatch, tmp_path
+) -> None:
+    claude_root = tmp_path / ".claude" / "agents" / "dev"
+    claude_root.mkdir(parents=True)
+    project_dir = tmp_path / "projects" / "proj_001"
+    adapter = ClaudeRoleAdapter(
+        project_root=tmp_path,
+        profile=_profile(
+            name="dev",
+            system_prompt="Dev profile system prompt",
+            claude_project_root=claude_root,
+        ),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_query(*, prompt: object, options: object):
+        captured["prompt_type"] = type(prompt).__name__
+        captured["can_use_tool"] = getattr(options, "can_use_tool")
+        chunks = []
+        async for item in prompt:  # type: ignore[union-attr]
+            chunks.append(item)
+        captured["chunks"] = chunks
+        yield claude_roles_module.ResultMessage(
+            subtype="result",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session-1",
+            structured_output={
+                "summary": "ok",
+                "changes": [],
+                "checks": [],
+                "follow_ups": [],
+            },
+        )
+
+    monkeypatch.setattr(claude_roles_module, "query", fake_query)
+
+    context = {
+        "goal": {
+            "project_id": "proj_001",
+            "project_dir": str(project_dir),
+            "delivery_execution": True,
+        }
+    }
+    payload = await adapter._generate_payload(
+        "dev",
+        context,
+        claude_roles_module.ClaudeRoleConfig(
+            enabled=True,
+            mode="tools_enabled",
+            model=None,
+            api_key="test-key",
+            base_url=None,
+        ),
+        adapter.debug_prompt("dev", context),
+    )
+
+    assert payload.summary == "ok"
+    assert captured["can_use_tool"] is not None
+    assert captured["prompt_type"] != "str"
+    assert captured["chunks"] == [
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": adapter.debug_prompt("dev", context),
+            },
+        }
+    ]
+
+
+@pytest.mark.anyio
 async def test_generate_parses_assistant_text_when_result_message_is_missing(
     monkeypatch, tmp_path
 ) -> None:
