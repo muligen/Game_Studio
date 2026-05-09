@@ -23,4 +23,6 @@ def resolve_project_root(workspace: str) -> Path:
     raw = _normalize_workspace_path(workspace)
     if raw.name == ".studio-data":
         return raw.parent
+    if raw == _REPO_ROOT or raw.is_relative_to(_REPO_ROOT):
+        return _REPO_ROOT
     return raw

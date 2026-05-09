@@ -19,6 +19,14 @@ def test_resolve_relative_studio_data_against_repo_root() -> None:
     assert resolve_workspace_root(".studio-data") == repo_root / ".studio-data"
 
 
+def test_repo_local_named_workspace_uses_repo_project_root() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    workspace = ".e2e-workspaces/sokoban-mvp-run"
+
+    assert resolve_project_root(workspace) == repo_root
+    assert resolve_workspace_root(workspace) == repo_root / workspace / ".studio-data"
+
+
 def test_preserves_absolute_workspace_paths() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     studio_data = repo_root / ".studio-data"
