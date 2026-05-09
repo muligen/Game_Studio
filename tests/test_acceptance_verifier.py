@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 from studio.runtime import acceptance_verifier
 from studio.runtime.acceptance_verifier import detect_node_commands, verify_project
@@ -121,6 +122,94 @@ def test_verify_project_uses_browser_result(tmp_path, monkeypatch):
 
     assert result.browser_ok is True
     assert result.startup_ok is True
+
+
+def test_optional_command_resolves_windows_npm_shim(tmp_path, monkeypatch):
+    from studio.schemas.acceptance import AcceptanceEvidence
+
+    project_dir = tmp_path / "proj_001"
+    artifacts_dir = tmp_path / "artifacts"
+    project_dir.mkdir()
+    artifacts_dir.mkdir()
+    captured: dict[str, list[str]] = {}
+
+    def fake_which(executable: str) -> str | None:
+        if executable == "npm":
+            return "C:/node/npm.cmd"
+        return None
+
+    def fake_run(command, **kwargs):
+        captured["command"] = [str(item) for item in command]
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(acceptance_verifier.os, "name", "nt")
+    monkeypatch.setattr(acceptance_verifier.shutil, "which", fake_which)
+    monkeypatch.setattr(acceptance_verifier.subprocess, "run", fake_run)
+
+    evidence: list[AcceptanceEvidence] = []
+    errors: list[str] = []
+    ok = acceptance_verifier._run_optional_command(
+        project_dir,
+        artifacts_dir,
+        "test",
+        ["npm", "run", "test"],
+        evidence,
+        errors,
+    )
+
+    assert ok is True
+    assert captured["command"][0] == "C:/node/npm.cmd"
+    assert errors == []
+
+
+def test_playwright_smoke_resolves_windows_preview_shim(tmp_path, monkeypatch):
+    from studio.schemas.acceptance import AcceptanceEvidence
+
+    project_dir = tmp_path / "proj_001"
+    artifacts_dir = tmp_path / "artifacts"
+    project_dir.mkdir()
+    artifacts_dir.mkdir()
+    captured: dict[str, list[str]] = {}
+
+    class FakeProcess:
+        def terminate(self):
+            return None
+
+        def communicate(self, timeout=None):
+            return "preview log", None
+
+    def fake_which(executable: str) -> str | None:
+        if executable == "npm":
+            return "C:/node/npm.cmd"
+        return None
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = [str(item) for item in command]
+        return FakeProcess()
+
+    def fake_node_smoke(**kwargs):
+        return True, [
+            AcceptanceEvidence(
+                id=kwargs["evidence_id"],
+                evidence_type="playwright",
+                summary=kwargs["summary"],
+            )
+        ], []
+
+    monkeypatch.setattr(acceptance_verifier.os, "name", "nt")
+    monkeypatch.setattr(acceptance_verifier.shutil, "which", fake_which)
+    monkeypatch.setattr(acceptance_verifier.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(acceptance_verifier, "_run_node_playwright_smoke", fake_node_smoke)
+
+    ok, _evidence, errors = acceptance_verifier._run_playwright_smoke(
+        project_dir,
+        artifacts_dir,
+        ["npm", "run", "preview"],
+    )
+
+    assert ok is True
+    assert captured["command"][0] == "C:/node/npm.cmd"
+    assert errors == []
 
 
 def test_static_html_smoke_uses_bounded_local_server(tmp_path, monkeypatch):

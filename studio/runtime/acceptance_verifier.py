@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -127,7 +129,7 @@ def _run_playwright_smoke(
     project_dir: Path, artifacts_dir: Path, preview_command: list[str],
 ) -> tuple[bool, list[AcceptanceEvidence], list[str]]:
     port = _free_port()
-    command = [*preview_command, "--", "--host", "127.0.0.1", "--port", str(port)]
+    command = _resolve_windows_command([*preview_command, "--", "--host", "127.0.0.1", "--port", str(port)])
     process = subprocess.Popen(
         command,
         cwd=project_dir,
@@ -392,6 +394,7 @@ def _run_optional_command(
             )
         )
         return None
+    command = _resolve_windows_command(command)
     log_path = artifacts_dir / f"{name}.log"
     completed = subprocess.run(
         command,
@@ -415,6 +418,15 @@ def _run_optional_command(
     if not passed:
         errors.append(f"{name} command failed with exit code {completed.returncode}")
     return passed
+
+
+def _resolve_windows_command(command: list[str]) -> list[str]:
+    if os.name != "nt" or not command:
+        return command
+    resolved = shutil.which(command[0])
+    if not resolved:
+        return command
+    return [resolved, *command[1:]]
 
 
 def _free_port() -> int:
