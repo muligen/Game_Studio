@@ -728,6 +728,28 @@ def build_delivery_graph():
                 message=f"{started_task.owner_agent} invocation completed.",
                 metadata={"fallback_used": bool(result.trace.get("fallback_used", False)) if result else False},
             )
+            if result and result.trace.get("fallback_used"):
+                message = "Agent used fallback output instead of real execution evidence."
+                failed_result = service.fail_task(
+                    task_id=started_task.id,
+                    error_message=message,
+                    exception_type="FallbackOutput",
+                )
+                service.record_task_event(
+                    task_id, "task_failed",
+                    message=message,
+                    metadata={"reason": "fallback_output"},
+                )
+                span.update(
+                    metadata={"failed": True, "reason": "fallback_output"},
+                    output={"task_id": started_task.id, "error": message},
+                )
+                return {
+                    "task_id": started_task.id,
+                    "task_failed": True,
+                    "execution_result": failed_result["execution_result"].model_dump(mode="json"),
+                    "context_warnings": ["agent used fallback output"],
+                }
             llm_entry = _consume_agent_llm_log(agent)
             if llm_entry is not None:
                 _append_llm_log_entry(
@@ -926,8 +948,11 @@ def build_delivery_graph():
                         )
                     failed.append(task_id)
                 else:
-                    executed.append(str(result["task_id"]))
                     all_warnings.extend(str(item) for item in result.get("context_warnings", []))
+                    if result.get("task_failed"):
+                        failed.append(str(result["task_id"]))
+                    else:
+                        executed.append(str(result["task_id"]))
             if failed:
                 return {
                     **state,

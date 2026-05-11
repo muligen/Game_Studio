@@ -430,6 +430,57 @@ def test_delivery_graph_marks_failed_task_and_releases_lease(
     assert execution_result.exception_type == "RuntimeError"
 
 
+def test_delivery_graph_marks_fallback_agent_output_as_failed_task(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from studio.runtime.graph import build_delivery_graph
+
+    workspace_root = tmp_path / ".studio-data"
+    project_root = tmp_path
+    plan_id = _seed_delivery_plan(workspace_root)
+
+    class _Agent:
+        def run(self, state, **kwargs):
+            return NodeResult(
+                decision=NodeDecision.CONTINUE,
+                state_patch={
+                    "telemetry": {
+                        "art_report": {
+                            "summary": "fallback report",
+                            "changes": [],
+                            "checks": [],
+                            "follow_ups": [],
+                        }
+                    },
+                },
+                trace={"node": "art", "fallback_used": True},
+            )
+
+    class _Dispatcher:
+        def get(self, node_name: str):
+            return _Agent()
+
+    monkeypatch.setattr("studio.runtime.graph.RuntimeDispatcher", _Dispatcher)
+
+    result = build_delivery_graph().invoke(
+        {
+            "workspace_root": str(workspace_root),
+            "project_root": str(project_root),
+            "plan_id": plan_id,
+        }
+    )
+
+    ws = StudioWorkspace(workspace_root)
+    task = ws.delivery_tasks.get("task_art")
+    execution_result = ws.execution_results.get(task.execution_result_id)
+
+    assert result["runner_status"] == "failed"
+    assert result["failed_task_ids"] == ["task_art"]
+    assert task.status == "failed"
+    assert "fallback" in task.last_error.lower()
+    assert "fallback" in execution_result.error_message.lower()
+
+
 def test_delivery_graph_records_task_events(tmp_path: Path, monkeypatch) -> None:
     import studio.runtime.graph as graph_module
 

@@ -25,6 +25,19 @@ def test_detect_node_commands_prefers_npm_ci_for_package_lock(tmp_path):
     assert commands.preview == ["npm", "run", "preview"]
 
 
+def test_detect_node_commands_ignores_documentation_only_test_script(tmp_path):
+    project_dir = tmp_path / "proj_001"
+    project_dir.mkdir()
+    (project_dir / "package.json").write_text(
+        json.dumps({"scripts": {"test": "echo \"See tests/ directory for test files.\""}}),
+        encoding="utf-8",
+    )
+
+    commands = detect_node_commands(project_dir)
+
+    assert commands.test is None
+
+
 def test_verify_project_fails_when_package_json_missing(tmp_path):
     project_dir = tmp_path / "proj_001"
     project_dir.mkdir()
@@ -123,6 +136,41 @@ def test_verify_project_uses_browser_result(tmp_path, monkeypatch):
 
     assert result.browser_ok is True
     assert result.startup_ok is True
+
+
+def test_verify_project_validates_static_html_with_package_json_through_controlled_server(tmp_path, monkeypatch):
+    from studio.schemas.acceptance import AcceptanceEvidence
+
+    project_dir = tmp_path / "proj_001"
+    project_dir.mkdir()
+    (project_dir / "index.html").write_text("<div id='game-container'><div class='game-grid'></div></div>", encoding="utf-8")
+    (project_dir / "package.json").write_text(
+        json.dumps({"scripts": {"preview": "npx http-server -p 8000 -o"}}),
+        encoding="utf-8",
+    )
+    static_calls: list[Path] = []
+
+    def fake_static_browser(project_dir_arg, artifacts_dir_arg, index_path):
+        static_calls.append(index_path)
+        return True, [
+            AcceptanceEvidence(
+                id="ev_static_html",
+                evidence_type="playwright",
+                summary="Controlled static server opened index.html.",
+            )
+        ], []
+
+    def fail_preview(*args, **kwargs):
+        raise AssertionError("package preview script should not be used for static HTML validation")
+
+    monkeypatch.setattr("studio.runtime.acceptance_verifier._run_static_html_smoke", fake_static_browser)
+    monkeypatch.setattr("studio.runtime.acceptance_verifier._run_playwright_smoke", fail_preview)
+
+    result = verify_project(project_dir, artifacts_root=tmp_path / "artifacts", run_id="acc_run_static_package")
+
+    assert result.startup_ok is True
+    assert result.browser_ok is True
+    assert static_calls == [project_dir / "index.html"]
 
 
 def test_optional_command_resolves_windows_npm_shim(tmp_path, monkeypatch):
@@ -253,6 +301,36 @@ def test_node_playwright_smoke_runs_artifact_script_by_absolute_path(tmp_path, m
     script_text = (artifacts_dir / "playwright-smoke.mjs").read_text(encoding="utf-8")
     assert "createRequire" in script_text
     assert "require('playwright')" in script_text
+    assert errors == []
+
+
+def test_node_playwright_smoke_accepts_dom_game_grid_surface(tmp_path, monkeypatch):
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+
+    def fake_run(command, **kwargs):
+        result_path = Path(command[-1])
+        result_path.write_text(
+            json.dumps({"consoleErrors": [], "pageErrors": [], "visibleSurface": True}),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(acceptance_verifier.subprocess, "run", fake_run)
+
+    ok, evidence, errors = acceptance_verifier._run_node_playwright_smoke(
+        artifacts_dir=artifacts_dir,
+        url="http://127.0.0.1:1234",
+        evidence_id="ev_playwright",
+        summary="smoke",
+        screenshot_name="startup.png",
+    )
+
+    script_text = (artifacts_dir / "playwright-smoke.mjs").read_text(encoding="utf-8")
+    assert ".game-grid" in script_text
+    assert "#game-container" in script_text
+    assert ok is True
+    assert evidence[0].metadata["visible_surface"] is True
     assert errors == []
 
 

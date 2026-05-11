@@ -47,6 +47,7 @@ def detect_node_commands(project_dir: Path) -> NodeCommands:
 def verify_project(project_dir: Path, *, artifacts_root: Path, run_id: str) -> VerificationResult:
     artifacts_dir = artifacts_root / run_id
     artifacts_dir.mkdir(parents=True, exist_ok=True)
+    errors: list[str] = []
     if not (project_dir / "package.json").exists():
         static_html_entry = _find_static_html_entry(project_dir)
         if static_html_entry is not None:
@@ -81,6 +82,35 @@ def verify_project(project_dir: Path, *, artifacts_root: Path, run_id: str) -> V
             browser_ok=False,
             evidence=[evidence],
             errors=["package.json or index.html missing from project_dir"],
+        )
+
+    static_html_entry = _find_static_html_entry(project_dir)
+    if static_html_entry is not None and _should_validate_with_controlled_static_server(project_dir):
+        evidence = [
+            AcceptanceEvidence(
+                id="ev_standalone_html_detected",
+                evidence_type="command",
+                summary=f"Standalone HTML entry was detected: {static_html_entry.relative_to(project_dir).as_posix()}",
+                artifact_path=str(static_html_entry),
+            )
+        ]
+        commands = detect_node_commands(project_dir)
+        build_ok = _run_optional_command(project_dir, artifacts_dir, "build", commands.build, evidence, errors)
+        test_ok = _run_optional_command(project_dir, artifacts_dir, "test", commands.test, evidence, errors)
+        browser_ok, browser_evidence, browser_errors = _run_static_html_smoke(
+            project_dir,
+            artifacts_dir,
+            static_html_entry,
+        )
+        evidence.extend(browser_evidence)
+        errors.extend(browser_errors)
+        return VerificationResult(
+            startup_ok=not errors,
+            build_ok=build_ok,
+            test_ok=test_ok,
+            browser_ok=browser_ok,
+            evidence=evidence,
+            errors=errors,
         )
 
     commands = detect_node_commands(project_dir)
@@ -260,7 +290,7 @@ if (!loaded) {
 }
 
 await page.waitForTimeout(1000);
-const visibleSurface = await page.locator('canvas, #root, main, [data-game-root]').count() > 0;
+const visibleSurface = await page.locator('canvas, #root, main, [data-game-root], #game-container, .game-grid').count() > 0;
 await page.screenshot({ path: screenshotPath, fullPage: true });
 await context.close();
 await browser.close();
@@ -345,6 +375,33 @@ def _find_static_html_entry(project_dir: Path) -> Path | None:
     return None
 
 
+def _should_validate_with_controlled_static_server(project_dir: Path) -> bool:
+    package_json = project_dir / "package.json"
+    if not package_json.exists():
+        return True
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return False
+    scripts = data.get("scripts", {}) if isinstance(data, dict) else {}
+    dependencies = data.get("dependencies", {}) if isinstance(data, dict) else {}
+    dev_dependencies = data.get("devDependencies", {}) if isinstance(data, dict) else {}
+    if isinstance(scripts, dict) and "build" in scripts:
+        return False
+    if dependencies:
+        return False
+    non_server_dev_deps = [
+        name for name in dev_dependencies
+        if str(name) not in {"http-server", "serve"}
+    ] if isinstance(dev_dependencies, dict) else []
+    if non_server_dev_deps:
+        return False
+    preview_script = ""
+    if isinstance(scripts, dict):
+        preview_script = str(next((scripts[name] for name in ("preview", "start", "dev") if name in scripts), ""))
+    return not preview_script or any(tool in preview_script.lower() for tool in ("http-server", "serve", "python -m http.server"))
+
+
 def _run_static_html_smoke(
     project_dir: Path,
     artifacts_dir: Path,
@@ -393,8 +450,16 @@ def _has_real_test_script(scripts: object) -> bool:
     if not isinstance(scripts, dict) or "test" not in scripts:
         return False
     script = str(scripts["test"]).strip().lower()
-    placeholder_parts = ["no test specified", "exit 1"]
-    return not all(part in script for part in placeholder_parts)
+    placeholder_markers = [
+        "no test specified",
+        "exit 1",
+        "see tests/",
+        "open tests/",
+        "test files",
+    ]
+    if script.startswith("echo ") and any(marker in script for marker in placeholder_markers):
+        return False
+    return not all(part in script for part in ("no test specified", "exit 1"))
 
 
 def _run_optional_command(
