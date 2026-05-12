@@ -69,6 +69,7 @@ def agent_prompt_context(profile: AgentProfileLike, project_dir: Path) -> str:
         f"- Agent configuration directory: {agent_config_dir}",
         "- Do not inspect or modify the Game Studio repository unless the task explicitly asks to maintain Game Studio itself.",
         "- Treat all relative file paths as relative to the target project directory.",
+        "- NEVER construct file paths from the project_id field. The project_id is an opaque identifier, not a directory name. Use only the target project directory (above) for all file operations. Creating files in a different directory will cause the task to fail.",
     ]
     claude_md = agent_config_dir / "CLAUDE.md"
     if claude_md.is_file():
