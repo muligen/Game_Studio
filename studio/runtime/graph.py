@@ -620,6 +620,7 @@ def build_delivery_graph():
                     "Delivery task is approved and ready for autonomous execution.",
                     "Do not ask the user questions and do not call AskQuestion.",
                     "If anything is ambiguous, make the smallest reasonable assumption, continue, and include a structured assumption in your JSON if it affects product, art, tech, QA, scope, or delivery documentation.",
+                    "CRITICAL: All file paths must be relative to the project directory. The project_id field is an opaque identifier — never use it to construct file paths. Creating files outside the designated project directory is a task failure.",
                     f"Task: {task.title}",
                     task.description,
                 ]
